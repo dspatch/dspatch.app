@@ -1,0 +1,2 @@
+# Default test timeout (generous for integration tests that touch SQLite)
+timeout: 30s

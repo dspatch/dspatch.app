@@ -1,0 +1,50 @@
+name: dspatch_ui
+description: "Shared design system for d:spatch Flutter applications"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  file_picker: ^8.1.6
+  re_editor: ^0.7.0
+  re_highlight: ^0.0.3
+  flutter:
+    sdk: flutter
+  flutter_lucide: ^1.8.2
+
+flutter:
+  uses-material-design: true
+
+  fonts:
+    - family: DM Sans
+      fonts:
+        - asset: assets/fonts/DMSans-Regular.ttf
+        - asset: assets/fonts/DMSans-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/DMSans-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/DMSans-Italic.ttf
+          style: italic
+        - asset: assets/fonts/DMSans-MediumItalic.ttf
+          weight: 500
+          style: italic
+        - asset: assets/fonts/DMSans-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: DM Mono
+      fonts:
+        - asset: assets/fonts/DMMono-Regular.ttf
+        - asset: assets/fonts/DMMono-Light.ttf
+          weight: 300
+        - asset: assets/fonts/DMMono-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/DMMono-Italic.ttf
+          style: italic
+        - asset: assets/fonts/DMMono-LightItalic.ttf
+          weight: 300
+          style: italic
+        - asset: assets/fonts/DMMono-MediumItalic.ttf
+          weight: 500
+          style: italic
