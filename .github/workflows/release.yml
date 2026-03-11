@@ -1,0 +1,235 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: "3.41.2"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build runner
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Install fastforge
+        run: dart pub global activate fastforge
+
+      - name: Package Windows installer
+        run: fastforge package --platform windows --targets exe --skip-clean
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/**/*.exe
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsecret-1-dev libfuse2 locate
+
+      - name: Add Linux platform support
+        run: flutter create --platforms=linux .
+
+      - name: Install appimagetool
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
+          chmod +x /usr/local/bin/appimagetool
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build runner
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build Linux release
+        run: flutter build linux --release
+
+      - name: Install fastforge
+        run: dart pub global activate fastforge
+
+      - name: Package AppImage
+        run: fastforge package --platform linux --targets appimage --skip-clean
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: dist/**/*.AppImage
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build runner
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Disable code signing for CI
+        run: |
+          sed -i '' 's/CODE_SIGN_IDENTITY = "Apple Development"/CODE_SIGN_IDENTITY = "-"/g' macos/Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' macos/Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/DEVELOPMENT_TEAM = [^;]*/DEVELOPMENT_TEAM = ""/g' macos/Runner.xcodeproj/project.pbxproj
+
+      - name: Build macOS release
+        run: flutter build macos --release
+
+      - name: Install appdmg
+        run: npm install -g appdmg
+
+      - name: Package DMG
+        run: |
+          mkdir -p dist
+          cp -R build/macos/Build/Products/Release/dspatch.app dist/dspatch.app
+          cat > dist/dmg_config.json << 'DMGEOF'
+          {
+            "title": "dspatch",
+            "icon-size": 80,
+            "contents": [
+              { "x": 448, "y": 344, "type": "link", "path": "/Applications" },
+              { "x": 192, "y": 344, "type": "file", "path": "dspatch.app" }
+            ],
+            "window": { "size": { "width": 640, "height": 480 } }
+          }
+          DMGEOF
+          cd dist
+          appdmg dmg_config.json dspatch-macos.dmg
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/*.dmg
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Add Android platform support
+        run: flutter create --platforms=android .
+
+      - name: Enable core library desugaring
+        working-directory: android/app
+        run: |
+          if [ -f build.gradle.kts ]; then
+            sed -i '/compileOptions {/a\        isCoreLibraryDesugaringEnabled = true' build.gradle.kts
+            echo '' >> build.gradle.kts
+            echo 'dependencies {' >> build.gradle.kts
+            echo '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' >> build.gradle.kts
+            echo '}' >> build.gradle.kts
+          else
+            sed -i '/compileOptions {/a\        coreLibraryDesugaringEnabled true' build.gradle
+            echo '' >> build.gradle
+            echo 'dependencies {' >> build.gradle
+            echo '    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"' >> build.gradle
+            echo '}' >> build.gradle
+          fi
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build runner
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Decode keystore
+        if: env.ANDROID_KEYSTORE != ''
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: echo "$ANDROID_KEYSTORE" | base64 -d > android/app/upload-keystore.jks
+
+      - name: Create key.properties
+        if: env.ANDROID_KEYSTORE != ''
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          cat > android/key.properties << EOF
+          storePassword=$ANDROID_STORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=app/upload-keystore.jks
+          EOF
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  create-release:
+    needs: [windows, linux, macos, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display artifacts
+        run: find artifacts -type f
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.AppImage
+            artifacts/**/*.dmg
+            artifacts/**/*.apk

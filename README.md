@@ -25,15 +25,13 @@
 
 > **Early Access** — d:spatch is under active development and **not yet stable**. Core features like workspace management, agent orchestration, Docker isolation, real-time monitoring, and the CLI are functional enough enough to explore, experiment, and get a feel for what it's building toward — but not all features are complete, and the experience will be polished going forward. Additional capabilities (multi-device networking, scheduling) are rolling out in upcoming releases. Expect rough edges — that said, we'd love for you to try it out, break things, and share your feedback!
 
----
-
 <!-- TODO: Replace with actual screenshot of the workspace view showing agent hierarchy + timeline -->
 <!-- Ideal size: 1200x750, showing a running workspace with agents in the sidebar and the timeline/logs in the main panel -->
 <!-- ![d:spatch workspace view](docs/screenshots/workspace.png) -->
 
 ## What is d:spatch?
 
-d:spatch is a cross-platform app that lets you build your own secure network of trusted devices and deploy, monitor, and control AI agents on any of them — from any of them. All device-to-device communication is end-to-end encrypted with the Signal protocol.
+d:spatch is a cross-platform app that lets you build your own secure network of trusted devices and deploy, monitor, and control AI agents on any of them — from any of them. Expose your agents and LLM endpoints across devices for consumption in downstream services, with all device-to-device communication end-to-end encrypted using the Signal protocol.
 
 Define shared workspaces with multi-level agent teams, endless hierarchies, and arbitrary horizontal cross-communication. Every agent runs in an isolated Docker container with Docker-in-Docker and full root access. Easily integrate any model, agent, or framework using the [Agent SDK](https://github.com/dspatch/sdk.python). d:spatch manages everything else: logging, monitoring, lifecycle, checkpointing, inter-agent communication, and recovery.
 
