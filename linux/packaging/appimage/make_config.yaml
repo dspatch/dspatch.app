@@ -1,0 +1,10 @@
+display_name: dspatch
+icon: macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png
+startup_notify: true
+generic_name: Agent Orchestration Platform
+categories:
+  - Development
+  - Utility
+keywords:
+  - dspatch
+  - agents

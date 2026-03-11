@@ -1,0 +1,26 @@
+// Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
+import 'dart:io' show Platform;
+
+/// Non-instantiable utility for querying the host operating system.
+///
+/// Wraps [Platform] checks behind a single API and provides derived
+/// helpers like [isDesktop] and [dockerSocketPath].
+class PlatformInfo {
+  PlatformInfo._();
+
+  static bool get isDesktop => isMacOS || isWindows || isLinux;
+  static bool get isMobile => isIOS || isAndroid;
+
+  static bool get isMacOS => Platform.isMacOS;
+  static bool get isWindows => Platform.isWindows;
+  static bool get isLinux => Platform.isLinux;
+  static bool get isIOS => Platform.isIOS;
+  static bool get isAndroid => Platform.isAndroid;
+
+  /// Returns the platform-specific Docker daemon socket path.
+  static String get dockerSocketPath {
+    if (isMacOS || isLinux) return '/var/run/docker.sock';
+    if (isWindows) return r'\\.\pipe\docker_engine';
+    return '';
+  }
+}
