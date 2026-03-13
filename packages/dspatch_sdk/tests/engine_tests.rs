@@ -949,3 +949,107 @@ async fn dispatch_unimplemented_command_returns_error() {
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), dspatch_sdk::util::error::AppError::Internal(_)));
 }
+
+#[tokio::test]
+async fn invalidation_broadcaster_batches_table_changes() {
+    use std::sync::Arc;
+    use dspatch_sdk::db::reactive::TableChangeTracker;
+    use dspatch_sdk::client_api::invalidation::InvalidationBroadcaster;
+
+    let tracker = Arc::new(TableChangeTracker::new());
+    tracker.subscribe(&["agent_messages"]);
+    tracker.subscribe(&["workspace_runs"]);
+    tracker.subscribe(&["preferences"]);
+
+    let broadcaster = InvalidationBroadcaster::new(tracker.clone(), 50);
+    let handle = broadcaster.start();
+    let mut rx = handle.subscribe();
+
+    tracker.notify("agent_messages");
+    tracker.notify("workspace_runs");
+
+    let batch = tokio::time::timeout(
+        std::time::Duration::from_millis(200),
+        rx.recv(),
+    )
+    .await
+    .expect("should receive within timeout")
+    .expect("channel should not be closed");
+
+    assert!(batch.contains(&"agent_messages".to_string()));
+    assert!(batch.contains(&"workspace_runs".to_string()));
+    assert!(!batch.contains(&"preferences".to_string()));
+
+    handle.shutdown();
+}
+
+#[tokio::test]
+async fn invalidation_broadcaster_deduplicates_within_window() {
+    use std::sync::Arc;
+    use dspatch_sdk::db::reactive::TableChangeTracker;
+    use dspatch_sdk::client_api::invalidation::InvalidationBroadcaster;
+
+    let tracker = Arc::new(TableChangeTracker::new());
+    tracker.subscribe(&["agent_messages"]);
+
+    let broadcaster = InvalidationBroadcaster::new(tracker.clone(), 50);
+    let handle = broadcaster.start();
+    let mut rx = handle.subscribe();
+
+    for _ in 0..5 {
+        tracker.notify("agent_messages");
+    }
+
+    let batch = tokio::time::timeout(
+        std::time::Duration::from_millis(200),
+        rx.recv(),
+    )
+    .await
+    .expect("should receive within timeout")
+    .expect("channel should not be closed");
+
+    assert_eq!(batch.len(), 1);
+    assert_eq!(batch[0], "agent_messages");
+
+    handle.shutdown();
+}
+
+#[tokio::test]
+async fn invalidation_broadcaster_sends_separate_batches_across_windows() {
+    use std::sync::Arc;
+    use dspatch_sdk::db::reactive::TableChangeTracker;
+    use dspatch_sdk::client_api::invalidation::InvalidationBroadcaster;
+
+    let tracker = Arc::new(TableChangeTracker::new());
+    tracker.subscribe(&["agent_messages"]);
+    tracker.subscribe(&["preferences"]);
+
+    let broadcaster = InvalidationBroadcaster::new(tracker.clone(), 30);
+    let handle = broadcaster.start();
+    let mut rx = handle.subscribe();
+
+    tracker.notify("agent_messages");
+    let batch1 = tokio::time::timeout(
+        std::time::Duration::from_millis(200),
+        rx.recv(),
+    )
+    .await
+    .expect("batch1 timeout")
+    .expect("batch1 channel");
+    assert!(batch1.contains(&"agent_messages".to_string()));
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    tracker.notify("preferences");
+    let batch2 = tokio::time::timeout(
+        std::time::Duration::from_millis(200),
+        rx.recv(),
+    )
+    .await
+    .expect("batch2 timeout")
+    .expect("batch2 channel");
+    assert!(batch2.contains(&"preferences".to_string()));
+    assert!(!batch2.contains(&"agent_messages".to_string()));
+
+    handle.shutdown();
+}
