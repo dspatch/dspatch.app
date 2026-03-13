@@ -575,6 +575,29 @@ async fn ws_connection_stays_alive_during_idle_period() {
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await;
 }
 
+#[test]
+fn service_registry_provides_all_services() {
+    use dspatch_sdk::engine::service_registry::ServiceRegistry;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("test.db");
+    let db = dspatch_sdk::engine::startup::open_database(&db_path).unwrap();
+    let db = std::sync::Arc::new(db);
+
+    let data_dir = tmp.path().join("data");
+    let registry = ServiceRegistry::new(db, data_dir);
+
+    // Verify all service accessors return valid references.
+    let _ = registry.workspaces();
+    let _ = registry.agent_providers();
+    let _ = registry.agent_templates();
+    let _ = registry.workspace_templates();
+    let _ = registry.api_keys();
+    let _ = registry.preferences();
+    let _ = registry.inquiries();
+    let _ = registry.agent_data();
+}
+
 #[tokio::test]
 async fn health_reflects_auth_state_after_anonymous_login() {
     use std::sync::Arc;
