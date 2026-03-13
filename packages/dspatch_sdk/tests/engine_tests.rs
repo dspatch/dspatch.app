@@ -51,3 +51,77 @@ fn engine_open_database_is_idempotent() {
         .expect("workspaces table should exist on re-open");
     assert_eq!(count, 0);
 }
+
+#[tokio::test]
+async fn health_endpoint_returns_running_status() {
+    use std::sync::Arc;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::client_api::health::HealthResponse;
+    use dspatch_sdk::client_api::server::build_router;
+
+    use axum::body::Body;
+    use http::Request;
+    use tower::ServiceExt;
+
+    let app = build_router(Arc::new(EngineRuntime::new(EngineConfig::default())));
+    let req = Request::builder()
+        .uri("/health")
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), http::StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+    let health: HealthResponse = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(health.status, "running");
+    assert!(!health.authenticated);
+    assert_eq!(health.connected_devices, 0);
+    assert!(health.uptime_seconds < 5);
+}
+
+#[tokio::test]
+async fn client_api_server_starts_and_responds_to_health() {
+    use std::sync::Arc;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::client_api::health::HealthResponse;
+
+    let mut config = EngineConfig::default();
+    config.client_api_port = 0; // OS-assigned port
+    let runtime = Arc::new(EngineRuntime::new(config));
+
+    let runtime_clone = runtime.clone();
+
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+    let server_handle = tokio::spawn(async move {
+        let port = runtime_clone.config().client_api_port;
+        let addr = format!("127.0.0.1:{port}");
+        let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+        let actual_port = listener.local_addr().unwrap().port();
+        let _ = port_tx.send(actual_port);
+
+        let app = dspatch_sdk::client_api::server::build_router(runtime_clone.clone());
+        let mut shutdown = runtime_clone.subscribe_shutdown();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = shutdown.recv().await;
+            })
+            .await
+            .unwrap();
+    });
+
+    let port = port_rx.await.unwrap();
+
+    let url = format!("http://127.0.0.1:{port}/health");
+    let resp = reqwest::get(&url).await.expect("GET /health should succeed");
+    assert_eq!(resp.status(), 200);
+
+    let health: HealthResponse = resp.json().await.unwrap();
+    assert_eq!(health.status, "running");
+
+    runtime.trigger_shutdown();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await;
+}

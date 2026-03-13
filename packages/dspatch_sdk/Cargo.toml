@@ -101,3 +101,4 @@ keyring = { version = "3", features = ["linux-native"] }
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3"
+http = "1"
