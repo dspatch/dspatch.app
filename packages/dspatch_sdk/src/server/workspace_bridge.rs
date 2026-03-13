@@ -1320,8 +1320,9 @@ impl WorkspaceBridge {
         let c_id2 = container_id.to_string();
         let dao2 = Arc::clone(&self.workspace_dao);
         let client2 = Arc::clone(&self.docker_client);
+        let server2 = Arc::clone(&self.server);
         let health_handle = tokio::spawn(async move {
-            lifecycle_health_task(&ws_id2, &r_id2, &c_id2, dao2, client2).await;
+            lifecycle_health_task(&ws_id2, &r_id2, &c_id2, dao2, client2, server2).await;
         });
 
         let ws_id3 = workspace_id.to_string();
@@ -1469,6 +1470,7 @@ async fn lifecycle_health_task(
     container_id: &str,
     workspace_dao: Arc<WorkspaceDao>,
     docker_client: Arc<DockerClient>,
+    server: Arc<Mutex<EmbeddedAgentServer>>,
 ) {
     let mut interval = tokio::time::interval(HEALTH_CHECK_INTERVAL);
     loop {
@@ -1522,6 +1524,18 @@ async fn lifecycle_health_task(
                             );
                         }
                     }
+
+                    // Mark all agents as disconnected — container is gone.
+                    {
+                        let server = server.lock().await;
+                        if let Some(ref router) = server.host_router() {
+                            router
+                                .status_service
+                                .mark_all_agents_disconnected(workspace_id)
+                                .await;
+                        }
+                    }
+
                     return; // Stop polling.
                 }
             }
