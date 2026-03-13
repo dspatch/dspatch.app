@@ -335,14 +335,16 @@ async fn step_register_device(
     println!("Registering device \"{}\" ({})...", hostname, platform);
 
     use ed25519_dalek::{Signer, SigningKey};
-    use rand::rngs::OsRng;
     use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 
-    let identity_signing_key = SigningKey::generate(&mut OsRng);
+    // ed25519-dalek and x25519-dalek use rand_core 0.6; use the OsRng re-exported
+    // via aes_gcm::aead (which depends on rand_core 0.6).
+    let mut legacy_rng = aes_gcm::aead::OsRng;
+    let identity_signing_key = SigningKey::generate(&mut legacy_rng);
     let identity_public = identity_signing_key.verifying_key().to_bytes().to_vec();
     let identity_hex = hex::encode(identity_signing_key.to_bytes());
 
-    let signed_pre_key_secret = X25519StaticSecret::random_from_rng(&mut OsRng);
+    let signed_pre_key_secret = X25519StaticSecret::random_from_rng(&mut legacy_rng);
     let signed_pre_key_public = X25519PublicKey::from(&signed_pre_key_secret);
     let signature = identity_signing_key.sign(signed_pre_key_public.as_bytes());
 

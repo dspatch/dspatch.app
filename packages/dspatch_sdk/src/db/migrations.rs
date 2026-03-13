@@ -22,7 +22,7 @@ use crate::util::result::Result;
 use super::schema::ALL_TABLES;
 
 /// Current schema version. Must match the Dart SDK's `schemaVersion`.
-pub const SCHEMA_VERSION: i32 = 11;
+pub const SCHEMA_VERSION: i32 = 12;
 
 /// Creates all tables from scratch (fresh database, version 0 → current).
 pub fn create_tables(conn: &Connection) -> Result<()> {
@@ -104,6 +104,10 @@ pub fn run_migrations(conn: &Connection, from_version: i32) -> Result<()> {
             .map_err(|e| AppError::Storage(format!("Migration v11 (container_health) failed: {e}")))?;
         conn.execute_batch(super::schema::CREATE_WORKSPACE_RUN_STATUS)
             .map_err(|e| AppError::Storage(format!("Migration v11 (workspace_run_status) failed: {e}")))?;
+    }
+    if from_version < 12 {
+        conn.execute_batch(super::schema::CREATE_SIGNAL_KYBER_PREKEYS)
+            .map_err(|e| AppError::Storage(format!("Migration v12 (signal_kyber_prekeys) failed: {e}")))?;
     }
 
     Ok(())

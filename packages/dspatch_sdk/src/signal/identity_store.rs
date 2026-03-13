@@ -1,153 +1,136 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
-//! SQLite-backed identity key store.
-//!
-//! Stores the local device's Ed25519 identity keypair and the identity public
-//! keys of remote peers. Trust levels:
-//!   0 = untrusted, 1 = trusted_unverified, 2 = trusted_verified.
+//! SQLite-backed identity key store implementing `libsignal_protocol::IdentityKeyStore`.
 
 use std::sync::{Arc, Mutex};
 
-use crate::db::optional_ext::OptionalExt;
-
-use ed25519_dalek::{SigningKey, VerifyingKey};
+use async_trait::async_trait;
+use libsignal_protocol::*;
 use rusqlite::Connection;
 
-use crate::util::error::AppError;
-use crate::util::result::Result;
+/// A simple error type that is `Send + Sync + UnwindSafe` for use with
+/// `SignalProtocolError::ApplicationCallbackError`.
+#[derive(Debug)]
+struct StoreError(String);
 
-/// Trust level for a remote identity key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(i32)]
-pub enum TrustLevel {
-    Untrusted = 0,
-    TrustedUnverified = 1,
-    TrustedVerified = 2,
-}
-
-impl TrustLevel {
-    pub fn from_i32(v: i32) -> Self {
-        match v {
-            1 => Self::TrustedUnverified,
-            2 => Self::TrustedVerified,
-            _ => Self::Untrusted,
-        }
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
-/// A stored identity record for a remote peer.
-#[derive(Debug, Clone)]
-pub struct IdentityRecord {
-    pub address: String,
-    pub device_id: u32,
-    pub identity_key: Vec<u8>,
-    pub trust_level: TrustLevel,
-}
+impl std::error::Error for StoreError {}
 
-/// SQLite-backed identity key store.
 pub struct SqliteIdentityStore {
     conn: Arc<Mutex<Connection>>,
     local_registration_id: u32,
-    signing_key: SigningKey,
+    identity_key_pair: IdentityKeyPair,
 }
 
 impl SqliteIdentityStore {
-    /// Creates a new identity store.
-    ///
-    /// `signing_key` is the local device's Ed25519 signing key (contains both
-    /// the private scalar and the public verifying key).
     pub fn new(
         conn: Arc<Mutex<Connection>>,
         local_registration_id: u32,
-        signing_key: SigningKey,
+        identity_key_pair: IdentityKeyPair,
     ) -> Self {
-        Self {
-            conn,
-            local_registration_id,
-            signing_key,
+        Self { conn, local_registration_id, identity_key_pair }
+    }
+}
+
+fn store_err(method: &'static str, msg: String) -> SignalProtocolError {
+    SignalProtocolError::ApplicationCallbackError(method, Box::new(StoreError(msg)))
+}
+
+#[async_trait(?Send)]
+impl IdentityKeyStore for SqliteIdentityStore {
+    async fn get_identity_key_pair(&self) -> Result<IdentityKeyPair, SignalProtocolError> {
+        Ok(self.identity_key_pair)
+    }
+
+    async fn get_local_registration_id(&self) -> Result<u32, SignalProtocolError> {
+        Ok(self.local_registration_id)
+    }
+
+    async fn save_identity(
+        &mut self,
+        address: &ProtocolAddress,
+        identity: &IdentityKey,
+    ) -> Result<IdentityChange, SignalProtocolError> {
+        let addr_name = address.name().to_string();
+        let device_id: u32 = address.device_id().into();
+        let key_bytes = identity.serialize().to_vec();
+
+        let conn = self.conn.lock().map_err(|e| store_err("save_identity", e.to_string()))?;
+
+        let existing: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT identity_key FROM signal_identities WHERE address = ?1 AND device_id = ?2",
+                rusqlite::params![&addr_name, device_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let changed = match &existing {
+            Some(old_key) => old_key != &key_bytes,
+            None => false,
+        };
+
+        conn.execute(
+            "INSERT OR REPLACE INTO signal_identities (address, device_id, identity_key, trust_level) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![&addr_name, device_id, &key_bytes, 1i32],
+        ).map_err(|e| store_err("save_identity", e.to_string()))?;
+
+        Ok(IdentityChange::from_changed(changed))
+    }
+
+    async fn is_trusted_identity(
+        &self,
+        address: &ProtocolAddress,
+        identity: &IdentityKey,
+        _direction: Direction,
+    ) -> Result<bool, SignalProtocolError> {
+        let addr_name = address.name().to_string();
+        let device_id: u32 = address.device_id().into();
+
+        let conn = self.conn.lock().map_err(|e| store_err("is_trusted_identity", e.to_string()))?;
+
+        let existing: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT identity_key FROM signal_identities WHERE address = ?1 AND device_id = ?2",
+                rusqlite::params![&addr_name, device_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        match existing {
+            None => Ok(true), // TOFU
+            Some(stored_key) => Ok(stored_key == identity.serialize().as_ref()),
         }
     }
 
-    /// Returns the local registration ID.
-    pub fn get_local_registration_id(&self) -> u32 {
-        self.local_registration_id
-    }
-
-    /// Returns a reference to the local Ed25519 signing key.
-    pub fn get_signing_key(&self) -> &SigningKey {
-        &self.signing_key
-    }
-
-    /// Returns the local Ed25519 verifying (public) key.
-    pub fn get_verifying_key(&self) -> VerifyingKey {
-        self.signing_key.verifying_key()
-    }
-
-    /// Returns the local identity public key bytes (32 bytes).
-    pub fn get_identity_public_key_bytes(&self) -> Vec<u8> {
-        self.signing_key.verifying_key().to_bytes().to_vec()
-    }
-
-    /// Saves a remote peer's identity key.
-    pub fn save_identity(
+    async fn get_identity(
         &self,
-        address: &str,
-        device_id: u32,
-        identity_key: &[u8],
-        trust_level: TrustLevel,
-    ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| {
-            AppError::Storage(format!("Failed to acquire database lock: {e}"))
-        })?;
-        conn.execute(
-            "INSERT OR REPLACE INTO signal_identities (address, device_id, identity_key, trust_level) \
-             VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![address, device_id, identity_key, trust_level as i32],
-        )
-        .map_err(|e| AppError::Storage(format!("Failed to save identity: {e}")))?;
-        Ok(())
-    }
+        address: &ProtocolAddress,
+    ) -> Result<Option<IdentityKey>, SignalProtocolError> {
+        let addr_name = address.name().to_string();
+        let device_id: u32 = address.device_id().into();
 
-    /// Loads a remote peer's identity record.
-    pub fn get_identity(&self, address: &str, device_id: u32) -> Result<Option<IdentityRecord>> {
-        let conn = self.conn.lock().map_err(|e| {
-            AppError::Storage(format!("Failed to acquire database lock: {e}"))
-        })?;
-        let mut stmt = conn
-            .prepare(
-                "SELECT address, device_id, identity_key, trust_level \
-                 FROM signal_identities WHERE address = ?1 AND device_id = ?2",
+        let conn = self.conn.lock().map_err(|e| store_err("get_identity", e.to_string()))?;
+
+        let key_bytes: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT identity_key FROM signal_identities WHERE address = ?1 AND device_id = ?2",
+                rusqlite::params![&addr_name, device_id],
+                |row| row.get(0),
             )
-            .map_err(|e| AppError::Storage(format!("Failed to prepare query: {e}")))?;
+            .ok();
 
-        let result = stmt
-            .query_row(rusqlite::params![address, device_id], |row| {
-                Ok(IdentityRecord {
-                    address: row.get(0)?,
-                    device_id: row.get::<_, u32>(1)?,
-                    identity_key: row.get(2)?,
-                    trust_level: TrustLevel::from_i32(row.get::<_, i32>(3)?),
-                })
-            })
-            .optional()
-            .map_err(|e| AppError::Storage(format!("Failed to query identity: {e}")))?;
-
-        Ok(result)
-    }
-
-    /// Checks whether the given identity key is trusted for the address.
-    ///
-    /// Returns `true` if no prior identity is stored (trust on first use) or
-    /// if the stored key matches the provided one.
-    pub fn is_trusted_identity(
-        &self,
-        address: &str,
-        device_id: u32,
-        identity_key: &[u8],
-    ) -> Result<bool> {
-        match self.get_identity(address, device_id)? {
-            None => Ok(true), // TOFU: trust on first use
-            Some(record) => Ok(record.identity_key == identity_key),
+        match key_bytes {
+            None => Ok(None),
+            Some(bytes) => {
+                let key = IdentityKey::decode(&bytes).map_err(|e| store_err("get_identity", e.to_string()))?;
+                Ok(Some(key))
+            }
         }
     }
 }

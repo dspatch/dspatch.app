@@ -1,28 +1,29 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
-//! SQLite-backed signed prekey store.
-//!
-//! Signed prekeys are medium-term X25519 keypairs signed with the device's
-//! Ed25519 identity key. They are rotated periodically (e.g. weekly).
+//! SQLite-backed signed prekey store implementing `libsignal_protocol::SignedPreKeyStore`.
 
 use std::sync::{Arc, Mutex};
-
+use async_trait::async_trait;
+use libsignal_protocol::*;
 use rusqlite::Connection;
 
-use crate::db::optional_ext::OptionalExt;
+/// A simple error type that is `Send + Sync + UnwindSafe` for use with
+/// `SignalProtocolError::ApplicationCallbackError`.
+#[derive(Debug)]
+struct StoreError(String);
 
-use crate::util::error::AppError;
-use crate::util::result::Result;
-
-/// A signed prekey record: `private_key (32) || public_key (32) || signature (64)`.
-#[derive(Debug, Clone)]
-pub struct SignedPreKeyRecord {
-    pub id: u32,
-    pub record: Vec<u8>,
-    pub created_at: String,
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
-/// SQLite-backed signed prekey store.
+impl std::error::Error for StoreError {}
+
+fn store_err(method: &'static str, msg: String) -> SignalProtocolError {
+    SignalProtocolError::ApplicationCallbackError(method, Box::new(StoreError(msg)))
+}
+
 pub struct SqliteSignedPreKeyStore {
     conn: Arc<Mutex<Connection>>,
 }
@@ -31,61 +32,29 @@ impl SqliteSignedPreKeyStore {
     pub fn new(conn: Arc<Mutex<Connection>>) -> Self {
         Self { conn }
     }
+}
 
-    /// Stores a signed prekey record.
-    pub fn save_signed_prekey(
-        &self,
-        id: u32,
-        record: &[u8],
-        created_at: &str,
-    ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| {
-            AppError::Storage(format!("Failed to acquire database lock: {e}"))
-        })?;
-        conn.execute(
-            "INSERT OR REPLACE INTO signal_signed_prekeys (id, record, created_at) \
-             VALUES (?1, ?2, ?3)",
-            rusqlite::params![id, record, created_at],
-        )
-        .map_err(|e| AppError::Storage(format!("Failed to save signed prekey: {e}")))?;
-        Ok(())
+#[async_trait(?Send)]
+impl SignedPreKeyStore for SqliteSignedPreKeyStore {
+    async fn get_signed_pre_key(&self, signed_prekey_id: SignedPreKeyId) -> Result<SignedPreKeyRecord, SignalProtocolError> {
+        let id: u32 = signed_prekey_id.into();
+        let conn = self.conn.lock().map_err(|e| store_err("get_signed_pre_key", e.to_string()))?;
+
+        let record_bytes: Vec<u8> = conn
+            .query_row("SELECT record FROM signal_signed_prekeys WHERE id = ?1", rusqlite::params![id], |row| row.get(0))
+            .map_err(|_| SignalProtocolError::InvalidSignedPreKeyId)?;
+
+        SignedPreKeyRecord::deserialize(&record_bytes)
     }
 
-    /// Loads a signed prekey record by ID.
-    pub fn get_signed_prekey(&self, id: u32) -> Result<Option<SignedPreKeyRecord>> {
-        let conn = self.conn.lock().map_err(|e| {
-            AppError::Storage(format!("Failed to acquire database lock: {e}"))
-        })?;
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, record, created_at FROM signal_signed_prekeys WHERE id = ?1",
-            )
-            .map_err(|e| AppError::Storage(format!("Failed to prepare query: {e}")))?;
+    async fn save_signed_pre_key(&mut self, signed_prekey_id: SignedPreKeyId, record: &SignedPreKeyRecord) -> Result<(), SignalProtocolError> {
+        let id: u32 = signed_prekey_id.into();
+        let record_bytes = record.serialize()?;
+        let created_at = chrono::Utc::now().to_rfc3339();
+        let conn = self.conn.lock().map_err(|e| store_err("save_signed_pre_key", e.to_string()))?;
 
-        let result = stmt
-            .query_row(rusqlite::params![id], |row| {
-                Ok(SignedPreKeyRecord {
-                    id: row.get::<_, u32>(0)?,
-                    record: row.get(1)?,
-                    created_at: row.get(2)?,
-                })
-            })
-            .optional()
-            .map_err(|e| AppError::Storage(format!("Failed to query signed prekey: {e}")))?;
-
-        Ok(result)
-    }
-
-    /// Removes a signed prekey.
-    pub fn remove_signed_prekey(&self, id: u32) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| {
-            AppError::Storage(format!("Failed to acquire database lock: {e}"))
-        })?;
-        conn.execute(
-            "DELETE FROM signal_signed_prekeys WHERE id = ?1",
-            rusqlite::params![id],
-        )
-        .map_err(|e| AppError::Storage(format!("Failed to remove signed prekey: {e}")))?;
+        conn.execute("INSERT OR REPLACE INTO signal_signed_prekeys (id, record, created_at) VALUES (?1, ?2, ?3)", rusqlite::params![id, &record_bytes, &created_at])
+            .map_err(|e| store_err("save_signed_pre_key", e.to_string()))?;
         Ok(())
     }
 }

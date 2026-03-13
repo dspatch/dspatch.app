@@ -141,7 +141,7 @@ impl AesGcmCrypto {
 
                 // Generate a new 32-byte master key.
                 let mut bytes = vec![0u8; 32];
-                rand::RngCore::fill_bytes(&mut OsRng, &mut bytes);
+                rand::RngCore::fill_bytes(&mut rand::rng(), &mut bytes);
 
                 let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
                 self.store

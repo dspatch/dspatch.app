@@ -60,7 +60,7 @@ impl DatabaseKeyManager {
 
         // Generate 32 random bytes and base64-encode.
         let mut bytes = [0u8; 32];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+        rand::Fill::fill(&mut bytes, &mut rand::rng());
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
 
         self.store.write(&key, &encoded)?;

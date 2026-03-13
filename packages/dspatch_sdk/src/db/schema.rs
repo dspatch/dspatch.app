@@ -36,6 +36,7 @@ pub const CREATE_SIGNAL_PREKEYS: &str = include_str!("../../shared/schema/signal
 pub const CREATE_SIGNAL_SIGNED_PREKEYS: &str = include_str!("../../shared/schema/signal_signed_prekeys.sql");
 pub const CREATE_SIGNAL_SESSIONS: &str = include_str!("../../shared/schema/signal_sessions.sql");
 pub const CREATE_SIGNAL_SENDER_KEYS: &str = include_str!("../../shared/schema/signal_sender_keys.sql");
+pub const CREATE_SIGNAL_KYBER_PREKEYS: &str = include_str!("../../shared/schema/signal_kyber_prekeys.sql");
 
 // ---------------------------------------------------------------------------
 // P2P sync tables
@@ -80,6 +81,7 @@ pub const ALL_TABLES: &[&str] = &[
     CREATE_SIGNAL_SIGNED_PREKEYS,
     CREATE_SIGNAL_SESSIONS,
     CREATE_SIGNAL_SENDER_KEYS,
+    CREATE_SIGNAL_KYBER_PREKEYS,
     CREATE_SYNC_OUTBOX,
     CREATE_SYNC_CURSORS,
     CREATE_AGENT_INSTANCE_STATES,
@@ -111,6 +113,7 @@ pub const TABLE_NAMES: &[&str] = &[
     "signal_signed_prekeys",
     "signal_sessions",
     "signal_sender_keys",
+    "signal_kyber_prekeys",
     "sync_outbox",
     "sync_cursors",
     "agent_instance_states",
