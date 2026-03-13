@@ -44,6 +44,10 @@ impl SessionStore {
         self.sessions.read().unwrap().get(token).cloned()
     }
 
+    pub fn has_sessions(&self) -> bool {
+        !self.sessions.read().unwrap().is_empty()
+    }
+
     pub fn remove(&self, token: &str) {
         self.sessions.write().unwrap().remove(token);
     }

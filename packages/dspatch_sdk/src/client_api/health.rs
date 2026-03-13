@@ -30,7 +30,7 @@ pub async fn health_handler(
         status: "running".into(),
         uptime_seconds: runtime.uptime_seconds(),
         docker_available,
-        authenticated: false,    // TODO: M3 — wire to auth state
+        authenticated: runtime.session_store().has_sessions(),
         connected_devices: 0,    // TODO: M8 — wire to P2P layer
     })
 }

@@ -574,3 +574,42 @@ async fn ws_connection_stays_alive_during_idle_period() {
 
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await;
 }
+
+#[tokio::test]
+async fn health_reflects_auth_state_after_anonymous_login() {
+    use std::sync::Arc;
+    use axum::body::Body;
+    use http::Request;
+    use tower::ServiceExt;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::client_api::health::HealthResponse;
+    use dspatch_sdk::client_api::server::build_router;
+
+    let runtime = Arc::new(EngineRuntime::new(EngineConfig::default()));
+
+    // Before auth: authenticated should be false.
+    let app = build_router(runtime.clone());
+    let req = Request::builder().uri("/health").body(Body::empty()).unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let health: HealthResponse = serde_json::from_slice(&body).unwrap();
+    assert!(!health.authenticated);
+
+    // Authenticate anonymously.
+    let app = build_router(runtime.clone());
+    let req = Request::builder()
+        .method("POST")
+        .uri("/auth/anonymous")
+        .body(Body::empty())
+        .unwrap();
+    let _ = app.oneshot(req).await.unwrap();
+
+    // After auth: authenticated should be true.
+    let app = build_router(runtime.clone());
+    let req = Request::builder().uri("/health").body(Body::empty()).unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let health: HealthResponse = serde_json::from_slice(&body).unwrap();
+    assert!(health.authenticated);
+}
