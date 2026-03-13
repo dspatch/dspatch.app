@@ -17,6 +17,10 @@ crate-type = ["cdylib", "staticlib", "lib"]
 name = "dspatch-cli"
 path = "src/bin/dspatch.rs"
 
+[[bin]]
+name = "dspatch-engine"
+path = "src/bin/dspatch_engine.rs"
+
 [features]
 default = []
 flutter = ["dep:flutter_rust_bridge"]
