@@ -11,6 +11,7 @@ pub mod server;
 pub mod workspace_config;
 // pub mod wire;
 
+pub mod engine;
 pub mod services;
 pub mod signal;
 

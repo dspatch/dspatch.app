@@ -135,3 +135,14 @@ fn new_id_returns_unique_values() {
     let unique: std::collections::HashSet<&String> = ids.iter().collect();
     assert_eq!(unique.len(), 100);
 }
+
+#[test]
+fn engine_config_default_values() {
+    use dspatch_sdk::engine::config::EngineConfig;
+    let config = EngineConfig::default();
+    assert_eq!(config.client_api_port, 9847);
+    assert_eq!(config.db_dir, dirs::home_dir().unwrap().join(".dspatch").join("data"));
+    assert_eq!(config.log_level, "info");
+    assert_eq!(config.agent_server_port, 0);
+    assert_eq!(config.invalidation_debounce_ms, 50);
+}
