@@ -5,13 +5,9 @@ edition = "2021"
 license = "AGPL-3.0"
 description = "d:spatch SDK — core library for the d:spatch agent platform"
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-check-cfg = ["cfg(frb_expand)"]
-
 [lib]
 name = "dspatch_sdk"
-crate-type = ["cdylib", "staticlib", "lib"]
+crate-type = ["lib"]
 
 [[bin]]
 name = "dspatch-cli"
@@ -20,10 +16,6 @@ path = "src/bin/dspatch.rs"
 [[bin]]
 name = "dspatch-engine"
 path = "src/bin/dspatch_engine.rs"
-
-[features]
-default = []
-flutter = ["dep:flutter_rust_bridge"]
 
 [dependencies]
 # Async runtime
@@ -85,9 +77,6 @@ tempfile = "3"
 notify = "6"
 hostname = "0.4"
 dirs = "5"
-
-# Flutter bridge (optional)
-flutter_rust_bridge = { version = "=2.11.1", features = ["chrono"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }

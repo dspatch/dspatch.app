@@ -6,7 +6,6 @@ pub mod agent_server;
 pub mod communication;
 pub mod connection;
 pub mod event;
-pub mod event_bus;
 pub mod host_router;
 pub mod inspector;
 pub mod status;
