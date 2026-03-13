@@ -342,3 +342,90 @@ fn protocol_welcome_event() {
     assert_eq!(parsed["type"], "event");
     assert_eq!(parsed["name"], "welcome");
 }
+
+#[tokio::test]
+async fn ws_rejects_unauthenticated_connection() {
+    use std::sync::Arc;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+
+    let mut config = EngineConfig::default();
+    config.client_api_port = 0;
+    let runtime = Arc::new(EngineRuntime::new(config));
+
+    let runtime_clone = runtime.clone();
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+    let server_handle = tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _ = port_tx.send(port);
+        let app = dspatch_sdk::client_api::server::build_router(runtime_clone.clone());
+        let mut shutdown = runtime_clone.subscribe_shutdown();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move { let _ = shutdown.recv().await; })
+            .await
+            .unwrap();
+    });
+
+    let port = port_rx.await.unwrap();
+
+    let url = format!("ws://127.0.0.1:{port}/ws?token=invalid-token");
+    let result = tokio_tungstenite::connect_async(&url).await;
+    assert!(result.is_err(), "WS connect with invalid token should fail");
+
+    runtime.trigger_shutdown();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await;
+}
+
+#[tokio::test]
+async fn ws_accepts_authenticated_connection_and_sends_welcome() {
+    use std::sync::Arc;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::client_api::session::AuthMode;
+    use futures::StreamExt;
+
+    let mut config = EngineConfig::default();
+    config.client_api_port = 0;
+    let runtime = Arc::new(EngineRuntime::new(config));
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+
+    let runtime_clone = runtime.clone();
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+    let server_handle = tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _ = port_tx.send(port);
+        let app = dspatch_sdk::client_api::server::build_router(runtime_clone.clone());
+        let mut shutdown = runtime_clone.subscribe_shutdown();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move { let _ = shutdown.recv().await; })
+            .await
+            .unwrap();
+    });
+
+    let port = port_rx.await.unwrap();
+
+    let url = format!("ws://127.0.0.1:{port}/ws?token={token}");
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("WS connect with valid token should succeed");
+
+    let msg = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        ws.next(),
+    )
+    .await
+    .expect("should receive message within timeout")
+    .expect("stream should not be closed")
+    .expect("message should not be an error");
+
+    let text = msg.into_text().expect("message should be text");
+    let frame: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(frame["type"], "event");
+    assert_eq!(frame["name"], "welcome");
+    assert_eq!(frame["data"]["protocol_version"], 1);
+
+    runtime.trigger_shutdown();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await;
+}

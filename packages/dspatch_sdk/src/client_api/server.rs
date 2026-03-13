@@ -13,6 +13,7 @@ use crate::util::result::Result;
 
 use super::auth::{anonymous_handler, login_handler, register_handler};
 use super::health::health_handler;
+use super::ws::ws_handler;
 
 /// Builds the axum router with all client API routes.
 pub fn build_router(runtime: Arc<EngineRuntime>) -> Router {
@@ -21,6 +22,7 @@ pub fn build_router(runtime: Arc<EngineRuntime>) -> Router {
         .route("/auth/anonymous", axum::routing::post(anonymous_handler))
         .route("/auth/login", axum::routing::post(login_handler))
         .route("/auth/register", axum::routing::post(register_handler))
+        .route("/ws", axum::routing::get(ws_handler))
         .with_state(runtime)
 }
 
