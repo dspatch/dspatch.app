@@ -12,8 +12,8 @@ class SettingsController extends _$SettingsController {
   FutureOr<void> build() {}
 
   Future<void> updateThemeMode(ThemeMode mode) async {
-    final sdk = ref.read(sdkProvider);
-    await sdk.setPreference(key: 'theme_mode', value: mode.name);
+    final client = ref.read(engineClientProvider);
+    await client.setPreference('theme_mode', mode.name);
     ref.read(themeModeProvider.notifier).state = mode;
   }
 }

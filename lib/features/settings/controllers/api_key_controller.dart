@@ -1,20 +1,18 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'dart:typed_data';
-
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../di/providers.dart';
+import '../../../engine_client/engine_client.dart';
 
 part 'api_key_controller.g.dart';
-
-/// HKDF info parameter for API key encryption/decryption.
-const _kApiKeyCryptoContext = 'api_key';
 
 @riverpod
 class ApiKeyController extends _$ApiKeyController {
   @override
   FutureOr<void> build() {}
+
+  EngineClient get _client => ref.read(engineClientProvider);
 
   Future<bool> createApiKey({
     required String name,
@@ -23,16 +21,16 @@ class ApiKeyController extends _$ApiKeyController {
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      final sdk = ref.read(sdkProvider);
-      final encrypted = await sdk.encryptString(
+      // Encrypt the key via the engine.
+      final encrypted = await _client.encryptString(
         plaintext: plaintext,
-        keyId: _kApiKeyCryptoContext,
+        keyId: 'api_key',
       );
-      await sdk.createApiKey(
+      final encryptedValue = encrypted['value'] as String? ?? plaintext;
+      await _client.createApiKey(
         name: name,
-        providerLabel: providerLabel,
-        encryptedKey: encrypted,
-        displayHint: _buildDisplayHint(plaintext),
+        value: encryptedValue,
+        providerName: providerLabel,
       );
     });
     if (state.hasError) {
@@ -46,7 +44,7 @@ class ApiKeyController extends _$ApiKeyController {
   Future<bool> deleteApiKey(String id) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      await ref.read(sdkProvider).deleteApiKey(id: id);
+      await _client.deleteApiKey(id);
     });
     if (state.hasError) {
       toast('Failed to delete API key', type: ToastType.error);
@@ -58,7 +56,7 @@ class ApiKeyController extends _$ApiKeyController {
 
   /// Builds a masked preview like `sk-...abc1` from the plaintext key.
   /// Shows the first prefix (up to the first dash or 3 chars) and last 4 chars.
-  static String _buildDisplayHint(String plaintext) {
+  static String buildDisplayHint(String plaintext) {
     if (plaintext.length <= 8) return '\u2022' * plaintext.length;
     final dashIndex = plaintext.indexOf('-');
     final prefixEnd = (dashIndex > 0 && dashIndex <= 6) ? dashIndex + 1 : 3;
@@ -67,12 +65,10 @@ class ApiKeyController extends _$ApiKeyController {
     return '$prefix...$suffix';
   }
 
-  Future<String?> decryptApiKey(Uint8List encryptedKey) async {
+  Future<String?> decryptApiKey(String encryptedValue) async {
     try {
-      return await ref.read(sdkProvider).decryptString(
-            blob: encryptedKey,
-            keyId: _kApiKeyCryptoContext,
-          );
+      final result = await _client.decryptString(value: encryptedValue);
+      return result['value'] as String?;
     } catch (e) {
       toast('Failed to decrypt API key', type: ToastType.error);
       return null;

@@ -1,11 +1,11 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import 'dart:io';
 
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../di/providers.dart';
+import '../../engine_client/engine_client.dart';
 
 part 'workspace_controller.g.dart';
 
@@ -14,15 +14,22 @@ class WorkspaceController extends _$WorkspaceController {
   @override
   FutureOr<void> build() {}
 
-  RustSdk get _sdk => ref.read(sdkProvider);
+  EngineClient get _client => ref.read(engineClientProvider);
 
-  Future<bool> createWorkspace(CreateWorkspaceRequest request) async {
+  Future<bool> createWorkspace({
+    required String projectPath,
+    required String configYaml,
+  }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-        () => _sdk.createWorkspace(request: request));
+        () => _client.sendCommand('create_workspace', {
+              'project_path': projectPath,
+              'config_yaml': configYaml,
+            }));
     if (state.hasError) {
       final error = state.error;
       final message = switch (error) {
+        EngineException(:final message) => message,
         FormatException() => 'Invalid config: ${error.message}',
         StateError() => error.message,
         FileSystemException() =>
@@ -39,7 +46,7 @@ class WorkspaceController extends _$WorkspaceController {
 
   Future<bool> deleteWorkspace(String id) async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() => _sdk.deleteWorkspace(id: id));
+    state = await AsyncValue.guard(() => _client.deleteWorkspace(id));
     if (state.hasError) {
       toast('Failed to delete workspace', type: ToastType.error);
       return false;
@@ -50,7 +57,7 @@ class WorkspaceController extends _$WorkspaceController {
 
   Future<bool> launchWorkspace(String id) async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() => _sdk.launchWorkspace(id: id));
+    state = await AsyncValue.guard(() => _client.launchWorkspace(id));
     if (state.hasError) {
       toast('Failed to launch workspace: ${state.error}',
           type: ToastType.error);
@@ -62,7 +69,7 @@ class WorkspaceController extends _$WorkspaceController {
 
   Future<bool> stopWorkspace(String id) async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() => _sdk.stopWorkspace(id: id));
+    state = await AsyncValue.guard(() => _client.stopWorkspace(id));
     if (state.hasError) {
       toast('Failed to stop workspace: ${state.error}',
           type: ToastType.error);
@@ -75,8 +82,8 @@ class WorkspaceController extends _$WorkspaceController {
   Future<bool> restartWorkspace(String id) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      await _sdk.stopWorkspace(id: id);
-      await _sdk.launchWorkspace(id: id);
+      await _client.stopWorkspace(id);
+      await _client.launchWorkspace(id);
     });
     if (state.hasError) {
       toast('Failed to restart workspace: ${state.error}',
@@ -94,10 +101,10 @@ class WorkspaceController extends _$WorkspaceController {
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-      () => _sdk.respondToInquiry(
+      () => _client.respondToInquiry(
         inquiryId: inquiryId,
-        responseText: responseText,
-        responseSuggestionIndex: responseSuggestionIndex,
+        response: responseText ?? '',
+        choiceIndex: responseSuggestionIndex,
       ),
     );
     if (state.hasError) {
@@ -116,8 +123,8 @@ class WorkspaceController extends _$WorkspaceController {
     String text,
   ) async {
     try {
-      await _sdk.sendUserInputToAgent(
-          runId: runId, instanceId: instanceId, text: text);
+      await _client.sendUserInputToAgent(
+          runId: runId, agentKey: instanceId, content: text);
       return true;
     } catch (e) {
       toast('Failed to send message: $e', type: ToastType.error);
@@ -131,7 +138,7 @@ class WorkspaceController extends _$WorkspaceController {
     String instanceId,
   ) async {
     try {
-      await _sdk.interruptInstance(runId: runId, instanceId: instanceId);
+      await _client.interruptInstance(runId: runId, instanceId: instanceId);
       return true;
     } catch (e) {
       toast('Failed to interrupt agent: $e', type: ToastType.error);

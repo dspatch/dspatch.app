@@ -1,5 +1,4 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import 'dart:async';
 
 import 'package:dspatch_ui/dspatch_ui.dart';
@@ -7,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../di/providers.dart';
+import '../../engine_client/engine_client.dart';
 import '../../shared/widgets/confirm_delete_dialog.dart';
 
 part 'engine_controller.g.dart';
@@ -21,7 +21,7 @@ class EngineController extends _$EngineController {
   @override
   FutureOr<void> build() {}
 
-  RustSdk get _sdk => ref.read(sdkProvider);
+  EngineClient get _client => ref.read(engineClientProvider);
 
   // ─── Status ──────────────────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ class EngineController extends _$EngineController {
     _appendLog('─── Build started ───');
 
     try {
-      await for (final line in _sdk.buildRuntimeImage()) {
+      await for (final line in _client.buildRuntimeImage()) {
         _appendLog(line);
       }
       ref.invalidate(dockerStatusProvider);
@@ -58,9 +58,9 @@ class EngineController extends _$EngineController {
   /// Returns `true` if the image was deleted, `false` if cancelled or failed.
   Future<bool> deleteRuntimeImageCascade(BuildContext context) async {
     // Check for dependent containers.
-    List<ContainerSummary> containers;
+    List<Map<String, dynamic>> containers;
     try {
-      containers = await _sdk.listContainers();
+      containers = await _client.listContainers();
     } catch (_) {
       containers = [];
     }
@@ -69,7 +69,7 @@ class EngineController extends _$EngineController {
       if (!context.mounted) return false;
 
       final running =
-          containers.where((c) => c.state == 'running').length;
+          containers.where((c) => c['state'] == 'running').length;
       final stopped = containers.length - running;
 
       final parts = <String>[];
@@ -93,22 +93,24 @@ class EngineController extends _$EngineController {
     try {
       // 1. Stop running containers.
       final running = containers
-          .where((c) => c.state == 'running')
+          .where((c) => c['state'] == 'running')
           .toList();
       for (final c in running) {
-        _appendLog('Stopping container ${_shortId(c.id)}...');
-        await _sdk.stopContainer(id: c.id);
+        final id = c['id'] as String;
+        _appendLog('Stopping container ${_shortId(id)}...');
+        await _client.stopContainer(id: id);
       }
 
       // 2. Remove all containers.
       for (final c in containers) {
-        _appendLog('Removing container ${_shortId(c.id)}...');
-        await _sdk.removeContainer(id: c.id);
+        final id = c['id'] as String;
+        _appendLog('Removing container ${_shortId(id)}...');
+        await _client.removeContainer(id: id);
       }
 
       // 3. Delete the image.
       _appendLog('Deleting runtime image...');
-      await _sdk.deleteRuntimeImage();
+      await _client.deleteRuntimeImage();
       _appendLog('Runtime image deleted');
 
       ref.invalidate(dockerStatusProvider);
@@ -130,7 +132,7 @@ class EngineController extends _$EngineController {
   /// through container stop/remove and image deletion first (with confirmation).
   Future<void> rebuildRuntimeImage(BuildContext context) async {
     final status = ref.read(dockerStatusProvider).valueOrNull;
-    if (status != null && status.hasRuntimeImage) {
+    if (status != null && status['has_runtime_image'] == true) {
       final deleted = await deleteRuntimeImageCascade(context);
       if (!deleted) return; // User cancelled.
     }
@@ -141,7 +143,7 @@ class EngineController extends _$EngineController {
 
   /// Stops a single container.
   Future<bool> stopContainer(String id) => _loggedOp(
-        action: () => _sdk.stopContainer(id: id),
+        action: () async { await _client.stopContainer(id: id); },
         logStart: 'Stopping container ${_shortId(id)}...',
         logSuccess: 'Container ${_shortId(id)} stopped',
         toastSuccess: 'Container stopped',
@@ -151,7 +153,7 @@ class EngineController extends _$EngineController {
 
   /// Removes a single container.
   Future<bool> removeContainer(String id) => _loggedOp(
-        action: () => _sdk.removeContainer(id: id),
+        action: () async { await _client.removeContainer(id: id); },
         logStart: 'Removing container ${_shortId(id)}...',
         logSuccess: 'Container ${_shortId(id)} removed',
         toastSuccess: 'Container removed',
@@ -163,7 +165,10 @@ class EngineController extends _$EngineController {
 
   /// Stops all running d:spatch containers.
   Future<bool> stopAllContainers() => _bulkOp(
-        action: _sdk.stopAllContainers,
+        action: () async {
+          final result = await _client.stopAllContainers();
+          return result['count'] as int? ?? 0;
+        },
         logMessage: (c) => 'Stopped $c container${c == 1 ? '' : 's'}',
         successMessage: (c) => 'Stopped $c container${c == 1 ? '' : 's'}',
         failureMessage: 'Failed to stop containers',
@@ -171,7 +176,10 @@ class EngineController extends _$EngineController {
 
   /// Removes all stopped d:spatch containers.
   Future<bool> deleteStoppedContainers() => _bulkOp(
-        action: _sdk.deleteStoppedContainers,
+        action: () async {
+          final result = await _client.deleteStoppedContainers();
+          return result['count'] as int? ?? 0;
+        },
         logMessage: (c) =>
             'Removed $c stopped container${c == 1 ? '' : 's'}',
         successMessage: (c) => 'Removed $c container${c == 1 ? '' : 's'}',
@@ -180,7 +188,10 @@ class EngineController extends _$EngineController {
 
   /// Removes orphaned containers.
   Future<bool> cleanOrphaned() => _bulkOp(
-        action: _sdk.cleanOrphanedContainers,
+        action: () async {
+          final result = await _client.cleanOrphanedContainers();
+          return result['count'] as int? ?? 0;
+        },
         logMessage: (c) =>
             'Cleaned $c orphaned container${c == 1 ? '' : 's'}',
         successMessage: (c) => 'Cleaned $c container${c == 1 ? '' : 's'}',

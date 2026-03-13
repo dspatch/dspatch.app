@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../di/providers.dart';
+import '../../engine_client/engine_client.dart';
 
 part 'agent_provider_controller.g.dart';
 
@@ -12,16 +12,15 @@ class AgentProviderController extends _$AgentProviderController {
   @override
   FutureOr<void> build() {}
 
-  RustSdk get _sdk => ref.read(sdkProvider);
+  EngineClient get _client => ref.read(engineClientProvider);
 
-  Future<bool> createAgentProvider(
-      CreateAgentProviderRequest request) async {
+  Future<bool> createAgentProvider(Map<String, dynamic> request) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-        () => _sdk.createAgentProvider(request: request));
+        () => _client.createAgentProvider(request: request));
     if (state.hasError) {
-      final message = state.error is StateError
-          ? (state.error as StateError).message
+      final message = state.error is EngineException
+          ? (state.error as EngineException).message
           : 'Failed to create agent provider';
       toast(message, type: ToastType.error);
       return false;
@@ -31,13 +30,13 @@ class AgentProviderController extends _$AgentProviderController {
   }
 
   Future<bool> updateAgentProvider(
-      String id, UpdateAgentProviderRequest request) async {
+      String id, Map<String, dynamic> request) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-        () => _sdk.updateAgentProvider(id: id, request: request));
+        () => _client.updateAgentProvider(id: id, request: request));
     if (state.hasError) {
-      final message = state.error is StateError
-          ? (state.error as StateError).message
+      final message = state.error is EngineException
+          ? (state.error as EngineException).message
           : 'Failed to update agent provider';
       toast(message, type: ToastType.error);
       return false;
@@ -49,10 +48,10 @@ class AgentProviderController extends _$AgentProviderController {
   Future<bool> deleteAgentProvider(String id) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-        () => _sdk.deleteAgentProvider(id: id));
+        () => _client.deleteAgentProvider(id));
     if (state.hasError) {
-      final message = state.error is StateError
-          ? (state.error as StateError).message
+      final message = state.error is EngineException
+          ? (state.error as EngineException).message
           : 'Failed to delete agent provider';
       toast(message, type: ToastType.error);
       return false;
@@ -64,10 +63,10 @@ class AgentProviderController extends _$AgentProviderController {
   Future<bool> updateAgentTemplate(String id, String name, String sourceUri) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-        () => _sdk.updateAgentTemplate(id: id, name: name, sourceUri: sourceUri));
+        () => _client.updateAgentTemplate(id: id, name: name, sourceUri: sourceUri));
     if (state.hasError) {
-      final message = state.error is StateError
-          ? (state.error as StateError).message
+      final message = state.error is EngineException
+          ? (state.error as EngineException).message
           : 'Failed to update template';
       toast(message, type: ToastType.error);
       return false;
@@ -79,10 +78,10 @@ class AgentProviderController extends _$AgentProviderController {
   Future<bool> deleteAgentTemplate(String id) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-        () => _sdk.deleteAgentTemplate(id: id));
+        () => _client.deleteAgentTemplate(id));
     if (state.hasError) {
-      final message = state.error is StateError
-          ? (state.error as StateError).message
+      final message = state.error is EngineException
+          ? (state.error as EngineException).message
           : 'Failed to delete template';
       toast(message, type: ToastType.error);
       return false;
