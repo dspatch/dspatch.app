@@ -8,11 +8,15 @@
 //! Reactive `watch_*` methods use [`super::reactive::watch_query`] to
 //! return streams that re-emit whenever relevant tables change.
 
+pub mod agent_connection_status_dao;
+pub mod agent_instance_state_dao;
 pub mod agent_provider_dao;
 pub mod agent_template_dao;
 pub mod api_key_dao;
+pub mod container_health_dao;
 pub mod preference_dao;
 pub mod workspace_dao;
+pub mod workspace_run_status_dao;
 pub mod workspace_template_dao;
 
 pub use agent_provider_dao::AgentProviderDao;

@@ -10,6 +10,10 @@ use futures::StreamExt;
 use dspatch_sdk::db::dao::{
     ApiKeyDao, PreferenceDao, WorkspaceDao,
 };
+use dspatch_sdk::db::dao::agent_instance_state_dao::AgentInstanceStateDao;
+use dspatch_sdk::db::dao::agent_connection_status_dao::AgentConnectionStatusDao;
+use dspatch_sdk::db::dao::container_health_dao::ContainerHealthDao;
+use dspatch_sdk::db::dao::workspace_run_status_dao::WorkspaceRunStatusDao;
 use dspatch_sdk::db::Database;
 use dspatch_sdk::domain::enums::{AgentState, InquiryPriority, InquiryStatus};
 use dspatch_sdk::domain::models::{
@@ -585,4 +589,160 @@ fn test_insert_instance_result() {
         )
         .unwrap();
     assert_eq!(count, 1);
+}
+
+// ── Helper: set up workspace + run for ephemeral DAO tests ─────────
+
+fn setup_workspace_and_run(db: &Arc<Database>, ws_id: &str, run_id: &str) {
+    let dao = WorkspaceDao::new(Arc::clone(db));
+    dao.insert_workspace(&make_workspace(ws_id, "Test WS")).unwrap();
+    dao.insert_workspace_run(&make_run(run_id, ws_id, 1, "running")).unwrap();
+}
+
+fn setup_two_runs(db: &Arc<Database>) {
+    let dao = WorkspaceDao::new(Arc::clone(db));
+    dao.insert_workspace(&make_workspace("ws-e", "Test WS")).unwrap();
+    dao.insert_workspace_run(&make_run("run-1", "ws-e", 1, "running")).unwrap();
+    dao.insert_workspace_run(&make_run("run-2", "ws-e", 2, "running")).unwrap();
+}
+
+// ── AgentInstanceStateDao ──────────────────────────────────────────
+
+#[test]
+fn test_agent_instance_state_upsert_and_get() {
+    let db = db();
+    setup_workspace_and_run(&db, "ws-e", "run-1");
+    let dao = AgentInstanceStateDao::new();
+    let conn = db.conn();
+
+    // Initially empty.
+    assert!(dao.get(&conn, "inst-1").unwrap().is_none());
+
+    // Upsert.
+    dao.upsert(&conn, "inst-1", "run-1", "coder", "idle").unwrap();
+    let state = dao.get(&conn, "inst-1").unwrap().unwrap();
+    assert_eq!(state.instance_id, "inst-1");
+    assert_eq!(state.run_id, "run-1");
+    assert_eq!(state.agent_key, "coder");
+    assert_eq!(state.state, "idle");
+
+    // Upsert again — should update state.
+    dao.upsert(&conn, "inst-1", "run-1", "coder", "generating").unwrap();
+    let state = dao.get(&conn, "inst-1").unwrap().unwrap();
+    assert_eq!(state.state, "generating");
+}
+
+#[test]
+fn test_agent_instance_state_delete_for_run() {
+    let db = db();
+    setup_two_runs(&db);
+    let dao = AgentInstanceStateDao::new();
+    let conn = db.conn();
+
+    dao.upsert(&conn, "inst-1", "run-1", "coder", "idle").unwrap();
+    dao.upsert(&conn, "inst-2", "run-1", "reviewer", "idle").unwrap();
+    dao.upsert(&conn, "inst-3", "run-2", "coder", "idle").unwrap();
+
+    // Delete for run-1.
+    dao.delete_for_run(&conn, "run-1").unwrap();
+
+    // run-1 instances gone.
+    assert!(dao.get(&conn, "inst-1").unwrap().is_none());
+    assert!(dao.get(&conn, "inst-2").unwrap().is_none());
+    // run-2 instance remains.
+    assert!(dao.get(&conn, "inst-3").unwrap().is_some());
+}
+
+// ── AgentConnectionStatusDao ───────────────────────────────────────
+
+#[test]
+fn test_agent_connection_status_upsert_and_get() {
+    let db = db();
+    setup_workspace_and_run(&db, "ws-e", "run-1");
+    let dao = AgentConnectionStatusDao::new();
+    let conn = db.conn();
+
+    // Initially empty.
+    assert!(dao.get(&conn, "coder", "run-1").unwrap().is_none());
+
+    // Upsert connected.
+    dao.upsert(&conn, "coder", "run-1", true).unwrap();
+    let status = dao.get(&conn, "coder", "run-1").unwrap().unwrap();
+    assert!(status.connected);
+    assert_eq!(status.agent_key, "coder");
+    assert_eq!(status.run_id, "run-1");
+
+    // Upsert disconnected.
+    dao.upsert(&conn, "coder", "run-1", false).unwrap();
+    let status = dao.get(&conn, "coder", "run-1").unwrap().unwrap();
+    assert!(!status.connected);
+}
+
+#[test]
+fn test_agent_connection_status_disconnect_all_for_run() {
+    let db = db();
+    setup_two_runs(&db);
+    let dao = AgentConnectionStatusDao::new();
+    let conn = db.conn();
+
+    dao.upsert(&conn, "coder", "run-1", true).unwrap();
+    dao.upsert(&conn, "reviewer", "run-1", true).unwrap();
+    dao.upsert(&conn, "coder", "run-2", true).unwrap();
+
+    // Disconnect all for run-1.
+    dao.disconnect_all_for_run(&conn, "run-1").unwrap();
+
+    assert!(!dao.get(&conn, "coder", "run-1").unwrap().unwrap().connected);
+    assert!(!dao.get(&conn, "reviewer", "run-1").unwrap().unwrap().connected);
+    // run-2 unaffected.
+    assert!(dao.get(&conn, "coder", "run-2").unwrap().unwrap().connected);
+}
+
+// ── ContainerHealthDao ─────────────────────────────────────────────
+
+#[test]
+fn test_container_health_upsert_and_get() {
+    let db = db();
+    setup_workspace_and_run(&db, "ws-e", "run-1");
+    let dao = ContainerHealthDao::new();
+    let conn = db.conn();
+
+    // Initially empty.
+    assert!(dao.get(&conn, "run-1").unwrap().is_none());
+
+    // Upsert healthy.
+    dao.upsert(&conn, "run-1", "healthy", None).unwrap();
+    let health = dao.get(&conn, "run-1").unwrap().unwrap();
+    assert_eq!(health.status, "healthy");
+    assert!(health.error_message.is_none());
+
+    // Upsert unhealthy with error.
+    dao.upsert(&conn, "run-1", "unhealthy", Some("OOM killed")).unwrap();
+    let health = dao.get(&conn, "run-1").unwrap().unwrap();
+    assert_eq!(health.status, "unhealthy");
+    assert_eq!(health.error_message.as_deref(), Some("OOM killed"));
+}
+
+// ── WorkspaceRunStatusDao ──────────────────────────────────────────
+
+#[test]
+fn test_workspace_run_status_upsert_and_get() {
+    let db = db();
+    setup_workspace_and_run(&db, "ws-e", "run-1");
+    let dao = WorkspaceRunStatusDao::new();
+    let conn = db.conn();
+
+    // Initially empty.
+    assert!(dao.get(&conn, "run-1").unwrap().is_none());
+
+    // Upsert.
+    dao.upsert(&conn, "run-1", "starting").unwrap();
+    let status = dao.get(&conn, "run-1").unwrap().unwrap();
+    assert_eq!(status.run_id, "run-1");
+    assert_eq!(status.status, "starting");
+
+    // Upsert again — should update.
+    dao.upsert(&conn, "run-1", "running").unwrap();
+    let status = dao.get(&conn, "run-1").unwrap().unwrap();
+    assert_eq!(status.status, "running");
 }
