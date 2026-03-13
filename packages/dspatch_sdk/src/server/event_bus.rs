@@ -1,18 +1,18 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
-//! Broadcast event bus for SDK lifecycle events.
+//! SDK lifecycle event types.
 //!
-//! Services emit events as a fire-and-forget side-channel. Consumers
-//! (Flutter app, CLI) subscribe independently via the FRB bridge.
-//! The bus never drives application logic — it is purely informational.
+//! The `SdkEventBus` broadcast mechanism has been removed — events now flow
+//! through ephemeral DB tables and table-invalidation streams. This module
+//! is retained only for the `SdkEvent` enum, which `frb_generated.rs`
+//! references. It will be deleted entirely when the FRB bridge is removed.
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
 
-/// Lifecycle events broadcast to SDK consumers.
+/// Lifecycle events formerly broadcast to SDK consumers.
 ///
-/// All fields are `String` for FRB compatibility. Consumers filter on
-/// their side — the bus sends everything to every subscriber.
+/// Retained for `frb_generated.rs` compatibility. Will be removed when the
+/// FRB bridge is deleted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SdkEvent {
@@ -82,32 +82,4 @@ pub enum SdkEvent {
         workspace_id: String,
         request_id: String,
     },
-}
-
-/// Broadcast bus for SDK lifecycle events.
-///
-/// Fire-and-forget: `emit()` silently drops events if no receivers exist.
-/// Multiple consumers can subscribe independently via `subscribe()`.
-pub struct SdkEventBus {
-    tx: broadcast::Sender<SdkEvent>,
-}
-
-impl SdkEventBus {
-    /// Creates a new event bus with the given channel capacity.
-    ///
-    /// 64 is generous for lifecycle events (they are infrequent).
-    pub fn new(capacity: usize) -> Self {
-        let (tx, _) = broadcast::channel(capacity);
-        Self { tx }
-    }
-
-    /// Emit an event to all current subscribers. Silent if nobody is listening.
-    pub fn emit(&self, event: SdkEvent) {
-        let _ = self.tx.send(event);
-    }
-
-    /// Create a new subscription. Each subscriber gets its own receiver.
-    pub fn subscribe(&self) -> broadcast::Receiver<SdkEvent> {
-        self.tx.subscribe()
-    }
 }
