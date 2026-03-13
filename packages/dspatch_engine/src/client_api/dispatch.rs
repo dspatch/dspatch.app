@@ -138,11 +138,8 @@ pub async fn dispatch_command(
                 .await?;
             let provider_label = provider_name.as_deref().unwrap_or("");
             // Build display hint: last 4 characters of the plaintext value.
-            let display_hint = if value.len() >= 4 {
-                Some(&value[value.len() - 4..])
-            } else {
-                None
-            };
+            let hint: String = value.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+            let display_hint = if hint.is_empty() { None } else { Some(hint.as_str()) };
             services
                 .api_keys()
                 .create_api_key(name, provider_label, encrypted, display_hint)
@@ -466,7 +463,7 @@ pub async fn dispatch_command(
 
         // ── File Browser ────────────────────────────────────────
 
-        Command::ListDirectory { path, show_hidden: _ } => {
+        Command::ListDirectory { path } => {
             let entries = services.file_browser().list_directory(path).await?;
             to_json(entries)
         }

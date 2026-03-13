@@ -305,11 +305,7 @@ pub enum Command {
     // ── File Browser Commands ───────────────────────────────────────────
 
     #[serde(rename = "list_directory")]
-    ListDirectory {
-        path: String,
-        #[serde(default)]
-        show_hidden: bool,
-    },
+    ListDirectory { path: String },
 
     // ── Package Inspector Commands ──────────────────────────────────────
 
