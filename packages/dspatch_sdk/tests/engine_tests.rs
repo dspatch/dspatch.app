@@ -636,3 +636,45 @@ async fn health_reflects_auth_state_after_anonymous_login() {
     let health: HealthResponse = serde_json::from_slice(&body).unwrap();
     assert!(health.authenticated);
 }
+
+#[test]
+fn error_mapping_covers_all_app_error_variants() {
+    use dspatch_sdk::client_api::error_mapping::error_to_code;
+    use dspatch_sdk::util::error::AppError;
+
+    assert_eq!(error_to_code(&AppError::Validation("x".into())), "VALIDATION_ERROR");
+    assert_eq!(error_to_code(&AppError::NotFound("x".into())), "NOT_FOUND");
+    assert_eq!(error_to_code(&AppError::Storage("x".into())), "STORAGE_ERROR");
+    assert_eq!(error_to_code(&AppError::Docker("x".into())), "DOCKER_ERROR");
+    assert_eq!(error_to_code(&AppError::Server("x".into())), "SERVER_ERROR");
+    assert_eq!(error_to_code(&AppError::Crypto("x".into())), "CRYPTO_ERROR");
+    assert_eq!(error_to_code(&AppError::SecureStorageFailure("x".into())), "SECURE_STORAGE_FAILURE");
+    assert_eq!(error_to_code(&AppError::Platform("x".into())), "PLATFORM_ERROR");
+    assert_eq!(error_to_code(&AppError::Auth("x".into())), "AUTH_ERROR");
+    assert_eq!(
+        error_to_code(&AppError::Api {
+            message: "x".into(),
+            status_code: Some(500),
+            body: None,
+        }),
+        "API_ERROR"
+    );
+    assert_eq!(error_to_code(&AppError::Internal("x".into())), "INTERNAL_ERROR");
+}
+
+#[test]
+fn error_to_server_frame_preserves_message_and_id() {
+    use dspatch_sdk::client_api::error_mapping::error_to_frame;
+    use dspatch_sdk::client_api::protocol::ServerFrame;
+    use dspatch_sdk::util::error::AppError;
+
+    let frame = error_to_frame("cmd_42", &AppError::NotFound("workspace xyz".into()));
+    match frame {
+        ServerFrame::Error { id, code, message } => {
+            assert_eq!(id, Some("cmd_42".into()));
+            assert_eq!(code, "NOT_FOUND");
+            assert!(message.contains("workspace xyz"));
+        }
+        _ => panic!("expected ServerFrame::Error"),
+    }
+}
