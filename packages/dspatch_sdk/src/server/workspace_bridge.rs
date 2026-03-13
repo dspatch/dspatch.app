@@ -31,6 +31,7 @@ use crate::domain::models::{AgentLog, WorkspaceRun};
 use crate::domain::services::{AgentProviderService, ApiKeyService, DockerService};
 use crate::server::packages::*;
 use crate::util::error::AppError;
+use crate::util::new_id;
 use crate::util::result::Result;
 use crate::workspace_config::config::{AgentConfig, WorkspaceConfig};
 use crate::workspace_config::env_resolver;
@@ -210,7 +211,7 @@ impl WorkspaceBridge {
         }
 
         // 8. Create WorkspaceRun row.
-        let run_id = uuid::Uuid::new_v4().to_string();
+        let run_id = new_id();
         let run_number = self.workspace_dao.next_run_number(workspace_id)?;
         let now = Utc::now().naive_utc();
         let run = WorkspaceRun {
@@ -235,7 +236,7 @@ impl WorkspaceBridge {
         }
 
         // 8c. Generate per-run API key and register.
-        let api_key = uuid::Uuid::new_v4().to_string();
+        let api_key = new_id();
         {
             let server = self.server.lock().await;
             server.register_run(&run_id, &api_key).await;
@@ -281,7 +282,7 @@ impl WorkspaceBridge {
                 );
                 for msg in &launch_logs {
                     let log = AgentLog {
-                        id: uuid::Uuid::new_v4().to_string(),
+                        id: new_id(),
                         run_id: run_id.clone(),
                         agent_key: "_system".to_string(),
                         instance_id: "_system".to_string(),
@@ -1011,7 +1012,7 @@ impl WorkspaceBridge {
 
     async fn mark_run_failed(&self, run_id: &str, _workspace_id: &str, reason: &str) {
         let log = AgentLog {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: new_id(),
             run_id: run_id.to_string(),
             agent_key: "_system".to_string(),
             instance_id: "_system".to_string(),
@@ -1373,7 +1374,7 @@ async fn startup_monitor_task(
                     STARTUP_TIMEOUT.as_secs()
                 );
                 let log = AgentLog {
-                    id: uuid::Uuid::new_v4().to_string(),
+                    id: new_id(),
                     run_id: run_id.to_string(),
                     agent_key: "_system".to_string(),
                     instance_id: "_system".to_string(),
@@ -1442,7 +1443,7 @@ async fn lifecycle_log_task(
                 let parsed = parse_docker_timestamp(&line);
 
                 let log = AgentLog {
-                    id: uuid::Uuid::new_v4().to_string(),
+                    id: new_id(),
                     run_id: run_id.to_string(),
                     agent_key: "_system".to_string(),
                     instance_id: "_system".to_string(),
@@ -1499,7 +1500,7 @@ async fn lifecycle_health_task(
                     };
 
                     let log = AgentLog {
-                        id: uuid::Uuid::new_v4().to_string(),
+                        id: new_id(),
                         run_id: run_id.to_string(),
                         agent_key: "_system".to_string(),
                         instance_id: "_system".to_string(),

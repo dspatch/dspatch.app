@@ -10,6 +10,7 @@ use futures::StreamExt;
 use crate::db::dao::ApiKeyDao;
 use crate::domain::models::ApiKey;
 use crate::domain::services::{ApiKeyService, WatchStream};
+use crate::util::new_id;
 use crate::util::result::Result;
 
 /// Local API key service backed by [`ApiKeyDao`].
@@ -54,7 +55,7 @@ impl LocalApiKeyService {
         encrypted_key: Vec<u8>,
         display_hint: Option<&str>,
     ) -> Result<()> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = new_id();
         self.dao
             .insert_api_key(&id, name, provider_label, &encrypted_key, display_hint)
     }

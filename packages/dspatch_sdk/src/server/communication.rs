@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use crate::db::dao::WorkspaceDao;
 use crate::domain::enums::LogSource;
 use crate::domain::models::{AgentActivity, AgentFile, AgentLog, AgentMessage, AgentUsage};
+use crate::util::new_id;
 
 use super::packages::*;
 
@@ -76,7 +77,7 @@ impl CommunicationService {
             .unwrap_or_else(|| "")
             .to_string();
         let message_id = if message_id.is_empty() {
-            uuid::Uuid::new_v4().to_string()
+            new_id()
         } else {
             message_id
         };
@@ -154,7 +155,7 @@ impl CommunicationService {
             .unwrap_or_else(|| Utc::now().naive_utc());
 
         self.workspace_dao.insert_agent_message(&AgentMessage {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: new_id(),
             run_id: run_id.to_string(),
             instance_id: event.instance_id.clone(),
             role: "user".to_string(),
@@ -180,7 +181,7 @@ impl CommunicationService {
             .unwrap_or("")
             .to_string();
         let activity_id = if activity_id.is_empty() {
-            uuid::Uuid::new_v4().to_string()
+            new_id()
         } else {
             activity_id
         };
@@ -265,7 +266,7 @@ impl CommunicationService {
             .unwrap_or_else(|| Utc::now().naive_utc());
 
         self.workspace_dao.insert_agent_log(&AgentLog {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: new_id(),
             run_id: run_id.to_string(),
             agent_key: agent_key.to_string(),
             instance_id: event.instance_id.clone(),
@@ -289,7 +290,7 @@ impl CommunicationService {
             .unwrap_or_else(|| Utc::now().naive_utc());
 
         self.workspace_dao.insert_agent_usage(&AgentUsage {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: new_id(),
             run_id: run_id.to_string(),
             agent_key: agent_key.to_string(),
             instance_id: event.instance_id.clone(),
@@ -326,7 +327,7 @@ impl CommunicationService {
                 .unwrap_or("unknown");
 
             self.workspace_dao.insert_agent_file(&AgentFile {
-                id: uuid::Uuid::new_v4().to_string(),
+                id: new_id(),
                 run_id: run_id.to_string(),
                 agent_key: agent_key.to_string(),
                 instance_id: event.instance_id.clone(),

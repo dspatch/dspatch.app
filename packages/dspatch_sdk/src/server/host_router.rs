@@ -16,6 +16,7 @@ use axum::extract::ws::WebSocket;
 use crate::db::dao::WorkspaceDao;
 use crate::domain::enums::{AgentState, LogLevel, LogSource};
 use crate::domain::models::AgentLog;
+use crate::util::new_id;
 use crate::workspace_config::flat_agent::FlatAgent;
 
 use super::communication::CommunicationService;
@@ -449,7 +450,7 @@ impl HostRouter {
                                 .collect::<Vec<_>>()
                                 .join(", ");
                             let _ = dao.insert_agent_log(&AgentLog {
-                                id: uuid::Uuid::new_v4().to_string(),
+                                id: new_id(),
                                 run_id: r_id.clone(),
                                 agent_key: agent_name.clone(),
                                 instance_id: String::new(),

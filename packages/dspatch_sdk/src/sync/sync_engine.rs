@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use crate::db::Database;
 use crate::util::error::AppError;
+use crate::util::new_id;
 use crate::util::result::Result;
 
 use super::message::{SyncChange, SyncMessage, SyncOp};
@@ -101,7 +102,7 @@ impl SyncEngine {
         data: serde_json::Value,
     ) -> Result<SyncChange> {
         let lamport = self.next_lamport();
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = new_id();
         let created_at = chrono::Utc::now().to_rfc3339();
         let data_str = serde_json::to_string(&data)
             .map_err(|e| AppError::Internal(format!("Failed to serialize change data: {e}")))?;

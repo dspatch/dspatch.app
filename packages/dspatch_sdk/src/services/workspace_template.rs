@@ -10,6 +10,7 @@ use futures::StreamExt;
 use crate::db::dao::WorkspaceTemplateDao;
 use crate::domain::models::WorkspaceTemplate;
 use crate::domain::services::{WatchStream, WorkspaceTemplateService};
+use crate::util::new_id;
 use crate::util::result::Result;
 
 /// Local workspace template service backed by [`WorkspaceTemplateDao`].
@@ -58,7 +59,7 @@ impl LocalWorkspaceTemplateService {
     ) -> Result<WorkspaceTemplate> {
         let now = chrono::Utc::now().naive_utc();
         let template = WorkspaceTemplate {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: new_id(),
             name,
             description,
             hub_slug,

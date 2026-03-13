@@ -13,6 +13,7 @@ use crate::domain::enums::SourceType;
 use crate::domain::models::{AgentProvider, CreateAgentProviderRequest, UpdateAgentProviderRequest};
 use crate::domain::services::{AgentProviderService, WatchStream};
 use crate::util::error::AppError;
+use crate::util::new_id;
 use crate::util::result::Result;
 
 /// Local agent provider service backed by [`AgentProviderDao`].
@@ -75,7 +76,7 @@ impl LocalAgentProviderService {
     ) -> Result<AgentProvider> {
         let now = chrono::Utc::now().naive_utc();
         let provider = AgentProvider {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: new_id(),
             name: request.name,
             source_type: request.source_type,
             source_path: request.source_path,

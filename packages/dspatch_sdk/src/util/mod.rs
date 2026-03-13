@@ -3,8 +3,10 @@
 pub mod dspatch_uri;
 pub mod error;
 pub mod format;
+pub mod id;
 pub mod logger;
 pub mod platform;
 pub mod result;
 
 pub use dspatch_uri::DspatchUri;
+pub use id::new_id;

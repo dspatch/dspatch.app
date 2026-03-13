@@ -13,6 +13,7 @@ use tokio::sync::{oneshot, Mutex};
 use crate::db::dao::WorkspaceDao;
 use crate::domain::enums::AgentState;
 use crate::domain::models::WorkspaceAgent;
+use crate::util::new_id;
 use crate::workspace_config::flat_agent::FlatAgent;
 
 use super::event_bus::{SdkEvent, SdkEventBus};
@@ -772,7 +773,7 @@ impl EventService {
         if let Some(ref turn_id) = event.turn_id {
             let run_id = self.active_run_id(workspace_id);
             if let Some(ref run_id) = run_id {
-                let result_id = uuid::Uuid::new_v4().to_string();
+                let result_id = new_id();
                 let _ = self.workspace_dao.insert_instance_result(
                     &result_id,
                     run_id,
@@ -907,7 +908,7 @@ impl EventService {
         workspace_id: &str,
         agent_key: &str,
     ) -> Result<String, String> {
-        let new_instance_id = uuid::Uuid::new_v4().to_string();
+        let new_instance_id = new_id();
         tracing::info!(
             agent_key,
             instance_id = new_instance_id.as_str(),
@@ -952,7 +953,7 @@ impl EventService {
         workspace_id: &str,
         agent_key: &str,
     ) -> Result<String, String> {
-        let new_instance_id = uuid::Uuid::new_v4().to_string();
+        let new_instance_id = new_id();
         tracing::info!(
             agent_key,
             instance_id = new_instance_id.as_str(),
@@ -1616,7 +1617,7 @@ impl EventService {
             return None;
         }
 
-        let new_instance_id = uuid::Uuid::new_v4().to_string();
+        let new_instance_id = new_id();
         tracing::info!(
             supervisor_key,
             instance_id = new_instance_id.as_str(),
@@ -2008,7 +2009,7 @@ impl EventService {
         conv_key: &(String, String, String),
         extended_chain: &[String],
     ) -> String {
-        let new_id = uuid::Uuid::new_v4().to_string();
+        let new_id = new_id();
         let sth = self.send_to_host.lock().await;
         if let Some(ref sth) = *sth {
             let spawn_pkg = Package::SpawnInstance(SpawnInstancePackage {
@@ -2149,7 +2150,7 @@ impl EventService {
 
         let now = chrono::Utc::now().naive_utc();
         let agent = WorkspaceAgent {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: new_id(),
             run_id,
             agent_key: agent_key.to_string(),
             instance_id: instance_id.to_string(),

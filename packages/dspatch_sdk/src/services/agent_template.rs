@@ -12,6 +12,7 @@ use crate::db::dao::AgentTemplateDao;
 use crate::domain::models::AgentTemplate;
 use crate::domain::services::{AgentTemplateService, WatchStream};
 use crate::util::error::AppError;
+use crate::util::new_id;
 use crate::util::result::Result;
 
 /// Local agent template service backed by [`AgentTemplateDao`].
@@ -93,7 +94,7 @@ impl LocalAgentTemplateService {
             )));
         }
 
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = new_id();
         let template_dir = self.templates_dir.join(&id);
         std::fs::create_dir_all(&template_dir).map_err(|e| {
             AppError::Storage(format!("Failed to create template directory: {e}"))

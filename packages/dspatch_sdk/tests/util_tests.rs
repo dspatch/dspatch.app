@@ -119,3 +119,19 @@ fn optional_ext_preserves_other_errors() {
         Err(rusqlite::Error::InvalidParameterCount(0, 1));
     assert!(result.optional().is_err());
 }
+
+#[test]
+fn new_id_returns_valid_uuid_v4_string() {
+    use dspatch_sdk::util::id::new_id;
+    let id = new_id();
+    assert_eq!(id.len(), 36);
+    assert!(uuid::Uuid::parse_str(&id).is_ok());
+}
+
+#[test]
+fn new_id_returns_unique_values() {
+    use dspatch_sdk::util::id::new_id;
+    let ids: Vec<String> = (0..100).map(|_| new_id()).collect();
+    let unique: std::collections::HashSet<&String> = ids.iter().collect();
+    assert_eq!(unique.len(), 100);
+}

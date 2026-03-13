@@ -14,6 +14,7 @@ use crate::domain::models::{CreateWorkspaceRequest, Workspace, WorkspaceRun};
 use crate::domain::services::WatchStream;
 use crate::server::workspace_bridge::WorkspaceBridge;
 use crate::util::error::AppError;
+use crate::util::new_id;
 use crate::util::result::Result;
 use crate::workspace_config::parser;
 use crate::workspace_config::validation;
@@ -127,7 +128,7 @@ impl LocalWorkspaceService {
         }
 
         // 6. Insert workspace row
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = new_id();
         let now = chrono::Utc::now().naive_utc();
         let workspace = Workspace {
             id: id.clone(),
