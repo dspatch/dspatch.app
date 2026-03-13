@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use dspatch_sdk::engine::config::EngineConfig;
+use dspatch_sdk::engine::service_registry::ServiceRegistry;
 use dspatch_sdk::engine::startup::{
     init_tracing, open_database, wait_for_shutdown_signal, EngineRuntime,
 };
@@ -28,10 +29,10 @@ async fn main() {
 
     // 2. Open/migrate the database.
     let db_path = config.db_dir.join("engine.db");
-    let _db = match open_database(&db_path) {
+    let db = match open_database(&db_path) {
         Ok(db) => {
             tracing::info!("database initialized successfully");
-            db
+            Arc::new(db)
         }
         Err(e) => {
             tracing::error!(error = %e, "failed to open database — exiting");
@@ -39,8 +40,9 @@ async fn main() {
         }
     };
 
-    // 3. Create the engine runtime.
-    let runtime = Arc::new(EngineRuntime::new(config));
+    // 3. Create the service registry and engine runtime.
+    let registry = Arc::new(ServiceRegistry::new(db, config.db_dir.clone()));
+    let runtime = Arc::new(EngineRuntime::with_services(config, registry));
 
     // 4. Start the client API server in a background task.
     let api_runtime = runtime.clone();
