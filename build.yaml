@@ -1,0 +1,13 @@
+targets:
+  $default:
+    builders:
+      drift_dev:
+        options:
+          # Allow Drift to read .sql files from the shared schema directory.
+          # These files live in the engine's Rust crate but are shared with Dart.
+          sql:
+            dialects:
+              - sqlite
+            options:
+              version: "3.39"
+              modules: []
