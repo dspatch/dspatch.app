@@ -930,3 +930,22 @@ async fn ws_command_dispatches_to_service() {
 
     runtime.trigger_shutdown();
 }
+
+#[tokio::test]
+async fn dispatch_unimplemented_command_returns_error() {
+    use std::sync::Arc;
+    use dspatch_sdk::client_api::commands::Command;
+    use dspatch_sdk::client_api::dispatch::dispatch_command;
+    use dspatch_sdk::engine::service_registry::ServiceRegistry;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("test.db");
+    let db = Arc::new(dspatch_sdk::engine::startup::open_database(&db_path).unwrap());
+    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
+
+    // Docker command is not yet wired.
+    let cmd = Command::DetectDockerStatus;
+    let result = dispatch_command(&cmd, &registry).await;
+    assert!(result.is_err());
+    assert!(matches!(result.unwrap_err(), dspatch_sdk::util::error::AppError::Internal(_)));
+}

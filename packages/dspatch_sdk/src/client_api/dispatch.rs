@@ -147,12 +147,142 @@ pub async fn dispatch_command(
             Ok(serde_json::Value::Null)
         }
 
-        // ── All other commands — not yet implemented ────────────────
+        // ── Agent Template Commands ───────────────────────────────
 
-        _ => Err(AppError::Internal(format!(
-            "Command not yet implemented: {:?}",
-            std::mem::discriminant(command)
-        ))),
+        Command::CreateAgentTemplate { .. } => {
+            // TODO: wire when Command fields match create_agent_template(name, source_uri, provider_id)
+            Err(AppError::Internal(
+                "agent template creation not yet wired — command params need restructuring".into(),
+            ))
+        }
+
+        Command::UpdateAgentTemplate { .. } => {
+            // TODO: wire when Command fields match update_agent_template(id, name, source_uri)
+            Err(AppError::Internal(
+                "agent template update not yet wired — command params need restructuring".into(),
+            ))
+        }
+
+        Command::DeleteAgentTemplate { id } => {
+            services.agent_templates().delete_agent_template(id).await?;
+            Ok(serde_json::Value::Null)
+        }
+
+        // ── Agent Interaction Commands ────────────────────────────
+
+        Command::SendUserInputToAgent { .. } => {
+            // TODO: wire when Command fields match send_user_input_to_agent(run_id, instance_id, text)
+            // Command has (run_id, agent_key, content) but service expects (run_id, instance_id, text)
+            Err(AppError::Internal(
+                "send_user_input_to_agent not yet wired — command fields don't match service signature".into(),
+            ))
+        }
+
+        Command::InterruptInstance { run_id, instance_id, .. } => {
+            // agent_key is available but the service only needs (run_id, instance_id)
+            services.agent_data().interrupt_instance(run_id, instance_id).await?;
+            Ok(serde_json::Value::Null)
+        }
+
+        // ── Instance Lifecycle Commands — NOT_IMPLEMENTED ─────────
+        // TODO: requires container orchestration
+
+        Command::StartRootInstance { .. }
+        | Command::StartSubInstance { .. }
+        | Command::StopInstance { .. }
+        | Command::CleanupStaleInstances { .. } => {
+            Err(AppError::Internal(
+                "Instance lifecycle commands not yet wired — requires container orchestration".into(),
+            ))
+        }
+
+        // ── Docker Commands — NOT_IMPLEMENTED ─────────────────────
+        // TODO: requires DockerClient (bollard crate + Docker daemon)
+
+        Command::DetectDockerStatus
+        | Command::ListContainers
+        | Command::StopContainer { .. }
+        | Command::RemoveContainer { .. }
+        | Command::StopAllContainers
+        | Command::DeleteStoppedContainers
+        | Command::CleanOrphanedContainers
+        | Command::DeleteRuntimeImage
+        | Command::ContainerStats { .. } => {
+            Err(AppError::Internal(
+                "Docker commands not yet wired — requires DockerClient".into(),
+            ))
+        }
+
+        // ── Hub Commands — NOT_IMPLEMENTED ────────────────────────
+        // TODO: requires backend connection
+
+        Command::HubBrowseAgents { .. }
+        | Command::HubAgentCategories
+        | Command::HubBrowseWorkspaces { .. }
+        | Command::HubWorkspaceCategories
+        | Command::HubResolveAgent { .. }
+        | Command::HubResolveWorkspace { .. }
+        | Command::HubResolveWorkspaceDetails { .. }
+        | Command::HubMyVotes { .. }
+        | Command::HubPopularTags { .. }
+        | Command::HubSearchTags { .. }
+        | Command::CheckForAgentUpdates
+        | Command::CheckForWorkspaceUpdates
+        | Command::HubSubmitAgent { .. }
+        | Command::HubSubmitTemplate { .. }
+        | Command::HubSubmitWorkspace { .. }
+        | Command::HubVoteAgent { .. }
+        | Command::HubVoteWorkspace { .. } => {
+            Err(AppError::Internal(
+                "Hub commands require backend connection — not yet wired".into(),
+            ))
+        }
+
+        // ── Config Parser Commands — NOT_IMPLEMENTED ──────────────
+        // TODO: wire config parser service
+
+        Command::ParseWorkspaceConfig { .. }
+        | Command::ValidateWorkspaceConfig { .. }
+        | Command::EncodeWorkspaceYaml { .. }
+        | Command::ResolveWorkspaceTemplates { .. } => {
+            Err(AppError::Internal(
+                "Config parser commands not yet wired".into(),
+            ))
+        }
+
+        // ── Crypto Commands — NOT_IMPLEMENTED ─────────────────────
+        // TODO: requires key store
+
+        Command::EncryptString { .. } | Command::DecryptString { .. } => {
+            Err(AppError::Internal(
+                "Crypto commands require key store — not yet wired".into(),
+            ))
+        }
+
+        // ── File Browser — NOT_IMPLEMENTED ────────────────────────
+        // TODO: LocalFileBrowserService not in ServiceRegistry; also show_hidden param mismatch
+
+        Command::ListDirectory { .. } => {
+            Err(AppError::Internal(
+                "File browser not yet wired in ServiceRegistry".into(),
+            ))
+        }
+
+        // ── Package Inspector — NOT_IMPLEMENTED ──────────────────
+
+        Command::PackageInspectorEntries { .. } => {
+            Err(AppError::Internal(
+                "Package inspector not yet wired".into(),
+            ))
+        }
+
+        // ── Server Lifecycle ──────────────────────────────────────
+
+        Command::StartServer { .. } | Command::StopServer => {
+            Err(AppError::Internal(
+                "Server lifecycle managed by engine internally — not a client command".into(),
+            ))
+        }
     }
 }
 
