@@ -107,7 +107,7 @@ pub unsafe extern "C" fn start_engine(config_json: *const c_char) -> i32 {
     let api_runtime = engine_runtime.clone();
     let shutdown_rx = engine_runtime.subscribe_shutdown();
     rt.spawn(async move {
-        if let Err(e) = start_client_api(api_runtime, shutdown_rx).await {
+        if let Err(e) = start_client_api(api_runtime, shutdown_rx, None).await {
             tracing::error!(error = %e, "client API server failed");
         }
     });

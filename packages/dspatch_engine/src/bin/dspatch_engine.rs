@@ -7,6 +7,8 @@
 
 use std::sync::Arc;
 
+use clap::Parser;
+
 use dspatch_engine::client_api::invalidation::InvalidationBroadcaster;
 use dspatch_engine::client_api::server::start_client_api;
 use dspatch_engine::engine::config::EngineConfig;
@@ -14,10 +16,33 @@ use dspatch_engine::engine::service_registry::ServiceRegistry;
 use dspatch_engine::engine::startup::{
     init_tracing, open_database, wait_for_shutdown_signal, EngineRuntime,
 };
+use dspatch_engine::util::id::new_id;
+
+/// dspatch engine daemon.
+#[derive(Parser)]
+#[command(name = "dspatch-daemon")]
+struct Args {
+    /// Run with an isolated temporary database and OS-assigned port.
+    /// Prints a JSON bootstrap line to stdout: {"port": N, "db_dir": "..."}
+    #[arg(long)]
+    test_db: bool,
+}
 
 #[tokio::main]
 async fn main() {
-    let config = EngineConfig::default();
+    let args = Args::parse();
+    let mut config = EngineConfig::default();
+
+    // In test mode, use a random temp directory and OS-assigned port.
+    let test_dir = if args.test_db {
+        let dir = std::env::temp_dir().join(format!("dspatch-test-{}", new_id()));
+        std::fs::create_dir_all(&dir).expect("failed to create test db directory");
+        config.db_dir = dir.clone();
+        config.client_api_port = 0;
+        Some(dir)
+    } else {
+        None
+    };
 
     // 1. Initialize tracing/logging.
     init_tracing(&config.log_level);
@@ -57,11 +82,29 @@ async fn main() {
     // 5. Start the client API server in a background task.
     let api_runtime = runtime.clone();
     let shutdown_rx = runtime.subscribe_shutdown();
+
+    // Use a oneshot channel to get the actual bound port from the spawned task.
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel::<u16>();
+
     let api_handle = tokio::spawn(async move {
-        if let Err(e) = start_client_api(api_runtime, shutdown_rx).await {
+        if let Err(e) = start_client_api(api_runtime, shutdown_rx, Some(port_tx)).await {
             tracing::error!(error = %e, "client API server failed");
         }
     });
+
+    // In test mode, wait for the port and print the JSON bootstrap line.
+    if test_dir.is_some() {
+        match port_rx.await {
+            Ok(port) => {
+                let db_dir = test_dir.as_ref().unwrap().display();
+                println!("{{\"port\": {port}, \"db_dir\": \"{db_dir}\"}}");
+            }
+            Err(_) => {
+                tracing::error!("failed to receive bound port from client API server");
+                std::process::exit(1);
+            }
+        }
+    }
 
     // 6. Wait for shutdown signal (Ctrl+C / SIGTERM).
     wait_for_shutdown_signal().await;
@@ -78,4 +121,13 @@ async fn main() {
     .await;
 
     tracing::info!("dspatch engine stopped");
+
+    // 9. Clean up test directory on shutdown.
+    if let Some(dir) = test_dir {
+        if let Err(e) = std::fs::remove_dir_all(&dir) {
+            tracing::warn!(error = %e, "failed to clean up test directory");
+        } else {
+            tracing::info!(dir = %dir.display(), "test directory cleaned up");
+        }
+    }
 }

@@ -28,9 +28,13 @@ pub fn build_router(runtime: Arc<EngineRuntime>) -> Router {
 
 /// Starts the client API server on the configured port.
 /// Returns the actual bound port.
+///
+/// If `port_tx` is provided, the actual bound port is sent through the channel
+/// immediately after binding (before the server starts accepting connections).
 pub async fn start_client_api(
     runtime: Arc<EngineRuntime>,
     mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
+    port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
 ) -> Result<u16> {
     let port = runtime.config().client_api_port;
     let addr = format!("127.0.0.1:{port}");
@@ -44,6 +48,10 @@ pub async fn start_client_api(
     })?.port();
 
     tracing::info!(port = actual_port, "client API server listening");
+
+    if let Some(tx) = port_tx {
+        let _ = tx.send(actual_port);
+    }
 
     let app = build_router(runtime);
 
