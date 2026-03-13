@@ -18,8 +18,9 @@ pub mod message;
 pub mod peer_connection;
 pub mod signaling;
 pub mod sync_engine;
+pub mod table_class;
 
-pub use message::{SyncChange, SyncMessage, SyncOp};
+pub use message::{CommandResult, RemoteCommand, SyncChange, SyncMessage, SyncOp};
 pub use peer_connection::PeerConnectionManager;
 pub use signaling::SignalingClient;
 pub use sync_engine::SyncEngine;
