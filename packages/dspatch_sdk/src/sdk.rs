@@ -600,7 +600,13 @@ impl DspatchSdk {
     /// Tears down the current database, services, server, and bridge.
     /// Broadcasts [`DatabaseReadyState::Closed`].
     async fn teardown_database(&self) {
-        let _ = self.db_state_tx.send(DatabaseReadyState::Closed);
+        // Cancel auth watcher task.
+        {
+            let mut handle = self.auth_watcher.lock().await;
+            if let Some(h) = handle.take() {
+                h.abort();
+            }
+        }
 
         // Dispose bridge.
         {
@@ -609,6 +615,7 @@ impl DspatchSdk {
                 old_bridge.dispose().await;
             }
         }
+
         // Stop server.
         {
             let mut srv = self.server.write().await;
@@ -617,6 +624,7 @@ impl DspatchSdk {
                 guard.stop().await;
             }
         }
+
         // Clear db_services and database.
         {
             let mut db_guard = self.database.write().await;
@@ -624,6 +632,9 @@ impl DspatchSdk {
             *svc_guard = None;
             *db_guard = None;
         }
+
+        // Notify database state listeners.
+        let _ = self.db_state_tx.send(DatabaseReadyState::Closed);
     }
 
     /// Installs a new database and broadcasts [`DatabaseReadyState::Ready`].
@@ -1012,38 +1023,7 @@ impl DspatchSdk {
 
     /// Shuts down all services and releases resources.
     pub async fn dispose(&self) -> Result<()> {
-        // Cancel auth watcher task.
-        {
-            let mut handle = self.auth_watcher.lock().await;
-            if let Some(h) = handle.take() {
-                h.abort();
-            }
-        }
-
-        // Dispose bridge.
-        {
-            let mut bridge_guard = self.bridge.lock().await;
-            if let Some(old_bridge) = bridge_guard.take() {
-                old_bridge.dispose().await;
-            }
-        }
-
-        // Stop server.
-        {
-            let mut srv_guard = self.server.write().await;
-            if let Some(s) = srv_guard.take() {
-                let mut server = s.lock().await;
-                server.stop().await;
-            }
-        }
-
-        // Clear DB services.
-        *self.db_services.write().await = None;
-        *self.database.write().await = None;
-
-        // Notify database state listeners.
-        let _ = self.db_state_tx.send(DatabaseReadyState::Closed);
-
+        self.teardown_database().await;
         Ok(())
     }
 }
