@@ -10,7 +10,7 @@ name = "dspatch_engine"
 crate-type = ["lib", "cdylib"]
 
 [[bin]]
-name = "dspatch-engine"
+name = "dspatch-daemon"
 path = "src/bin/dspatch_engine.rs"
 
 [dependencies]
