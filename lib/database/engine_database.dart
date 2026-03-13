@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
-import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 part 'engine_database.g.dart';
 
@@ -57,7 +56,7 @@ class EngineDatabase extends _$EngineDatabase {
         // allows concurrent readers, so this open should always succeed
         // as long as the file exists.
       },
-      readDataFromFileAsDefault: true,
+      enableMigrations: false,
     );
   }
 
@@ -70,18 +69,17 @@ class EngineDatabase extends _$EngineDatabase {
   /// [tableNames] is the list of table names from the invalidation event
   /// (e.g., `['agent_messages', 'workspace_runs']`).
   void handleInvalidation(List<String> tableNames) {
-    final updates = <TableUpdate>[];
+    final knownTables = {
+      for (final t in allTables) t.entityName,
+    };
+    final updates = <TableUpdate>{};
     for (final name in tableNames) {
-      final table = allTables.cast<ResultSetImplementation?>().firstWhere(
-            (t) => t?.entityName == name,
-            orElse: () => null,
-          );
-      if (table != null) {
-        updates.add(TableUpdate.onTable(table));
+      if (knownTables.contains(name)) {
+        updates.add(TableUpdate(name));
       }
     }
     if (updates.isNotEmpty) {
-      notifyUpdates(updates.toSet());
+      notifyUpdates(updates);
     }
   }
 }

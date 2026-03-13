@@ -1,29 +1,241 @@
--- Drift schema file — imports shared .sql table definitions from the engine crate.
+-- Drift schema file — table definitions matching the engine's shared .sql schema.
 -- This file is the single entry point for Drift code generation.
 -- All tables are READ-ONLY from the Flutter side.
+--
+-- Source of truth: packages/dspatch_sdk/shared/schema/*.sql
+-- Keep these definitions in sync with the engine's schema.
 
+-- ============================================================================
 -- Application tables (synced across devices)
-import '../../../packages/dspatch_sdk/shared/schema/workspaces.sql';
-import '../../../packages/dspatch_sdk/shared/schema/workspace_runs.sql';
-import '../../../packages/dspatch_sdk/shared/schema/workspace_agents.sql';
-import '../../../packages/dspatch_sdk/shared/schema/agent_messages.sql';
-import '../../../packages/dspatch_sdk/shared/schema/agent_logs.sql';
-import '../../../packages/dspatch_sdk/shared/schema/agent_activity_events.sql';
-import '../../../packages/dspatch_sdk/shared/schema/agent_usage_records.sql';
-import '../../../packages/dspatch_sdk/shared/schema/agent_files.sql';
-import '../../../packages/dspatch_sdk/shared/schema/workspace_inquiries.sql';
-import '../../../packages/dspatch_sdk/shared/schema/agent_providers.sql';
-import '../../../packages/dspatch_sdk/shared/schema/agent_templates.sql';
-import '../../../packages/dspatch_sdk/shared/schema/api_keys.sql';
-import '../../../packages/dspatch_sdk/shared/schema/preferences.sql';
-import '../../../packages/dspatch_sdk/shared/schema/workspace_templates.sql';
-import '../../../packages/dspatch_sdk/shared/schema/instance_results.sql';
+-- ============================================================================
 
+CREATE TABLE workspaces (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    project_path TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE workspace_runs (
+    id TEXT NOT NULL PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    run_number INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'starting',
+    container_id TEXT,
+    server_port INTEGER,
+    api_key TEXT,
+    started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    stopped_at TEXT
+);
+
+CREATE TABLE workspace_agents (
+    id TEXT NOT NULL PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES workspace_runs(id),
+    agent_key TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    chain_json TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'disconnected',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE agent_messages (
+    id TEXT NOT NULL PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES workspace_runs(id),
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    model TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    instance_id TEXT NOT NULL,
+    turn_id TEXT,
+    sender_name TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE agent_logs (
+    id TEXT NOT NULL PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES workspace_runs(id),
+    agent_key TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    turn_id TEXT,
+    level TEXT NOT NULL,
+    message TEXT NOT NULL,
+    source TEXT NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE agent_activity_events (
+    id TEXT NOT NULL PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES workspace_runs(id),
+    agent_key TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    turn_id TEXT,
+    event_type TEXT NOT NULL,
+    data_json TEXT,
+    content TEXT,
+    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE agent_usage_records (
+    id TEXT NOT NULL PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES workspace_runs(id),
+    agent_key TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    turn_id TEXT,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cache_read_tokens INTEGER NOT NULL,
+    cache_write_tokens INTEGER NOT NULL,
+    cost_usd REAL NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE agent_files (
+    id TEXT NOT NULL PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES workspace_runs(id),
+    agent_key TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    turn_id TEXT,
+    file_path TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE workspace_inquiries (
+    id TEXT NOT NULL PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES workspace_runs(id),
+    agent_key TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    priority TEXT NOT NULL,
+    content_markdown TEXT NOT NULL,
+    attachments_json TEXT,
+    suggestions_json TEXT,
+    response_text TEXT,
+    response_suggestion_index INTEGER,
+    responded_by_agent_key TEXT,
+    forwarding_chain_json TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    responded_at TEXT
+);
+
+CREATE TABLE agent_providers (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_path TEXT,
+    git_url TEXT,
+    git_branch TEXT,
+    entry_point TEXT NOT NULL,
+    description TEXT,
+    readme TEXT,
+    required_env_json TEXT NOT NULL DEFAULT '[]',
+    required_mounts_json TEXT NOT NULL DEFAULT '[]',
+    fields_json TEXT NOT NULL DEFAULT '{}',
+    hub_slug TEXT,
+    hub_author TEXT,
+    hub_category TEXT,
+    hub_tags_json TEXT NOT NULL DEFAULT '[]',
+    hub_version INTEGER,
+    hub_repo_url TEXT,
+    hub_commit_hash TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE agent_templates (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    source_uri TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now'))
+);
+
+CREATE TABLE api_keys (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    provider_label TEXT NOT NULL,
+    encrypted_key BLOB NOT NULL,
+    display_hint TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE preferences (
+    "key" TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE workspace_templates (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    hub_slug TEXT NOT NULL,
+    hub_author TEXT NOT NULL,
+    hub_category TEXT,
+    hub_tags_json TEXT NOT NULL DEFAULT '[]',
+    hub_version INTEGER NOT NULL,
+    config_json TEXT NOT NULL,
+    agent_refs_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE instance_results (
+    id TEXT NOT NULL PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES workspace_runs(id),
+    agent_key TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    request_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- ============================================================================
 -- Ephemeral state tables (synced across devices)
-import '../../../packages/dspatch_sdk/shared/schema/agent_instance_states.sql';
-import '../../../packages/dspatch_sdk/shared/schema/agent_connection_status.sql';
-import '../../../packages/dspatch_sdk/shared/schema/container_health.sql';
-import '../../../packages/dspatch_sdk/shared/schema/workspace_run_status.sql';
+-- ============================================================================
 
+CREATE TABLE agent_instance_states (
+    instance_id TEXT NOT NULL PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES workspace_runs(id),
+    agent_key TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'idle',
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE agent_connection_status (
+    agent_key TEXT NOT NULL,
+    run_id TEXT NOT NULL REFERENCES workspace_runs(id),
+    connected INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (agent_key, run_id)
+);
+
+CREATE TABLE container_health (
+    run_id TEXT NOT NULL PRIMARY KEY REFERENCES workspace_runs(id),
+    status TEXT NOT NULL DEFAULT 'unknown',
+    error_message TEXT,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE workspace_run_status (
+    run_id TEXT NOT NULL PRIMARY KEY REFERENCES workspace_runs(id),
+    status TEXT NOT NULL DEFAULT 'starting',
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- ============================================================================
 -- Device-local tables
-import '../../../packages/dspatch_sdk/shared/schema/recent_projects.sql';
+-- ============================================================================
+
+CREATE TABLE recent_projects (
+    id TEXT NOT NULL PRIMARY KEY,
+    path TEXT NOT NULL,
+    name TEXT NOT NULL,
+    is_git_repo INTEGER NOT NULL DEFAULT 0,
+    last_used_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
