@@ -83,21 +83,35 @@ async fn main() {
     let api_runtime = runtime.clone();
     let shutdown_rx = runtime.subscribe_shutdown();
 
-    // Use a oneshot channel to get the actual bound port from the spawned task.
-    let (port_tx, port_rx) = tokio::sync::oneshot::channel::<u16>();
+    // In test mode, use a oneshot channel to get the actual bound port.
+    let port_tx = if test_dir.is_some() {
+        let (tx, rx) = tokio::sync::oneshot::channel::<u16>();
+        // Stash the receiver for later.
+        Some((tx, rx))
+    } else {
+        None
+    };
+
+    let (sender, receiver) = match port_tx {
+        Some((tx, rx)) => (Some(tx), Some(rx)),
+        None => (None, None),
+    };
 
     let api_handle = tokio::spawn(async move {
-        if let Err(e) = start_client_api(api_runtime, shutdown_rx, Some(port_tx)).await {
+        if let Err(e) = start_client_api(api_runtime, shutdown_rx, sender).await {
             tracing::error!(error = %e, "client API server failed");
         }
     });
 
     // In test mode, wait for the port and print the JSON bootstrap line.
-    if test_dir.is_some() {
-        match port_rx.await {
+    if let (Some(rx), Some(ref dir)) = (receiver, &test_dir) {
+        match rx.await {
             Ok(port) => {
-                let db_dir = test_dir.as_ref().unwrap().display();
-                println!("{{\"port\": {port}, \"db_dir\": \"{db_dir}\"}}");
+                let bootstrap = serde_json::json!({
+                    "port": port,
+                    "db_dir": dir.to_string_lossy(),
+                });
+                println!("{bootstrap}");
             }
             Err(_) => {
                 tracing::error!("failed to receive bound port from client API server");
