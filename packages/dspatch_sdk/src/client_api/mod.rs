@@ -4,6 +4,7 @@
 
 pub mod auth;
 pub mod commands;
+pub mod dispatch;
 pub mod error_mapping;
 pub mod health;
 pub mod protocol;

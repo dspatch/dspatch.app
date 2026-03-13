@@ -662,6 +662,111 @@ fn error_mapping_covers_all_app_error_variants() {
     assert_eq!(error_to_code(&AppError::Internal("x".into())), "INTERNAL_ERROR");
 }
 
+#[tokio::test]
+async fn dispatch_get_workspace_not_found() {
+    use std::sync::Arc;
+    use dspatch_sdk::client_api::commands::Command;
+    use dspatch_sdk::client_api::dispatch::dispatch_command;
+    use dspatch_sdk::engine::service_registry::ServiceRegistry;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("test.db");
+    let db = Arc::new(dspatch_sdk::engine::startup::open_database(&db_path).unwrap());
+    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
+
+    let cmd = Command::GetWorkspace { id: "nonexistent".into() };
+    let result = dispatch_command(&cmd, &registry).await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(matches!(err, dspatch_sdk::util::error::AppError::NotFound(_)));
+}
+
+#[tokio::test]
+async fn dispatch_delete_workspace() {
+    use std::sync::Arc;
+    use dspatch_sdk::client_api::commands::Command;
+    use dspatch_sdk::client_api::dispatch::dispatch_command;
+    use dspatch_sdk::engine::service_registry::ServiceRegistry;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("test.db");
+    let db = Arc::new(dspatch_sdk::engine::startup::open_database(&db_path).unwrap());
+    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
+
+    // Delete non-existent workspace — just verify it doesn't panic.
+    let cmd = Command::DeleteWorkspace { id: "nonexistent".into() };
+    let result = dispatch_command(&cmd, &registry).await;
+    let _ = result;
+}
+
+#[tokio::test]
+async fn dispatch_preference_round_trip() {
+    use std::sync::Arc;
+    use dspatch_sdk::client_api::commands::Command;
+    use dspatch_sdk::client_api::dispatch::dispatch_command;
+    use dspatch_sdk::engine::service_registry::ServiceRegistry;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("test.db");
+    let db = Arc::new(dspatch_sdk::engine::startup::open_database(&db_path).unwrap());
+    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
+
+    // Set a preference.
+    let cmd = Command::SetPreference {
+        key: "theme".into(),
+        value: "dark".into(),
+    };
+    let result = dispatch_command(&cmd, &registry).await;
+    assert!(result.is_ok());
+
+    // Get it back.
+    let cmd = Command::GetPreference { key: "theme".into() };
+    let result = dispatch_command(&cmd, &registry).await;
+    assert!(result.is_ok());
+    let data = result.unwrap();
+    assert_eq!(data.as_str().unwrap(), "dark");
+}
+
+#[tokio::test]
+async fn dispatch_agent_provider_round_trip() {
+    use std::sync::Arc;
+    use dspatch_sdk::client_api::commands::Command;
+    use dspatch_sdk::client_api::dispatch::dispatch_command;
+    use dspatch_sdk::engine::service_registry::ServiceRegistry;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("test.db");
+    let db = Arc::new(dspatch_sdk::engine::startup::open_database(&db_path).unwrap());
+    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
+
+    // Create an agent provider via JSON Value
+    let cmd = Command::CreateAgentProvider {
+        request: serde_json::json!({
+            "name": "test-provider",
+            "sourceType": "local",
+            "entryPoint": "main.py",
+            "requiredEnv": []
+        }),
+    };
+    let result = dispatch_command(&cmd, &registry).await;
+    assert!(result.is_ok(), "create should succeed: {:?}", result.err());
+
+    let data = result.unwrap();
+    let provider_id = data["id"].as_str().unwrap().to_string();
+
+    // Get it back.
+    let cmd = Command::GetAgentProvider { id: provider_id.clone() };
+    let result = dispatch_command(&cmd, &registry).await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap()["name"], "test-provider");
+
+    // Delete it.
+    let cmd = Command::DeleteAgentProvider { id: provider_id };
+    let result = dispatch_command(&cmd, &registry).await;
+    assert!(result.is_ok());
+}
+
 #[test]
 fn command_deserialize_get_workspace() {
     use dspatch_sdk::client_api::commands::Command;
