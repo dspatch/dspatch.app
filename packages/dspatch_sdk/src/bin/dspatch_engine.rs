@@ -7,12 +7,13 @@
 
 use std::sync::Arc;
 
+use dspatch_sdk::client_api::invalidation::InvalidationBroadcaster;
+use dspatch_sdk::client_api::server::start_client_api;
 use dspatch_sdk::engine::config::EngineConfig;
 use dspatch_sdk::engine::service_registry::ServiceRegistry;
 use dspatch_sdk::engine::startup::{
     init_tracing, open_database, wait_for_shutdown_signal, EngineRuntime,
 };
-use dspatch_sdk::client_api::server::start_client_api;
 
 #[tokio::main]
 async fn main() {
@@ -40,11 +41,20 @@ async fn main() {
         }
     };
 
-    // 3. Create the service registry and engine runtime.
-    let registry = Arc::new(ServiceRegistry::new(db, config.db_dir.clone()));
-    let runtime = Arc::new(EngineRuntime::with_services(config, registry));
+    // 3. Start the invalidation broadcaster.
+    let broadcaster = InvalidationBroadcaster::new(
+        db.tracker().clone(),
+        config.invalidation_debounce_ms,
+    );
+    let invalidation_handle = broadcaster.start();
 
-    // 4. Start the client API server in a background task.
+    // 4. Create the service registry and engine runtime.
+    let registry = Arc::new(ServiceRegistry::new(db, config.db_dir.clone()));
+    let runtime = Arc::new(EngineRuntime::with_services_and_invalidation(
+        config, registry, invalidation_handle,
+    ));
+
+    // 5. Start the client API server in a background task.
     let api_runtime = runtime.clone();
     let shutdown_rx = runtime.subscribe_shutdown();
     let api_handle = tokio::spawn(async move {
@@ -53,14 +63,14 @@ async fn main() {
         }
     });
 
-    // 5. Wait for shutdown signal (Ctrl+C / SIGTERM).
+    // 6. Wait for shutdown signal (Ctrl+C / SIGTERM).
     wait_for_shutdown_signal().await;
 
-    // 6. Trigger graceful shutdown.
+    // 7. Trigger graceful shutdown.
     tracing::info!("shutting down...");
     runtime.trigger_shutdown();
 
-    // 7. Wait for the server to finish.
+    // 8. Wait for the server to finish.
     let _ = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         api_handle,
