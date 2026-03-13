@@ -58,6 +58,28 @@ pub struct SyncChange {
     pub device_id: String,
 }
 
+/// A command to be executed on the device owning a workspace.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteCommand {
+    /// Unique ID for correlating the result.
+    pub command_id: String,
+    /// The command method name (e.g. "send_user_input", "stop_workspace").
+    pub method: String,
+    /// JSON parameters for the command.
+    pub params: serde_json::Value,
+}
+
+/// The result of executing a remote command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommandResult {
+    /// The command ID this result is for.
+    pub command_id: String,
+    /// Whether the command succeeded.
+    pub success: bool,
+    /// Error message if the command failed.
+    pub error: Option<String>,
+}
+
 /// Messages exchanged between peers during sync.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SyncMessage {
@@ -72,4 +94,8 @@ pub enum SyncMessage {
         table: String,
         since_lamport: i64,
     },
+    /// A command to be forwarded to the owning device.
+    Command(RemoteCommand),
+    /// The result of a remotely executed command.
+    CommandResult(CommandResult),
 }
