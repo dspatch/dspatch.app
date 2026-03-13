@@ -1,0 +1,29 @@
+-- Drift schema file — imports shared .sql table definitions from the engine crate.
+-- This file is the single entry point for Drift code generation.
+-- All tables are READ-ONLY from the Flutter side.
+
+-- Application tables (synced across devices)
+import '../../../packages/dspatch_sdk/shared/schema/workspaces.sql';
+import '../../../packages/dspatch_sdk/shared/schema/workspace_runs.sql';
+import '../../../packages/dspatch_sdk/shared/schema/workspace_agents.sql';
+import '../../../packages/dspatch_sdk/shared/schema/agent_messages.sql';
+import '../../../packages/dspatch_sdk/shared/schema/agent_logs.sql';
+import '../../../packages/dspatch_sdk/shared/schema/agent_activity_events.sql';
+import '../../../packages/dspatch_sdk/shared/schema/agent_usage_records.sql';
+import '../../../packages/dspatch_sdk/shared/schema/agent_files.sql';
+import '../../../packages/dspatch_sdk/shared/schema/workspace_inquiries.sql';
+import '../../../packages/dspatch_sdk/shared/schema/agent_providers.sql';
+import '../../../packages/dspatch_sdk/shared/schema/agent_templates.sql';
+import '../../../packages/dspatch_sdk/shared/schema/api_keys.sql';
+import '../../../packages/dspatch_sdk/shared/schema/preferences.sql';
+import '../../../packages/dspatch_sdk/shared/schema/workspace_templates.sql';
+import '../../../packages/dspatch_sdk/shared/schema/instance_results.sql';
+
+-- Ephemeral state tables (synced across devices)
+import '../../../packages/dspatch_sdk/shared/schema/agent_instance_states.sql';
+import '../../../packages/dspatch_sdk/shared/schema/agent_connection_status.sql';
+import '../../../packages/dspatch_sdk/shared/schema/container_health.sql';
+import '../../../packages/dspatch_sdk/shared/schema/workspace_run_status.sql';
+
+-- Device-local tables
+import '../../../packages/dspatch_sdk/shared/schema/recent_projects.sql';
