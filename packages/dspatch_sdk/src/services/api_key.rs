@@ -5,11 +5,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::StreamExt;
 
 use crate::db::dao::ApiKeyDao;
 use crate::domain::models::ApiKey;
-use crate::domain::services::{ApiKeyService, WatchStream};
+use crate::domain::services::ApiKeyService;
 use crate::util::new_id;
 use crate::util::result::Result;
 
@@ -26,18 +25,9 @@ impl LocalApiKeyService {
         Self { dao }
     }
 
-    /// Watches all API keys, ordered by creation date (newest first).
-    pub fn watch_api_keys(&self) -> WatchStream<Vec<ApiKey>> {
-        let stream = self.dao.watch_api_keys();
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_api_keys error: {e}");
-                    None
-                }
-            }
-        }))
+    /// Returns all API keys, ordered by `created_at` descending.
+    pub fn list_api_keys(&self) -> Result<Vec<ApiKey>> {
+        self.dao.get_all_api_keys()
     }
 
     /// Returns the API key with the given `name`, or `None` if not found.
@@ -68,10 +58,6 @@ impl LocalApiKeyService {
 
 #[async_trait]
 impl ApiKeyService for LocalApiKeyService {
-    fn watch_api_keys(&self) -> WatchStream<Vec<ApiKey>> {
-        self.watch_api_keys()
-    }
-
     async fn get_api_key_by_name(&self, name: &str) -> Result<Option<ApiKey>> {
         self.get_api_key_by_name(name).await
     }

@@ -1,6 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
-use futures::StreamExt;
 use serde_json::{Map, Value};
 
 use crate::cli::formatter::OutputFormatter;
@@ -11,8 +10,7 @@ use crate::util::result::Result;
 pub async fn list(json: bool) -> Result<()> {
     with_sdk(|sdk| async move {
         let svc = sdk.templates().await?;
-        let mut stream = svc.watch_agent_templates();
-        let templates = stream.next().await.unwrap_or_default();
+        let templates = svc.list_agent_templates()?;
 
         let fmt = OutputFormatter::new(json);
         let items: Vec<Map<String, Value>> = templates

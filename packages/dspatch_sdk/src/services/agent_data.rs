@@ -1,16 +1,14 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
-//! Local agent data service — wraps WorkspaceDao watch methods.
+//! Local agent data service — wraps WorkspaceDao methods.
 
+use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::StreamExt;
+use futures::Stream;
 
 use crate::db::dao::WorkspaceDao;
-use crate::domain::models::{
-    AgentActivity, AgentFile, AgentLog, AgentMessage, AgentUsage, WorkspaceAgent,
-};
-use crate::domain::services::WatchStream;
+use crate::domain::models::{AgentLog, AgentMessage};
 use crate::util::error::AppError;
 use crate::util::result::Result;
 
@@ -50,6 +48,29 @@ impl LocalAgentDataService {
         Arc::clone(&self.dao)
     }
 
+    /// Returns a stream of agent messages for the given run and instance.
+    pub fn watch_agent_messages(
+        &self,
+        run_id: &str,
+        instance_id: &str,
+    ) -> Pin<Box<dyn Stream<Item = Vec<AgentMessage>> + Send>> {
+        use futures::StreamExt;
+        let stream = self.dao.watch_agent_messages(run_id, instance_id);
+        Box::pin(stream.filter_map(|r| async { r.ok() }))
+    }
+
+    /// Returns a stream of agent logs for the given run, optionally filtered
+    /// by instance.
+    pub fn watch_agent_logs(
+        &self,
+        run_id: &str,
+        instance_id: Option<&str>,
+    ) -> Pin<Box<dyn Stream<Item = Vec<AgentLog>> + Send>> {
+        use futures::StreamExt;
+        let stream = self.dao.watch_agent_logs(run_id, instance_id);
+        Box::pin(stream.filter_map(|r| async { r.ok() }))
+    }
+
     /// Sets the callback for sending user input to agents.
     ///
     /// Uses interior mutability so this works through `Arc<Self>`.
@@ -65,110 +86,6 @@ impl LocalAgentDataService {
     /// Sets the callback for interrupting agent instances.
     pub fn set_interrupt_instance(&self, callback: InterruptInstanceFn) {
         *self.interrupt_instance.write().unwrap_or_else(|e| e.into_inner()) = Some(callback);
-    }
-
-    /// Watches all agents for a workspace run.
-    pub fn watch_workspace_agents(&self, run_id: &str) -> WatchStream<Vec<WorkspaceAgent>> {
-        let stream = self.dao.watch_workspace_agents(run_id);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_workspace_agents error: {e}");
-                    None
-                }
-            }
-        }))
-    }
-
-    /// Watches messages for a specific agent instance within a run.
-    pub fn watch_agent_messages(
-        &self,
-        run_id: &str,
-        instance_id: &str,
-    ) -> WatchStream<Vec<AgentMessage>> {
-        let stream = self.dao.watch_agent_messages(run_id, instance_id);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_agent_messages error: {e}");
-                    None
-                }
-            }
-        }))
-    }
-
-    /// Watches activity entries for a specific agent instance within a run.
-    pub fn watch_agent_activity(
-        &self,
-        run_id: &str,
-        instance_id: &str,
-    ) -> WatchStream<Vec<AgentActivity>> {
-        let stream = self.dao.watch_agent_activity(run_id, instance_id);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_agent_activity error: {e}");
-                    None
-                }
-            }
-        }))
-    }
-
-    /// Watches log entries for a run, optionally filtered by `instance_id`.
-    pub fn watch_agent_logs(
-        &self,
-        run_id: &str,
-        instance_id: Option<&str>,
-    ) -> WatchStream<Vec<AgentLog>> {
-        let stream = self.dao.watch_agent_logs(run_id, instance_id);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_agent_logs error: {e}");
-                    None
-                }
-            }
-        }))
-    }
-
-    /// Watches usage entries for a run, optionally filtered by `instance_id`.
-    pub fn watch_agent_usage(
-        &self,
-        run_id: &str,
-        instance_id: Option<&str>,
-    ) -> WatchStream<Vec<AgentUsage>> {
-        let stream = self.dao.watch_agent_usage(run_id, instance_id);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_agent_usage error: {e}");
-                    None
-                }
-            }
-        }))
-    }
-
-    /// Watches file entries for a run, optionally filtered by `instance_id`.
-    pub fn watch_agent_files(
-        &self,
-        run_id: &str,
-        instance_id: Option<&str>,
-    ) -> WatchStream<Vec<AgentFile>> {
-        let stream = self.dao.watch_agent_files(run_id, instance_id);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_agent_files error: {e}");
-                    None
-                }
-            }
-        }))
     }
 
     /// Sends user text input to a specific agent instance.

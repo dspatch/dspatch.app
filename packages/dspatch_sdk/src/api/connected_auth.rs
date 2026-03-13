@@ -16,7 +16,7 @@ use crate::domain::enums::{AuthMode, TokenScope};
 use crate::domain::models::{
     AuthState, AuthTokens, BackupCodesData, DeviceRegistrationRequest, TotpSetupData,
 };
-use crate::domain::services::{ApiClient, AuthService, WatchStream};
+use crate::domain::services::{ApiClient, AuthService};
 use crate::util::error::AppError;
 use crate::util::result::Result;
 
@@ -136,41 +136,6 @@ impl ConnectedAuthService {
 #[async_trait]
 impl AuthService for ConnectedAuthService {
     // ─── State ────────────────────────────────────────────────────────
-
-    fn watch_auth_state(&self) -> WatchStream<bool> {
-        let current = self.current_auth_state();
-        let mut rx = self.tx.subscribe();
-        let is_authed = |s: &AuthState| {
-            s.mode == AuthMode::Anonymous
-                || (s.mode == AuthMode::Connected && s.token_scope == Some(TokenScope::Full))
-        };
-        Box::pin(async_stream::stream! {
-            // Yield current state first so late subscribers don't miss it.
-            yield is_authed(&current);
-            loop {
-                match rx.recv().await {
-                    Ok(s) => yield is_authed(&s),
-                    Err(_) => break,
-                }
-            }
-        })
-    }
-
-    fn watch_full_auth_state(&self) -> WatchStream<AuthState> {
-        // Yield the current state first so late subscribers don't miss it,
-        // then forward all future broadcasts.
-        let current = self.current_auth_state();
-        let mut rx = self.tx.subscribe();
-        Box::pin(async_stream::stream! {
-            yield current;
-            loop {
-                match rx.recv().await {
-                    Ok(state) => yield state,
-                    Err(_) => break,
-                }
-            }
-        })
-    }
 
     fn current_auth_state(&self) -> AuthState {
         // Non-blocking read — the RwLock is only held briefly during state

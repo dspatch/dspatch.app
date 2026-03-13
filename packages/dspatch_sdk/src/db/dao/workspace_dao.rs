@@ -94,6 +94,20 @@ impl WorkspaceDao {
         Box::pin(stream.map(|r| r.map(|v| v.into_iter().next().flatten())))
     }
 
+    /// Returns all workspaces, ordered by `updated_at` descending.
+    pub fn get_all_workspaces(&self) -> Result<Vec<Workspace>> {
+        let conn = self.db.conn();
+        let mut stmt = conn
+            .prepare("SELECT id, name, project_path, created_at, updated_at FROM workspaces ORDER BY updated_at DESC")
+            .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| Ok(row_to_workspace(row)))
+            .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Storage(format!("Row mapping failed: {e}")))?;
+        rows.into_iter().collect::<Result<Vec<_>>>()
+    }
+
     /// Returns the workspace with the given `id`. Errors if not found.
     pub fn get_workspace(&self, id: &str) -> Result<Workspace> {
         let conn = self.db.conn();
@@ -1022,6 +1036,51 @@ impl WorkspaceDao {
                 rows.into_iter().collect::<Result<Vec<_>>>()
             },
         )
+    }
+
+    /// Returns all inquiries across all workspaces (from the latest run of
+    /// each), most recent first. Each result includes the workspace name.
+    pub fn get_all_inquiries(&self) -> Result<Vec<InquiryWithWorkspace>> {
+        let conn = self.db.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT i.id, i.run_id, i.agent_key, i.instance_id, i.status, i.priority, i.content_markdown, i.attachments_json, i.suggestions_json, i.response_text, i.response_suggestion_index, i.responded_by_agent_key, i.forwarding_chain_json, i.created_at, i.responded_at, w.name AS workspace_name, r.workspace_id
+                 FROM workspace_inquiries i
+                 INNER JOIN workspace_runs r ON i.run_id = r.id
+                 INNER JOIN workspaces w ON r.workspace_id = w.id
+                 WHERE r.id = (
+                     SELECT r2.id FROM workspace_runs r2
+                     WHERE r2.workspace_id = r.workspace_id
+                     ORDER BY r2.run_number DESC
+                     LIMIT 1
+                 )
+                 ORDER BY i.created_at DESC",
+            )
+            .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(row_to_inquiry_with_workspace(row))
+            })
+            .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Storage(format!("Row mapping failed: {e}")))?;
+        rows.into_iter().collect::<Result<Vec<_>>>()
+    }
+
+    /// Returns a single workspace inquiry by `id`, or `None`.
+    pub fn get_workspace_inquiry(&self, id: &str) -> Result<Option<WorkspaceInquiry>> {
+        let conn = self.db.conn();
+        let mut stmt = conn
+            .prepare(&format!("{INQUIRY_SELECT_COLS} FROM workspace_inquiries WHERE id = ?1"))
+            .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
+        let result = stmt
+            .query_row(rusqlite::params![id], |row| Ok(row_to_workspace_inquiry(row)))
+            .optional()
+            .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?;
+        match result {
+            Some(r) => Ok(Some(r?)),
+            None => Ok(None),
+        }
     }
 
     /// Watches all inquiries across all workspaces (from the latest run of

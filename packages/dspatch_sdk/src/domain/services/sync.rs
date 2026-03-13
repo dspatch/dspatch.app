@@ -5,8 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::util::result::Result;
 
-use super::WatchStream;
-
 /// Current state of the data synchronization process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -25,7 +23,4 @@ pub enum SyncState {
 pub trait SyncService: Send + Sync {
     /// Performs initial sync setup (e.g. conflict resolution strategy).
     async fn initialize(&self) -> Result<()>;
-
-    /// Watches the current sync state.
-    fn watch_sync_state(&self) -> WatchStream<SyncState>;
 }

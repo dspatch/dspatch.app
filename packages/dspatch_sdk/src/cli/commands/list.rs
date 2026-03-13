@@ -1,6 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
-use futures::StreamExt;
 use serde_json::{Map, Value};
 
 use crate::cli::formatter::OutputFormatter;
@@ -10,8 +9,7 @@ use crate::util::result::Result;
 pub async fn run(json: bool) -> Result<()> {
     with_sdk(|sdk| async move {
         let svc = sdk.workspaces().await?;
-        let mut stream = svc.watch_workspaces();
-        let workspaces = stream.next().await.unwrap_or_default();
+        let workspaces = svc.list_workspaces()?;
 
         let fmt = OutputFormatter::new(json);
         let items: Vec<Map<String, Value>> = workspaces

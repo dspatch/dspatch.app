@@ -11,7 +11,9 @@ use crate::docker::{
     assemble_build_context, DockerClient, DSPATCH_CONTAINER_LABEL, RUNTIME_IMAGE_TAG,
 };
 use crate::domain::models::DockerStatus;
-use crate::domain::services::{ContainerSummary, DockerService, WatchStream};
+use std::pin::Pin;
+
+use crate::domain::services::{ContainerSummary, DockerService};
 use crate::util::error::AppError;
 use crate::util::format::format_bytes;
 use crate::util::result::Result;
@@ -115,7 +117,7 @@ impl LocalDockerService {
     /// The returned stream performs all work lazily — no `tokio::spawn` is used
     /// internally, so the caller must drive this stream from within a Tokio
     /// runtime context (e.g. via `forward_stream`).
-    pub fn build_runtime_image(&self) -> WatchStream<String> {
+    pub fn build_runtime_image(&self) -> Pin<Box<dyn futures::Stream<Item = String> + Send>> {
         let assets_dir = self.assets_dir.clone();
 
         let stream = async_stream::stream! {
@@ -235,7 +237,7 @@ impl DockerService for LocalDockerService {
         self.detect_status().await
     }
 
-    fn build_runtime_image(&self) -> WatchStream<String> {
+    fn build_runtime_image(&self) -> Pin<Box<dyn futures::Stream<Item = String> + Send>> {
         self.build_runtime_image()
     }
 

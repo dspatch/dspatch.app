@@ -5,8 +5,6 @@ use async_trait::async_trait;
 use crate::domain::models::{CreateWorkspaceRequest, Workspace};
 use crate::util::result::Result;
 
-use super::WatchStream;
-
 /// CRUD and lifecycle operations for multi-agent workspaces.
 ///
 /// A workspace maps to a single Docker container running the dspatch engine
@@ -14,13 +12,6 @@ use super::WatchStream;
 #[async_trait]
 pub trait WorkspaceService: Send + Sync {
     // -- Workspace CRUD --
-
-    /// Watches all workspaces.
-    fn watch_workspaces(&self) -> WatchStream<Vec<Workspace>>;
-
-    /// Watches a single workspace by `id`.
-    /// Emits `None` when the workspace doesn't exist.
-    fn watch_workspace(&self, id: &str) -> WatchStream<Option<Workspace>>;
 
     /// Returns the workspace with the given `id`.
     async fn get_workspace(&self, id: &str) -> Result<Workspace>;

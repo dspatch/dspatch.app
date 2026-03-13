@@ -8,8 +8,6 @@ use crate::domain::models::{
 };
 use crate::util::result::Result;
 
-use super::WatchStream;
-
 /// Manages authentication state and backend auth flows.
 ///
 /// In local mode, the user is always authenticated and
@@ -20,12 +18,6 @@ pub trait AuthService: Send + Sync {
     // -------------------------------------------------------------------------
     // State
     // -------------------------------------------------------------------------
-
-    /// Emits `true` when authenticated, `false` otherwise.
-    fn watch_auth_state(&self) -> WatchStream<bool>;
-
-    /// Emits the full [`AuthState`] (mode, token scope, user info).
-    fn watch_full_auth_state(&self) -> WatchStream<AuthState>;
 
     /// Current auth state snapshot.
     fn current_auth_state(&self) -> AuthState;

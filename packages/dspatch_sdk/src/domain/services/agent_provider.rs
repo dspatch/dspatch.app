@@ -6,21 +6,12 @@ use crate::domain::enums::SourceType;
 use crate::domain::models::{AgentProvider, CreateAgentProviderRequest, UpdateAgentProviderRequest};
 use crate::util::result::Result;
 
-use super::WatchStream;
-
 /// CRUD operations for reusable agent provider definitions.
 ///
 /// An agent provider defines how to build and run an agent: source code
 /// location, entry point, and required environment variable key names.
 #[async_trait]
 pub trait AgentProviderService: Send + Sync {
-    /// Watches all agent providers, ordered by most recently updated.
-    fn watch_agent_providers(&self) -> WatchStream<Vec<AgentProvider>>;
-
-    /// Watches a single agent provider by `id`.
-    /// Emits `None` when the provider doesn't exist.
-    fn watch_agent_provider(&self, id: &str) -> WatchStream<Option<AgentProvider>>;
-
     /// Returns all agent providers, ordered by most recently updated.
     async fn list_agent_providers(&self) -> Result<Vec<AgentProvider>>;
 

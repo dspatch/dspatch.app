@@ -12,25 +12,23 @@
 //!   work normally inside these methods.
 //! - **`fn` (sync)**: FRB calls these from a plain thread pool with **no Tokio
 //!   context**. Any async work MUST go through `self.rt` (e.g. `self.rt.spawn`,
-//!   `self.rt.block_on`, or `forward_stream(&self.rt, …)`).
+//!   `self.rt.block_on`).
 //!   **Never use bare `tokio::spawn` in sync methods — it will panic.**
 
 use flutter_rust_bridge::frb;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
-use crate::bridge::stream_adapters::forward_stream;
 use crate::frb_generated::StreamSink;
 use crate::config::DspatchConfig;
 use crate::domain::models::{
-    AgentActivity, AgentFile, AgentLog, AgentMessage, AgentProvider, AgentTemplate, AgentUsage, ApiKey,
-    AuthState, AuthTokens, BackupCodesData, CreateAgentProviderRequest, CreateWorkspaceRequest,
-    Device, DeviceRegistrationRequest, DockerStatus, FileEntry, InquiryWithWorkspace,
-    TotpSetupData, UpdateAgentProviderRequest, Workspace, WorkspaceAgent, WorkspaceInquiry,
-    WorkspaceRun, WorkspaceTemplate,
+    AgentProvider, AgentTemplate, ApiKey,
+    AuthTokens, BackupCodesData, CreateAgentProviderRequest, CreateWorkspaceRequest,
+    Device, DeviceRegistrationRequest, DockerStatus, FileEntry,
+    TotpSetupData, UpdateAgentProviderRequest, Workspace, WorkspaceTemplate,
 };
 use crate::docker::ContainerStats;
-use crate::domain::services::{AuthService, ContainerSummary};
+use crate::domain::services::ContainerSummary;
 use chrono::NaiveDateTime;
 
 
@@ -120,33 +118,6 @@ impl RustSdk {
     // Task 4: Workspace Methods
     // ════════════════════════════════════════════════════════════════════
 
-    /// Watches all workspaces.
-    pub fn watch_workspaces(
-        &self,
-        sink: StreamSink<Vec<Workspace>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.workspaces())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_workspaces();
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches a single workspace by id.
-    pub fn watch_workspace(
-        &self,
-        id: String,
-        sink: StreamSink<Option<Workspace>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.workspaces())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_workspace(&id);
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
     /// Returns a single workspace by id.
     pub async fn get_workspace(&self, id: String) -> Result<Workspace, String> {
         let svc = self.inner.workspaces().await.map_err(|e| e.to_string())?;
@@ -193,64 +164,9 @@ impl RustSdk {
             .map_err(|e| e.to_string())
     }
 
-    /// Watches runs for a workspace.
-    pub fn watch_workspace_runs(
-        &self,
-        workspace_id: String,
-        sink: StreamSink<Vec<WorkspaceRun>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.workspaces())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_workspace_runs(&workspace_id);
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches all agents for a workspace run.
-    pub fn watch_workspace_agents(
-        &self,
-        run_id: String,
-        sink: StreamSink<Vec<WorkspaceAgent>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.agent_data())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_workspace_agents(&run_id);
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
     // ════════════════════════════════════════════════════════════════════
     // Task 5: Template & API Key Methods
     // ════════════════════════════════════════════════════════════════════
-
-    /// Watches all agent providers.
-    pub fn watch_agent_providers(
-        &self,
-        sink: StreamSink<Vec<AgentProvider>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.providers())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_agent_providers();
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches a single agent provider by id.
-    pub fn watch_agent_provider(
-        &self,
-        id: String,
-        sink: StreamSink<Option<AgentProvider>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.providers())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_agent_provider(&id);
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
 
     /// Returns a single agent provider by id.
     pub async fn get_agent_provider(&self, id: String) -> Result<AgentProvider, String> {
@@ -293,33 +209,6 @@ impl RustSdk {
 
     // ── Agent Templates (lightweight config presets) ────────────────────
 
-    /// Watches all agent templates.
-    pub fn watch_agent_templates(
-        &self,
-        sink: StreamSink<Vec<AgentTemplate>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.templates())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_agent_templates();
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches a single agent template by id.
-    pub fn watch_agent_template(
-        &self,
-        id: String,
-        sink: StreamSink<Option<AgentTemplate>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.templates())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_agent_template(&id);
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
     /// Creates a new agent template from a provider.
     pub async fn create_agent_template(
         &self,
@@ -351,32 +240,6 @@ impl RustSdk {
         svc.update_agent_template(&id, &name, &source_uri)
             .await
             .map_err(|e| e.to_string())
-    }
-
-    /// Watches all workspace templates.
-    pub fn watch_workspace_templates(
-        &self,
-        sink: StreamSink<Vec<WorkspaceTemplate>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.workspace_templates())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_workspace_templates();
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches all API keys.
-    pub fn watch_api_keys(
-        &self,
-        sink: StreamSink<Vec<ApiKey>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.api_keys())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_api_keys();
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
     }
 
     /// Creates a new API key.
@@ -412,85 +275,6 @@ impl RustSdk {
         svc.delete_api_key(&id).await.map_err(|e| e.to_string())
     }
 
-    // ════════════════════════════════════════════════════════════════════
-    // Task 6: Agent Data Streams
-    // ════════════════════════════════════════════════════════════════════
-
-    /// Watches messages for a specific agent instance within a run.
-    pub fn watch_agent_messages(
-        &self,
-        run_id: String,
-        instance_id: String,
-        sink: StreamSink<Vec<AgentMessage>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.agent_data())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_agent_messages(&run_id, &instance_id);
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches activity entries for a specific agent instance within a run.
-    pub fn watch_agent_activity(
-        &self,
-        run_id: String,
-        instance_id: String,
-        sink: StreamSink<Vec<AgentActivity>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.agent_data())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_agent_activity(&run_id, &instance_id);
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches log entries for a run, optionally filtered by instance_id.
-    pub fn watch_agent_logs(
-        &self,
-        run_id: String,
-        instance_id: Option<String>,
-        sink: StreamSink<Vec<AgentLog>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.agent_data())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_agent_logs(&run_id, instance_id.as_deref());
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches usage entries for a run, optionally filtered by instance_id.
-    pub fn watch_agent_usage(
-        &self,
-        run_id: String,
-        instance_id: Option<String>,
-        sink: StreamSink<Vec<AgentUsage>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.agent_data())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_agent_usage(&run_id, instance_id.as_deref());
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches file entries for a run, optionally filtered by instance_id.
-    pub fn watch_agent_files(
-        &self,
-        run_id: String,
-        instance_id: Option<String>,
-        sink: StreamSink<Vec<AgentFile>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.agent_data())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_agent_files(&run_id, instance_id.as_deref());
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
     /// Sends user text input to a specific agent instance.
     pub async fn send_user_input_to_agent(
         &self,
@@ -519,28 +303,6 @@ impl RustSdk {
     // ════════════════════════════════════════════════════════════════════
     // Task 7: Auth Methods
     // ════════════════════════════════════════════════════════════════════
-
-    /// Watches whether the user is authenticated (true/false stream).
-    pub fn watch_auth_state(
-        &self,
-        sink: StreamSink<bool>,
-    ) -> Result<(), String> {
-        let auth = Arc::clone(self.inner.auth_service());
-        let stream = auth.watch_auth_state();
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches the full auth state.
-    pub fn watch_full_auth_state(
-        &self,
-        sink: StreamSink<AuthState>,
-    ) -> Result<(), String> {
-        let auth = Arc::clone(self.inner.auth_service());
-        let stream = auth.watch_full_auth_state();
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
 
     /// Returns whether the user is currently authenticated.
     #[frb(sync)]
@@ -641,60 +403,6 @@ impl RustSdk {
     // Task 8: Inquiry Methods
     // ════════════════════════════════════════════════════════════════════
 
-    /// Watches all inquiries for a run.
-    pub fn watch_workspace_inquiries(
-        &self,
-        run_id: String,
-        sink: StreamSink<Vec<WorkspaceInquiry>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.inquiries())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_workspace_inquiries(&run_id);
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches a single workspace inquiry by id.
-    pub fn watch_workspace_inquiry(
-        &self,
-        id: String,
-        sink: StreamSink<Option<WorkspaceInquiry>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.inquiries())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_workspace_inquiry(&id);
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches inquiries from the latest run of each workspace.
-    pub fn watch_all_inquiries(
-        &self,
-        sink: StreamSink<Vec<InquiryWithWorkspace>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.inquiries())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_all_inquiries();
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
-    /// Watches the count of pending inquiries across all workspaces.
-    pub fn watch_pending_inquiry_count(
-        &self,
-        sink: StreamSink<i32>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.inquiries())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_all_pending_inquiry_count();
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
-
     /// Responds to a workspace inquiry.
     pub async fn respond_to_inquiry(
         &self,
@@ -720,17 +428,6 @@ impl RustSdk {
     pub async fn detect_docker_status(&self) -> Result<DockerStatus, String> {
         let svc = self.inner.docker_service();
         svc.detect_status().await.map_err(|e| e.to_string())
-    }
-
-    /// Builds the d:spatch runtime image. Returns a stream of build log lines.
-    pub fn build_runtime_image(
-        &self,
-        sink: StreamSink<String>,
-    ) -> Result<(), String> {
-        let svc = self.inner.docker_service();
-        let stream = svc.build_runtime_image();
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
     }
 
     /// Lists all d:spatch-managed containers.
@@ -810,20 +507,6 @@ impl RustSdk {
         svc.set_preference(&key, &value)
             .await
             .map_err(|e| e.to_string())
-    }
-
-    /// Watches the value for a preference key.
-    pub fn watch_preference(
-        &self,
-        key: String,
-        sink: StreamSink<Option<String>>,
-    ) -> Result<(), String> {
-        let svc = self.rt
-            .block_on(self.inner.preferences())
-            .map_err(|e| e.to_string())?;
-        let stream = svc.watch_preference(&key);
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
     }
 
     /// Removes the preference for key.
@@ -1361,17 +1044,6 @@ impl RustSdk {
     // ════════════════════════════════════════════════════════════════════
     // Task 11: Device, File Browser
     // ════════════════════════════════════════════════════════════════════
-
-    /// Watches all devices (single local device in offline mode).
-    pub fn watch_devices(
-        &self,
-        sink: StreamSink<Vec<Device>>,
-    ) -> Result<(), String> {
-        let svc = self.inner.device_service();
-        let stream = svc.watch_devices();
-        forward_stream(&self.rt, stream, sink);
-        Ok(())
-    }
 
     /// Returns the current device.
     #[frb(sync)]

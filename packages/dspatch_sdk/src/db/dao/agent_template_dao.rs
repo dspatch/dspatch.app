@@ -81,6 +81,20 @@ impl AgentTemplateDao {
         Box::pin(stream.map(|r| r.map(|v| v.into_iter().next().flatten())))
     }
 
+    /// Returns all agent templates, ordered by `updated_at` descending.
+    pub fn get_all_agent_templates(&self) -> Result<Vec<AgentTemplate>> {
+        let conn = self.db.conn();
+        let mut stmt = conn
+            .prepare(SELECT_ALL_SQL)
+            .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| Ok(row_to_agent_template(row)))
+            .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Storage(format!("Row mapping failed: {e}")))?;
+        rows.into_iter().collect::<Result<Vec<_>>>()
+    }
+
     /// Returns the agent template with the given `id`. Errors if not found.
     pub fn get_agent_template(&self, id: &str) -> Result<AgentTemplate> {
         let conn = self.db.conn();

@@ -5,10 +5,15 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use std::pin::Pin;
+
+use futures::Stream;
+
 use crate::domain::models::DockerStatus;
 use crate::util::result::Result;
 
-use super::WatchStream;
+/// A boxed, pinned, Send stream for build log output.
+type LogStream<T> = Pin<Box<dyn Stream<Item = T> + Send>>;
 
 /// Lightweight container listing from Docker's `GET /containers/json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,7 +44,7 @@ pub trait DockerService: Send + Sync {
     async fn detect_status(&self) -> Result<DockerStatus>;
 
     /// Builds the d:spatch runtime image. Returns a stream of build log lines.
-    fn build_runtime_image(&self) -> WatchStream<String>;
+    fn build_runtime_image(&self) -> LogStream<String>;
 
     /// Deletes the d:spatch runtime image.
     async fn delete_runtime_image(&self) -> Result<()>;

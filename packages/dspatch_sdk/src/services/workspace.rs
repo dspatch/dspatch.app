@@ -3,15 +3,14 @@
 //! Local workspace service — wraps WorkspaceDao with config parsing.
 
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::StreamExt;
-
+use futures::Stream;
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::db::dao::WorkspaceDao;
 use crate::domain::models::{CreateWorkspaceRequest, Workspace, WorkspaceRun};
-use crate::domain::services::WatchStream;
 use crate::server::workspace_bridge::WorkspaceBridge;
 use crate::util::error::AppError;
 use crate::util::new_id;
@@ -36,32 +35,9 @@ impl LocalWorkspaceService {
 
     // ── Workspace CRUD ──
 
-    /// Watches all workspaces.
-    pub fn watch_workspaces(&self) -> WatchStream<Vec<Workspace>> {
-        let stream = self.dao.watch_workspaces();
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_workspaces error: {e}");
-                    None
-                }
-            }
-        }))
-    }
-
-    /// Watches a single workspace by `id`.
-    pub fn watch_workspace(&self, id: &str) -> WatchStream<Option<Workspace>> {
-        let stream = self.dao.watch_workspace(id);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_workspace error: {e}");
-                    None
-                }
-            }
-        }))
+    /// Returns all workspaces, ordered by `updated_at` descending.
+    pub fn list_workspaces(&self) -> Result<Vec<Workspace>> {
+        self.dao.get_all_workspaces()
     }
 
     /// Returns the workspace with the given `id`.
@@ -147,20 +123,6 @@ impl LocalWorkspaceService {
         self.dao.delete_workspace(id)
     }
 
-    /// Watches runs for a workspace.
-    pub fn watch_workspace_runs(&self, workspace_id: &str) -> WatchStream<Vec<WorkspaceRun>> {
-        let stream = self.dao.watch_workspace_runs(workspace_id);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_workspace_runs error: {e}");
-                    None
-                }
-            }
-        }))
-    }
-
     // ── Lifecycle ──
 
     /// Launches the workspace container via [`WorkspaceBridge`].
@@ -179,6 +141,18 @@ impl LocalWorkspaceService {
             AppError::Server("Workspace bridge not wired up yet".to_string())
         })?;
         bridge.stop_workspace(id).await
+    }
+
+    // ── Reactive Streams ──
+
+    /// Returns a stream of workspace runs for `workspace_id`.
+    pub fn watch_workspace_runs(
+        &self,
+        workspace_id: &str,
+    ) -> Pin<Box<dyn Stream<Item = Vec<WorkspaceRun>> + Send>> {
+        use futures::StreamExt;
+        let stream = self.dao.watch_workspace_runs(workspace_id);
+        Box::pin(stream.filter_map(|r| async { r.ok() }))
     }
 
     // ── Run History Management ──

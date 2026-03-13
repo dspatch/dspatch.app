@@ -1,12 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
-use std::pin::Pin;
-
-use futures::Stream;
-
-/// A boxed, pinned, Send stream — used as the Rust equivalent of Dart's `Stream<T>`.
-pub type WatchStream<T> = Pin<Box<dyn Stream<Item = T> + Send>>;
-
 pub mod agent_data;
 pub mod agent_provider;
 pub mod agent_template;

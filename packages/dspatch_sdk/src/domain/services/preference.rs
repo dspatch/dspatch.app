@@ -4,8 +4,6 @@ use async_trait::async_trait;
 
 use crate::util::result::Result;
 
-use super::WatchStream;
-
 /// Typed access to user preferences stored as key-value pairs.
 ///
 /// All keys should come from `PreferenceKeys` to prevent typos.
@@ -18,9 +16,6 @@ pub trait PreferenceService: Send + Sync {
 
     /// Sets `key` to `value`, creating or updating the entry.
     async fn set_preference(&self, key: &str, value: &str) -> Result<()>;
-
-    /// Watches the value for `key`, emitting `None` when unset.
-    fn watch_preference(&self, key: &str) -> WatchStream<Option<String>>;
 
     /// Removes the preference for `key`.
     async fn delete_preference(&self, key: &str) -> Result<()>;

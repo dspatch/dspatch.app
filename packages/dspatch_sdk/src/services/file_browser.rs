@@ -7,8 +7,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use crate::domain::models::{FileChangeEvent, FileChangeType, FileEntry};
-use crate::domain::services::WatchStream;
+use crate::domain::models::FileEntry;
 use crate::util::error::AppError;
 use crate::util::result::Result;
 
@@ -119,67 +118,6 @@ impl LocalFileBrowserService {
         tokio::fs::write(file_path, content)
             .await
             .map_err(|e| AppError::Storage(format!("Failed to write file: {e}")))
-    }
-
-    /// Watches the directory for file system changes (recursive).
-    ///
-    /// Uses the `notify` crate to watch for adds, modifications, and removals.
-    pub fn watch_directory(&self, directory_path: &str) -> WatchStream<FileChangeEvent> {
-        use notify::{Event, EventKind, RecursiveMode, Watcher};
-
-        let (tx, mut rx) = tokio::sync::mpsc::channel(256);
-        let dir_path = directory_path.to_string();
-        let watcher_slot = self._watcher.clone();
-
-        // Spawn a task that sets up the notify watcher.
-        tokio::spawn(async move {
-            let tx_clone = tx.clone();
-            let watcher_result = notify::recommended_watcher(
-                move |result: std::result::Result<Event, notify::Error>| {
-                    if let Ok(event) = result {
-                        let change_type = match event.kind {
-                            EventKind::Create(_) => Some(FileChangeType::Added),
-                            EventKind::Modify(_) => Some(FileChangeType::Modified),
-                            EventKind::Remove(_) => Some(FileChangeType::Removed),
-                            _ => None,
-                        };
-                        if let Some(ct) = change_type {
-                            for path in &event.paths {
-                                let evt = FileChangeEvent {
-                                    path: path.to_string_lossy().to_string(),
-                                    change_type: ct,
-                                };
-                                let _ = tx_clone.blocking_send(evt);
-                            }
-                        }
-                    }
-                },
-            );
-
-            match watcher_result {
-                Ok(mut watcher) => {
-                    if let Err(e) =
-                        watcher.watch(Path::new(&dir_path), RecursiveMode::Recursive)
-                    {
-                        tracing::warn!("Failed to watch directory: {e}");
-                        return;
-                    }
-                    // Store the watcher so it stays alive.
-                    *watcher_slot.lock().await = Some(watcher);
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to create file watcher: {e}");
-                }
-            }
-        });
-
-        let stream = async_stream::stream! {
-            while let Some(event) = rx.recv().await {
-                yield event;
-            }
-        };
-
-        Box::pin(stream)
     }
 
     /// Releases file watchers and any held resources.

@@ -1,6 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
-use futures::StreamExt;
 use serde_json::{Map, Value};
 
 use crate::cli::formatter::OutputFormatter;
@@ -11,8 +10,7 @@ use crate::util::result::Result;
 pub async fn list(json: bool, pending: bool) -> Result<()> {
     with_sdk(|sdk| async move {
         let svc = sdk.inquiries().await?;
-        let mut stream = svc.watch_all_inquiries();
-        let all = stream.next().await.unwrap_or_default();
+        let all = svc.list_all_inquiries()?;
 
         let filtered: Vec<_> = if pending {
             all.into_iter()
@@ -67,10 +65,10 @@ pub async fn respond(inquiry_id: &str, answer: &str) -> Result<()> {
 pub async fn info(inquiry_id: &str, json: bool) -> Result<()> {
     with_sdk(|sdk| async move {
         let svc = sdk.inquiries().await?;
-        let mut stream = svc.watch_workspace_inquiry(inquiry_id);
-        let inquiry = stream.next().await.flatten().ok_or_else(|| {
-            crate::util::error::AppError::NotFound(format!("Inquiry \"{}\" not found", inquiry_id))
-        })?;
+        let inquiry = svc.get_workspace_inquiry(inquiry_id)?
+            .ok_or_else(|| {
+                crate::util::error::AppError::NotFound(format!("Inquiry \"{}\" not found", inquiry_id))
+            })?;
 
         let fmt = OutputFormatter::new(json);
         let mut m = Map::new();

@@ -2,16 +2,11 @@
 
 use crate::domain::models::Device;
 
-use super::WatchStream;
-
 /// Manages device registration and multi-device awareness.
 ///
 /// In local mode, there is a single device and multi-device is disabled.
 /// In SaaS mode, this would track paired devices and their online status.
 pub trait DeviceService: Send + Sync {
-    /// Watches all registered devices.
-    fn watch_devices(&self) -> WatchStream<Vec<Device>>;
-
     /// The current device running this app instance.
     fn current_device(&self) -> &Device;
 

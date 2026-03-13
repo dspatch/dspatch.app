@@ -5,17 +5,12 @@ use async_trait::async_trait;
 use crate::domain::models::WorkspaceTemplate;
 use crate::util::result::Result;
 
-use super::WatchStream;
-
 /// CRUD operations for workspace templates downloaded from the hub.
 ///
 /// A workspace template is a reusable blueprint that bundles a workspace
 /// configuration with the agent template references needed to instantiate it.
 #[async_trait]
 pub trait WorkspaceTemplateService: Send + Sync {
-    /// Watches all workspace templates, ordered by most recently updated.
-    fn watch_workspace_templates(&self) -> WatchStream<Vec<WorkspaceTemplate>>;
-
     /// Returns all workspace templates, ordered by most recently updated.
     async fn list_workspace_templates(&self) -> Result<Vec<WorkspaceTemplate>>;
 

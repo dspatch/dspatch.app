@@ -10,7 +10,6 @@ use crate::domain::enums::{AuthMode, TokenScope};
 use crate::domain::models::{
     AuthState, AuthTokens, BackupCodesData, DeviceRegistrationRequest, TotpSetupData,
 };
-use crate::domain::services::WatchStream;
 use crate::util::error::AppError;
 use crate::util::result::Result;
 
@@ -36,30 +35,6 @@ impl LocalAuthService {
     }
 
     // ── State ──
-
-    /// Emits `true` when authenticated, `false` otherwise.
-    pub fn watch_auth_state(&self) -> WatchStream<bool> {
-        Box::pin(futures::stream::once(async { true }))
-    }
-
-    /// Emits the full [`AuthState`].
-    pub fn watch_full_auth_state(&self) -> WatchStream<AuthState> {
-        let current = {
-            // We'll emit the current state first, then listen for changes.
-            let state = self.state.clone();
-            let rx = self.tx.subscribe();
-            async_stream::stream! {
-                // Emit current state.
-                yield state.read().await.clone();
-                // Then listen for updates.
-                let mut rx = rx;
-                while let Ok(new_state) = rx.recv().await {
-                    yield new_state;
-                }
-            }
-        };
-        Box::pin(current)
-    }
 
     /// Current auth state snapshot.
     pub async fn current_auth_state(&self) -> AuthState {

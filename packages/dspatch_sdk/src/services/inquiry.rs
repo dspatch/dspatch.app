@@ -9,7 +9,6 @@ use futures::StreamExt;
 use crate::db::dao::WorkspaceDao;
 use crate::domain::enums::InquiryStatus;
 use crate::domain::models::{InquiryWithWorkspace, WorkspaceInquiry};
-use crate::domain::services::WatchStream;
 use crate::util::result::Result;
 
 /// Callback type for sending an inquiry response to an agent.
@@ -38,71 +37,19 @@ impl LocalInquiryService {
         }
     }
 
+    /// Returns all inquiries across all workspaces (latest run of each).
+    pub fn list_all_inquiries(&self) -> Result<Vec<InquiryWithWorkspace>> {
+        self.dao.get_all_inquiries()
+    }
+
+    /// Returns a single workspace inquiry by `id`, or `None`.
+    pub fn get_workspace_inquiry(&self, id: &str) -> Result<Option<WorkspaceInquiry>> {
+        self.dao.get_workspace_inquiry(id)
+    }
+
     /// Sets the callback for sending inquiry responses to agents.
     pub fn set_send_response(&mut self, callback: SendInquiryResponseFn) {
         self.send_response = Some(callback);
-    }
-
-    /// Watches all inquiries for a run, most recent first.
-    pub fn watch_workspace_inquiries(
-        &self,
-        run_id: &str,
-    ) -> WatchStream<Vec<WorkspaceInquiry>> {
-        let stream = self.dao.watch_workspace_inquiries(run_id);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_workspace_inquiries error: {e}");
-                    None
-                }
-            }
-        }))
-    }
-
-    /// Watches inquiries from the latest run of each workspace, most recent first.
-    pub fn watch_all_inquiries(&self) -> WatchStream<Vec<InquiryWithWorkspace>> {
-        let stream = self.dao.watch_all_inquiries();
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_all_inquiries error: {e}");
-                    None
-                }
-            }
-        }))
-    }
-
-    /// Watches a single workspace inquiry by `id`.
-    pub fn watch_workspace_inquiry(
-        &self,
-        id: &str,
-    ) -> WatchStream<Option<WorkspaceInquiry>> {
-        let stream = self.dao.watch_workspace_inquiry(id);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_workspace_inquiry error: {e}");
-                    None
-                }
-            }
-        }))
-    }
-
-    /// Watches the count of pending inquiries across all workspaces.
-    pub fn watch_all_pending_inquiry_count(&self) -> WatchStream<i32> {
-        let stream = self.dao.watch_pending_inquiry_count();
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v as i32),
-                Err(e) => {
-                    tracing::warn!("watch_pending_inquiry_count error: {e}");
-                    None
-                }
-            }
-        }))
     }
 
     /// Responds to a workspace inquiry. Updates the DB and optionally sends

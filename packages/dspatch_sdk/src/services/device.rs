@@ -2,11 +2,8 @@
 
 //! Local device service — single local device based on hostname/platform.
 
-use futures::stream;
-
 use crate::domain::enums::PlatformType;
 use crate::domain::models::Device;
-use crate::domain::services::WatchStream;
 
 /// Local-only device service. Returns a single device derived from
 /// the current hostname and platform. Multi-device is disabled.
@@ -45,12 +42,6 @@ impl LocalDeviceService {
         };
 
         Self { device }
-    }
-
-    /// Emits the single local device as a one-element list.
-    pub fn watch_devices(&self) -> WatchStream<Vec<Device>> {
-        let devices = vec![self.device.clone()];
-        Box::pin(stream::once(async move { devices }))
     }
 
     /// Returns a reference to the current device.

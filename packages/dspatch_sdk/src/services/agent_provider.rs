@@ -6,12 +6,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::StreamExt;
 
 use crate::db::dao::AgentProviderDao;
 use crate::domain::enums::SourceType;
 use crate::domain::models::{AgentProvider, CreateAgentProviderRequest, UpdateAgentProviderRequest};
-use crate::domain::services::{AgentProviderService, WatchStream};
+use crate::domain::services::AgentProviderService;
 use crate::util::error::AppError;
 use crate::util::new_id;
 use crate::util::result::Result;
@@ -26,34 +25,6 @@ pub struct LocalAgentProviderService {
 impl LocalAgentProviderService {
     pub fn new(dao: Arc<AgentProviderDao>) -> Self {
         Self { dao }
-    }
-
-    /// Watches all agent providers, ordered by most recently updated.
-    pub fn watch_agent_providers(&self) -> WatchStream<Vec<AgentProvider>> {
-        let stream = self.dao.watch_agent_providers();
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_agent_providers error: {e}");
-                    None
-                }
-            }
-        }))
-    }
-
-    /// Watches a single agent provider by `id`.
-    pub fn watch_agent_provider(&self, id: &str) -> WatchStream<Option<AgentProvider>> {
-        let stream = self.dao.watch_agent_provider(id);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_agent_provider error: {e}");
-                    None
-                }
-            }
-        }))
     }
 
     /// Returns all agent providers, ordered by most recently updated.
@@ -154,14 +125,6 @@ impl LocalAgentProviderService {
 
 #[async_trait]
 impl AgentProviderService for LocalAgentProviderService {
-    fn watch_agent_providers(&self) -> WatchStream<Vec<AgentProvider>> {
-        self.watch_agent_providers()
-    }
-
-    fn watch_agent_provider(&self, id: &str) -> WatchStream<Option<AgentProvider>> {
-        self.watch_agent_provider(id)
-    }
-
     async fn list_agent_providers(&self) -> Result<Vec<AgentProvider>> {
         self.list_agent_providers().await
     }

@@ -6,11 +6,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::StreamExt;
 
 use crate::db::dao::AgentTemplateDao;
 use crate::domain::models::AgentTemplate;
-use crate::domain::services::{AgentTemplateService, WatchStream};
+use crate::domain::services::AgentTemplateService;
 use crate::util::error::AppError;
 use crate::util::new_id;
 use crate::util::result::Result;
@@ -30,32 +29,9 @@ impl LocalAgentTemplateService {
         Self { dao, templates_dir }
     }
 
-    /// Watches all agent templates, ordered by most recently updated.
-    pub fn watch_agent_templates(&self) -> WatchStream<Vec<AgentTemplate>> {
-        let stream = self.dao.watch_agent_templates();
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_agent_templates error: {e}");
-                    None
-                }
-            }
-        }))
-    }
-
-    /// Watches a single agent template by `id`.
-    pub fn watch_agent_template(&self, id: &str) -> WatchStream<Option<AgentTemplate>> {
-        let stream = self.dao.watch_agent_template(id);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_agent_template error: {e}");
-                    None
-                }
-            }
-        }))
+    /// Returns all agent templates, ordered by `updated_at` descending.
+    pub fn list_agent_templates(&self) -> Result<Vec<AgentTemplate>> {
+        self.dao.get_all_agent_templates()
     }
 
     /// Returns the agent template with the given `id`.
@@ -150,14 +126,6 @@ impl LocalAgentTemplateService {
 
 #[async_trait]
 impl AgentTemplateService for LocalAgentTemplateService {
-    fn watch_agent_templates(&self) -> WatchStream<Vec<AgentTemplate>> {
-        self.watch_agent_templates()
-    }
-
-    fn watch_agent_template(&self, id: &str) -> WatchStream<Option<AgentTemplate>> {
-        self.watch_agent_template(id)
-    }
-
     async fn get_agent_template(&self, id: &str) -> Result<AgentTemplate> {
         self.get_agent_template(id).await
     }

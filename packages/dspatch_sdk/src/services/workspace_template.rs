@@ -5,11 +5,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::StreamExt;
 
 use crate::db::dao::WorkspaceTemplateDao;
 use crate::domain::models::WorkspaceTemplate;
-use crate::domain::services::{WatchStream, WorkspaceTemplateService};
+use crate::domain::services::WorkspaceTemplateService;
 use crate::util::new_id;
 use crate::util::result::Result;
 
@@ -23,20 +22,6 @@ pub struct LocalWorkspaceTemplateService {
 impl LocalWorkspaceTemplateService {
     pub fn new(dao: Arc<WorkspaceTemplateDao>) -> Self {
         Self { dao }
-    }
-
-    /// Watches all workspace templates, ordered by most recently updated.
-    pub fn watch_workspace_templates(&self) -> WatchStream<Vec<WorkspaceTemplate>> {
-        let stream = self.dao.watch_workspace_templates();
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_workspace_templates error: {e}");
-                    None
-                }
-            }
-        }))
     }
 
     /// Returns all workspace templates, ordered by most recently updated.
@@ -111,10 +96,6 @@ impl LocalWorkspaceTemplateService {
 
 #[async_trait]
 impl WorkspaceTemplateService for LocalWorkspaceTemplateService {
-    fn watch_workspace_templates(&self) -> WatchStream<Vec<WorkspaceTemplate>> {
-        self.watch_workspace_templates()
-    }
-
     async fn list_workspace_templates(&self) -> Result<Vec<WorkspaceTemplate>> {
         self.list_workspace_templates().await
     }

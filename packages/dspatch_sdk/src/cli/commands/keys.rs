@@ -2,7 +2,6 @@
 
 use std::io::{self, BufRead};
 
-use futures::StreamExt;
 use serde_json::{Map, Value};
 
 use crate::cli::formatter::OutputFormatter;
@@ -12,8 +11,7 @@ use crate::util::result::Result;
 pub async fn list(json: bool) -> Result<()> {
     with_sdk(|sdk| async move {
         let svc = sdk.api_keys().await?;
-        let mut stream = svc.watch_api_keys();
-        let keys = stream.next().await.unwrap_or_default();
+        let keys = svc.list_api_keys()?;
 
         let fmt = OutputFormatter::new(json);
         let items: Vec<Map<String, Value>> = keys

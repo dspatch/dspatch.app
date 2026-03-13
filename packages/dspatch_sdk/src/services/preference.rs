@@ -4,10 +4,7 @@
 
 use std::sync::Arc;
 
-use futures::StreamExt;
-
 use crate::db::dao::PreferenceDao;
-use crate::domain::services::WatchStream;
 use crate::util::result::Result;
 
 /// Local preference service backed by [`PreferenceDao`].
@@ -31,23 +28,6 @@ impl LocalPreferenceService {
     /// Sets `key` to `value`, creating or updating the entry.
     pub async fn set_preference(&self, key: &str, value: &str) -> Result<()> {
         self.dao.set_preference(key, value)
-    }
-
-    /// Watches the value for `key`, emitting `None` when unset.
-    ///
-    /// The DAO stream emits `Result<Option<String>>`; we unwrap errors
-    /// by logging and skipping.
-    pub fn watch_preference(&self, key: &str) -> WatchStream<Option<String>> {
-        let stream = self.dao.watch_preference(key);
-        Box::pin(stream.filter_map(|r| async {
-            match r {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    tracing::warn!("watch_preference error: {e}");
-                    None
-                }
-            }
-        }))
     }
 
     /// Removes the preference for `key`.

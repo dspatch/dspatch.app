@@ -50,6 +50,20 @@ impl ApiKeyDao {
         )
     }
 
+    /// Returns all API keys, ordered by `created_at` descending.
+    pub fn get_all_api_keys(&self) -> Result<Vec<ApiKey>> {
+        let conn = self.db.conn();
+        let mut stmt = conn
+            .prepare("SELECT id, name, provider_label, encrypted_key, display_hint, created_at FROM api_keys ORDER BY created_at DESC")
+            .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| Ok(row_to_api_key(row)))
+            .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Storage(format!("Row mapping failed: {e}")))?;
+        rows.into_iter().collect::<Result<Vec<_>>>()
+    }
+
     /// Returns the API key with the given `name`, or `None`.
     pub fn get_api_key_by_name(&self, name: &str) -> Result<Option<ApiKey>> {
         let conn = self.db.conn();
