@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use futures::Stream;
 
+use crate::db::optional_ext::OptionalExt;
 use crate::db::reactive::watch_query;
 use crate::db::Database;
 use crate::util::result::Result;
@@ -85,20 +86,5 @@ impl PreferenceDao {
             &[&key as &dyn rusqlite::types::ToSql],
         )?;
         Ok(())
-    }
-}
-
-/// Extension trait on `rusqlite::Result` to match `.optional()` behavior.
-trait OptionalExt<T> {
-    fn optional(self) -> std::result::Result<Option<T>, rusqlite::Error>;
-}
-
-impl<T> OptionalExt<T> for std::result::Result<T, rusqlite::Error> {
-    fn optional(self) -> std::result::Result<Option<T>, rusqlite::Error> {
-        match self {
-            Ok(v) => Ok(Some(v)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
-        }
     }
 }

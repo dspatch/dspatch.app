@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use futures::Stream;
 
+use crate::db::optional_ext::OptionalExt;
 use crate::db::reactive::watch_query;
 use crate::db::Database;
 use crate::domain::models::AgentTemplate;
@@ -196,18 +197,4 @@ fn row_to_agent_template(row: &rusqlite::Row<'_>) -> Result<AgentTemplate> {
         created_at: parse_datetime(&created_at_str)?,
         updated_at: parse_datetime(&updated_at_str)?,
     })
-}
-
-trait OptionalExt<T> {
-    fn optional(self) -> std::result::Result<Option<T>, rusqlite::Error>;
-}
-
-impl<T> OptionalExt<T> for std::result::Result<T, rusqlite::Error> {
-    fn optional(self) -> std::result::Result<Option<T>, rusqlite::Error> {
-        match self {
-            Ok(v) => Ok(Some(v)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
-        }
-    }
 }

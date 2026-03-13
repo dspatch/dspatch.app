@@ -5,6 +5,7 @@ pub mod health;
 pub mod key_manager;
 pub mod manager;
 pub mod migrations;
+pub mod optional_ext;
 pub mod reactive;
 pub mod schema;
 

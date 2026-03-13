@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::db::optional_ext::OptionalExt;
+
 use futures::Stream;
 
 use crate::db::reactive::watch_query;
@@ -359,18 +361,4 @@ fn row_to_agent_provider(row: &rusqlite::Row<'_>) -> Result<AgentProvider> {
         created_at: parse_datetime(&created_at_str)?,
         updated_at: parse_datetime(&updated_at_str)?,
     })
-}
-
-trait OptionalExt<T> {
-    fn optional(self) -> std::result::Result<Option<T>, rusqlite::Error>;
-}
-
-impl<T> OptionalExt<T> for std::result::Result<T, rusqlite::Error> {
-    fn optional(self) -> std::result::Result<Option<T>, rusqlite::Error> {
-        match self {
-            Ok(v) => Ok(Some(v)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
-        }
-    }
 }

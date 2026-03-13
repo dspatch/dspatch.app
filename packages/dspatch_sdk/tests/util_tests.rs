@@ -96,3 +96,26 @@ fn format_bytes_values() {
     assert_eq!(format_bytes(2415919104), "2.2 GB");
     assert_eq!(format_bytes(2524971008), "2.4 GB");
 }
+
+#[test]
+fn optional_ext_converts_no_rows_to_none() {
+    use dspatch_sdk::db::optional_ext::OptionalExt;
+    let result: std::result::Result<String, rusqlite::Error> =
+        Err(rusqlite::Error::QueryReturnedNoRows);
+    assert_eq!(result.optional().unwrap(), None);
+}
+
+#[test]
+fn optional_ext_passes_through_ok() {
+    use dspatch_sdk::db::optional_ext::OptionalExt;
+    let result: std::result::Result<String, rusqlite::Error> = Ok("hello".into());
+    assert_eq!(result.optional().unwrap(), Some("hello".into()));
+}
+
+#[test]
+fn optional_ext_preserves_other_errors() {
+    use dspatch_sdk::db::optional_ext::OptionalExt;
+    let result: std::result::Result<String, rusqlite::Error> =
+        Err(rusqlite::Error::InvalidParameterCount(0, 1));
+    assert!(result.optional().is_err());
+}

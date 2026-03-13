@@ -9,6 +9,8 @@
 
 use std::sync::{Arc, Mutex};
 
+use crate::db::optional_ext::OptionalExt;
+
 use rusqlite::Connection;
 
 use crate::util::error::AppError;
@@ -88,20 +90,5 @@ impl SqliteSenderKeyStore {
             .map_err(|e| AppError::Storage(format!("Failed to query sender key: {e}")))?;
 
         Ok(result)
-    }
-}
-
-/// Extension trait to add `optional()` to rusqlite results.
-trait OptionalExt<T> {
-    fn optional(self) -> std::result::Result<Option<T>, rusqlite::Error>;
-}
-
-impl<T> OptionalExt<T> for std::result::Result<T, rusqlite::Error> {
-    fn optional(self) -> std::result::Result<Option<T>, rusqlite::Error> {
-        match self {
-            Ok(v) => Ok(Some(v)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
-        }
     }
 }

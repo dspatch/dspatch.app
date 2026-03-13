@@ -10,6 +10,7 @@ use std::sync::Arc;
 use chrono::NaiveDateTime;
 use futures::Stream;
 
+use crate::db::optional_ext::OptionalExt;
 use crate::db::reactive::watch_query;
 use crate::db::Database;
 use crate::domain::enums::{AgentState, InquiryPriority, InquiryStatus, LogLevel, LogSource};
@@ -1689,19 +1690,5 @@ fn log_source_to_db(source: &LogSource) -> String {
     match source {
         LogSource::Agent => "agent".to_string(),
         LogSource::Engine => "engine".to_string(),
-    }
-}
-
-trait OptionalExt<T> {
-    fn optional(self) -> std::result::Result<Option<T>, rusqlite::Error>;
-}
-
-impl<T> OptionalExt<T> for std::result::Result<T, rusqlite::Error> {
-    fn optional(self) -> std::result::Result<Option<T>, rusqlite::Error> {
-        match self {
-            Ok(v) => Ok(Some(v)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
-        }
     }
 }

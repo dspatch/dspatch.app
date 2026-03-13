@@ -8,6 +8,8 @@
 
 use std::sync::{Arc, Mutex};
 
+use crate::db::optional_ext::OptionalExt;
+
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rusqlite::Connection;
 
@@ -146,21 +148,6 @@ impl SqliteIdentityStore {
         match self.get_identity(address, device_id)? {
             None => Ok(true), // TOFU: trust on first use
             Some(record) => Ok(record.identity_key == identity_key),
-        }
-    }
-}
-
-/// Extension trait to add `optional()` to rusqlite results.
-trait OptionalExt<T> {
-    fn optional(self) -> std::result::Result<Option<T>, rusqlite::Error>;
-}
-
-impl<T> OptionalExt<T> for std::result::Result<T, rusqlite::Error> {
-    fn optional(self) -> std::result::Result<Option<T>, rusqlite::Error> {
-        match self {
-            Ok(v) => Ok(Some(v)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
         }
     }
 }
