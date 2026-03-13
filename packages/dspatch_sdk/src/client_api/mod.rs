@@ -3,6 +3,7 @@
 //! Client API server — axum HTTP/WebSocket server on a fixed port.
 
 pub mod auth;
+pub mod commands;
 pub mod error_mapping;
 pub mod health;
 pub mod protocol;

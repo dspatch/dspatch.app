@@ -663,6 +663,78 @@ fn error_mapping_covers_all_app_error_variants() {
 }
 
 #[test]
+fn command_deserialize_get_workspace() {
+    use dspatch_sdk::client_api::commands::Command;
+
+    let json = r#"{"method": "get_workspace", "id": "ws_123"}"#;
+    let cmd: Command = serde_json::from_str(json).unwrap();
+    match cmd {
+        Command::GetWorkspace { id } => assert_eq!(id, "ws_123"),
+        _ => panic!("expected GetWorkspace"),
+    }
+}
+
+#[test]
+fn command_deserialize_create_workspace() {
+    use dspatch_sdk::client_api::commands::Command;
+
+    let json = r#"{"method": "create_workspace", "name": "test", "project_path": "/home/user/project"}"#;
+    let cmd: Command = serde_json::from_str(json).unwrap();
+    match cmd {
+        Command::CreateWorkspace { name, project_path, .. } => {
+            assert_eq!(name, "test");
+            assert_eq!(project_path, "/home/user/project");
+        }
+        _ => panic!("expected CreateWorkspace"),
+    }
+}
+
+#[test]
+fn command_deserialize_unknown_method_fails() {
+    use dspatch_sdk::client_api::commands::Command;
+
+    let json = r#"{"method": "nonexistent_command"}"#;
+    let result: Result<Command, _> = serde_json::from_str(json);
+    assert!(result.is_err());
+}
+
+#[test]
+fn command_deserialize_launch_workspace() {
+    use dspatch_sdk::client_api::commands::Command;
+
+    let json = r#"{"method": "launch_workspace", "id": "ws_abc"}"#;
+    let cmd: Command = serde_json::from_str(json).unwrap();
+    match cmd {
+        Command::LaunchWorkspace { id } => assert_eq!(id, "ws_abc"),
+        _ => panic!("expected LaunchWorkspace"),
+    }
+}
+
+#[test]
+fn command_deserialize_delete_workspace() {
+    use dspatch_sdk::client_api::commands::Command;
+
+    let json = r#"{"method": "delete_workspace", "id": "ws_del"}"#;
+    let cmd: Command = serde_json::from_str(json).unwrap();
+    match cmd {
+        Command::DeleteWorkspace { id } => assert_eq!(id, "ws_del"),
+        _ => panic!("expected DeleteWorkspace"),
+    }
+}
+
+#[test]
+fn command_deserialize_stop_workspace() {
+    use dspatch_sdk::client_api::commands::Command;
+
+    let json = r#"{"method": "stop_workspace", "id": "ws_stop"}"#;
+    let cmd: Command = serde_json::from_str(json).unwrap();
+    match cmd {
+        Command::StopWorkspace { id } => assert_eq!(id, "ws_stop"),
+        _ => panic!("expected StopWorkspace"),
+    }
+}
+
+#[test]
 fn error_to_server_frame_preserves_message_and_id() {
     use dspatch_sdk::client_api::error_mapping::error_to_frame;
     use dspatch_sdk::client_api::protocol::ServerFrame;
