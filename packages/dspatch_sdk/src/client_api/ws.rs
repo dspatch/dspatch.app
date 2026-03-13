@@ -14,6 +14,9 @@ use crate::engine::startup::EngineRuntime;
 
 use super::protocol::{ClientFrame, ServerFrame};
 use super::session::Session;
+use super::commands::Command;
+use super::dispatch::dispatch_command;
+use super::error_mapping::error_to_frame;
 
 #[derive(Debug, Deserialize)]
 pub struct WsQuery {
@@ -79,7 +82,7 @@ async fn handle_ws_connection(
             msg = recv_message(&mut socket) => {
                 match msg {
                     Some(Ok(text)) => {
-                        handle_client_message(&mut socket, &text).await;
+                        handle_client_message(&mut socket, &text, &runtime).await;
                     }
                     Some(Err(e)) => {
                         tracing::warn!(error = %e, "WebSocket receive error");
@@ -95,7 +98,7 @@ async fn handle_ws_connection(
     }
 }
 
-async fn handle_client_message(socket: &mut WebSocket, text: &str) {
+async fn handle_client_message(socket: &mut WebSocket, text: &str, runtime: &Arc<EngineRuntime>) {
     let frame: ClientFrame = match serde_json::from_str(text) {
         Ok(f) => f,
         Err(e) => {
@@ -113,10 +116,39 @@ async fn handle_client_message(socket: &mut WebSocket, text: &str) {
     match frame {
         ClientFrame::Command {
             id,
-            method,
-            params: _,
+            method: _,
+            params,
         } => {
-            let response = ServerFrame::not_implemented(&id, &method);
+            let command: Command = match serde_json::from_value(params.clone()) {
+                Ok(c) => c,
+                Err(e) => {
+                    let err = ServerFrame::Error {
+                        id: Some(id),
+                        code: "INVALID_PARAMS".into(),
+                        message: format!("Failed to deserialize command params: {e}"),
+                    };
+                    let _ = send_frame(socket, &err).await;
+                    return;
+                }
+            };
+
+            let services = match runtime.services() {
+                Some(s) => s,
+                None => {
+                    let err = ServerFrame::Error {
+                        id: Some(id),
+                        code: "NOT_READY".into(),
+                        message: "Engine services are not yet initialized".into(),
+                    };
+                    let _ = send_frame(socket, &err).await;
+                    return;
+                }
+            };
+
+            let response = match dispatch_command(&command, services).await {
+                Ok(data) => ServerFrame::Result { id, data },
+                Err(e) => error_to_frame(&id, &e),
+            };
             let _ = send_frame(socket, &response).await;
         }
     }

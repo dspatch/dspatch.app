@@ -464,8 +464,9 @@ async fn ws_command_returns_not_implemented() {
     // Consume welcome.
     let _welcome = ws.next().await.unwrap().unwrap();
 
-    // Send a command.
-    let cmd = r#"{"id":"cmd_42","type":"command","method":"launch_workspace","params":{"workspace_id":"w1"}}"#;
+    // Send a command. The runtime has no services (created via `new()`), so
+    // we expect NOT_READY. Params must include `method` for Command deserialization.
+    let cmd = r#"{"id":"cmd_42","type":"command","method":"launch_workspace","params":{"method":"launch_workspace","id":"w1"}}"#;
     ws.send(tungstenite::Message::Text(cmd.into())).await.unwrap();
 
     let msg = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
@@ -475,8 +476,8 @@ async fn ws_command_returns_not_implemented() {
     let frame: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(frame["type"], "error");
     assert_eq!(frame["id"], "cmd_42");
-    assert_eq!(frame["code"], "NOT_IMPLEMENTED");
-    assert!(frame["message"].as_str().unwrap().contains("launch_workspace"));
+    assert_eq!(frame["code"], "NOT_READY");
+    assert!(frame["message"].as_str().unwrap().contains("not yet initialized"));
 
     runtime.trigger_shutdown();
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await;
@@ -854,4 +855,78 @@ fn error_to_server_frame_preserves_message_and_id() {
         }
         _ => panic!("expected ServerFrame::Error"),
     }
+}
+
+#[tokio::test]
+async fn ws_command_dispatches_to_service() {
+    use std::sync::Arc;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::engine::service_registry::ServiceRegistry;
+    use dspatch_sdk::client_api::session::AuthMode;
+    use futures::{SinkExt, StreamExt};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("test.db");
+    let db = Arc::new(dspatch_sdk::engine::startup::open_database(&db_path).unwrap());
+    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
+
+    let mut config = EngineConfig::default();
+    config.client_api_port = 0;
+    let runtime = Arc::new(EngineRuntime::with_services(config, registry));
+
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+
+    let runtime_clone = runtime.clone();
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+    let _server_handle = tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _ = port_tx.send(port);
+        let app = dspatch_sdk::client_api::server::build_router(runtime_clone.clone());
+        let mut shutdown = runtime_clone.subscribe_shutdown();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move { let _ = shutdown.recv().await; })
+            .await
+            .unwrap();
+    });
+
+    let port = port_rx.await.unwrap();
+    let url = format!("ws://127.0.0.1:{port}/ws?token={token}");
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+
+    // Read welcome event.
+    let _welcome = ws.next().await.unwrap().unwrap();
+
+    // Send a set_preference command (simple, doesn't need complex setup).
+    let cmd = serde_json::json!({
+        "id": "cmd_1",
+        "type": "command",
+        "method": "set_preference",
+        "params": {
+            "method": "set_preference",
+            "key": "test_key",
+            "value": "test_value"
+        }
+    });
+    ws.send(tokio_tungstenite::tungstenite::Message::Text(cmd.to_string().into()))
+        .await
+        .unwrap();
+
+    // Read the response.
+    let msg = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        ws.next(),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .unwrap();
+
+    let text = msg.into_text().unwrap();
+    let frame: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(frame["type"], "result");
+    assert_eq!(frame["id"], "cmd_1");
+
+    runtime.trigger_shutdown();
 }

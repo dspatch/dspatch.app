@@ -2,12 +2,14 @@
 
 //! Engine runtime state and initialization helpers.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use tokio::sync::broadcast;
 use tracing_subscriber::EnvFilter;
 
 use super::config::EngineConfig;
+use super::service_registry::ServiceRegistry;
 use crate::client_api::session::SessionStore;
 
 /// Core runtime state for the engine daemon.
@@ -16,6 +18,7 @@ pub struct EngineRuntime {
     started_at: Instant,
     shutdown_tx: broadcast::Sender<()>,
     session_store: SessionStore,
+    services: Option<Arc<ServiceRegistry>>,
 }
 
 impl EngineRuntime {
@@ -26,6 +29,18 @@ impl EngineRuntime {
             started_at: Instant::now(),
             shutdown_tx,
             session_store: SessionStore::new(),
+            services: None,
+        }
+    }
+
+    pub fn with_services(config: EngineConfig, services: Arc<ServiceRegistry>) -> Self {
+        let (shutdown_tx, _) = broadcast::channel(1);
+        Self {
+            config,
+            started_at: Instant::now(),
+            shutdown_tx,
+            session_store: SessionStore::new(),
+            services: Some(services),
         }
     }
 
@@ -47,6 +62,10 @@ impl EngineRuntime {
 
     pub fn trigger_shutdown(&self) {
         let _ = self.shutdown_tx.send(());
+    }
+
+    pub fn services(&self) -> Option<&Arc<ServiceRegistry>> {
+        self.services.as_ref()
     }
 }
 
