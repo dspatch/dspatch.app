@@ -37,6 +37,11 @@ impl WorkspaceDao {
         Self { db }
     }
 
+    /// Returns the underlying database handle.
+    pub fn db(&self) -> &Arc<Database> {
+        &self.db
+    }
+
     // ── Workspace CRUD ──────────────────────────────────────────────
 
     /// Watches all workspaces, ordered by `updated_at` descending.

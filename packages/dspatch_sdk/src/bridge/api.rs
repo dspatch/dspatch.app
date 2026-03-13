@@ -1344,41 +1344,18 @@ impl RustSdk {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // SDK Event Bus
+    // SDK Event Bus (deprecated — events now flow through DB + table invalidation)
     // ════════════════════════════════════════════════════════════════════
 
-    /// Subscribes to real-time SDK lifecycle events.
-    ///
-    /// Events are fire-and-forget broadcasts. If the consumer lags behind,
-    /// missed events are skipped with a warning log.
+    /// Stub — the SdkEventBus has been removed. Events now flow through
+    /// ephemeral DB tables + table invalidation. This function is retained
+    /// only because frb_generated.rs references it; it will be deleted when
+    /// the FRB bridge is removed.
     pub fn watch_sdk_events(
         &self,
-        sink: StreamSink<crate::server::event_bus::SdkEvent>,
+        _sink: StreamSink<crate::server::event_bus::SdkEvent>,
     ) -> Result<(), String> {
-        let inner = Arc::clone(&self.inner);
-        self.rt.spawn(async move {
-            let mut rx = match inner.subscribe_events().await {
-                Ok(rx) => rx,
-                Err(e) => {
-                    tracing::warn!("Failed to subscribe to SDK events: {e}");
-                    return;
-                }
-            };
-            loop {
-                match rx.recv().await {
-                    Ok(event) => {
-                        if sink.add(event).is_err() {
-                            break;
-                        }
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!(n, "SDK event consumer lagged, skipped events");
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        });
-        Ok(())
+        Err("SdkEventBus removed — use watch_* streams instead".into())
     }
 
     // ════════════════════════════════════════════════════════════════════

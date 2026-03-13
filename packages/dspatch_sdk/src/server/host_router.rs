@@ -22,7 +22,8 @@ use crate::workspace_config::flat_agent::FlatAgent;
 use super::communication::CommunicationService;
 use super::connection::ConnectionService;
 use super::event::EventService;
-use super::event_bus::SdkEventBus;
+use crate::db::dao::workspace_run_status_dao::WorkspaceRunStatusDao;
+
 use super::inspector::PackageInspectorService;
 use super::status::StatusService;
 
@@ -35,7 +36,6 @@ pub struct HostRouter {
     pub communication_service: Arc<CommunicationService>,
     pub status_service: Arc<StatusService>,
     pub package_inspector: Arc<PackageInspectorService>,
-    pub event_bus: Arc<SdkEventBus>,
     workspace_dao: Arc<WorkspaceDao>,
 
     /// Runs that have already been promoted from "starting" -> "running".
@@ -57,11 +57,9 @@ impl HostRouter {
             PackageInspectorService::default_disabled()
         });
 
-        let event_bus = Arc::new(SdkEventBus::new(64));
         let connection_service = Arc::new(ConnectionService::new(Some(Arc::clone(&inspector))));
         let event_service = Arc::new(EventService::with_default_interval(
             Arc::clone(&workspace_dao),
-            Arc::clone(&event_bus),
         ));
         let communication_service = Arc::new(CommunicationService::new(
             Arc::clone(&workspace_dao),
@@ -69,7 +67,6 @@ impl HostRouter {
         let status_service = Arc::new(StatusService::new(
             Arc::clone(&workspace_dao),
             Arc::clone(&event_service),
-            Arc::clone(&event_bus),
         ));
 
         Arc::new(Self {
@@ -78,7 +75,6 @@ impl HostRouter {
             communication_service,
             status_service,
             package_inspector: inspector,
-            event_bus,
             workspace_dao,
             promoted_runs: tokio::sync::Mutex::new(HashSet::new()),
             heartbeat_log_times: std::sync::Mutex::new(HashMap::new()),
@@ -170,12 +166,8 @@ impl HostRouter {
                 .await
                 .insert(run_id.to_string());
             tracing::info!("Workspace run promoted: starting -> running (first heartbeat)");
-            if let Some(ws_id) = self.event_service.workspace_id_for_run(run_id) {
-                self.event_bus.emit(super::event_bus::SdkEvent::WorkspaceRunStarted {
-                    workspace_id: ws_id,
-                    run_id: run_id.to_string(),
-                });
-            }
+            let conn = self.workspace_dao.db().conn();
+            let _ = WorkspaceRunStatusDao::new().upsert(&conn, run_id, "running");
         }
     }
 

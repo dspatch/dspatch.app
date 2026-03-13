@@ -992,24 +992,8 @@ impl DspatchSdk {
         Ok(())
     }
 
-    /// Subscribes to real-time SDK lifecycle events.
-    ///
-    /// Returns a broadcast receiver. The server must be started first.
-    pub async fn subscribe_events(
-        &self,
-    ) -> Result<broadcast::Receiver<crate::server::event_bus::SdkEvent>> {
-        let server_arc = {
-            let guard = self.server.read().await;
-            guard.clone().ok_or_else(|| {
-                AppError::Internal("Server not started".into())
-            })?
-        };
-        let server = server_arc.lock().await;
-        let router = server.host_router().ok_or_else(|| {
-            AppError::Internal("Host router not available".into())
-        })?;
-        Ok(router.event_bus.subscribe())
-    }
+    // subscribe_events removed — events now flow through ephemeral DB +
+    // table invalidation. Consumers use watch_* streams instead.
 
     /// Stops the embedded agent server.
     pub async fn stop_server(&self) -> Result<()> {

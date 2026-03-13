@@ -6,30 +6,35 @@
 
 use std::sync::Arc;
 
+use crate::db::dao::agent_connection_status_dao::AgentConnectionStatusDao;
+use crate::db::dao::agent_instance_state_dao::AgentInstanceStateDao;
+use crate::db::dao::workspace_run_status_dao::WorkspaceRunStatusDao;
 use crate::db::dao::WorkspaceDao;
 use crate::domain::enums::AgentState;
 
 use super::event::EventService;
-use super::event_bus::{SdkEvent, SdkEventBus};
 
 /// Drives agent and workspace state transitions based on signals from
 /// ConnectionService, EventService, and ContainerService.
 pub struct StatusService {
     workspace_dao: Arc<WorkspaceDao>,
     event_service: Arc<EventService>,
-    event_bus: Arc<SdkEventBus>,
+    instance_state_dao: AgentInstanceStateDao,
+    connection_status_dao: AgentConnectionStatusDao,
+    run_status_dao: WorkspaceRunStatusDao,
 }
 
 impl StatusService {
     pub fn new(
         workspace_dao: Arc<WorkspaceDao>,
         event_service: Arc<EventService>,
-        event_bus: Arc<SdkEventBus>,
     ) -> Self {
         Self {
             workspace_dao,
             event_service,
-            event_bus,
+            instance_state_dao: AgentInstanceStateDao::new(),
+            connection_status_dao: AgentConnectionStatusDao::new(),
+            run_status_dao: WorkspaceRunStatusDao::new(),
         }
     }
 
@@ -93,13 +98,14 @@ impl StatusService {
             "Agent status changed"
         );
 
-        self.event_bus.emit(SdkEvent::InstanceStateChanged {
-            workspace_id: workspace_id.to_string(),
-            agent_key: agent_key.to_string(),
-            instance_id: instance_id.to_string(),
-            old_state: current.to_wire().to_string(),
-            new_state: new_status.to_wire().to_string(),
-        });
+        let conn = self.workspace_dao.db().conn();
+        let _ = self.instance_state_dao.upsert(
+            &conn,
+            instance_id,
+            &run_id,
+            agent_key,
+            new_status.to_wire(),
+        );
 
         true
     }
@@ -166,20 +172,28 @@ impl StatusService {
             "heartbeat-gone",
         )
         .await;
-        self.event_bus.emit(SdkEvent::InstanceGone {
-            workspace_id: workspace_id.to_string(),
-            agent_key: agent_key.to_string(),
-            instance_id: instance_id.to_string(),
-        });
+
+        // Write "gone" to ephemeral table (instance_state_dao already wrote
+        // "disconnected" via try_transition above; overwrite with "gone").
+        if let Some(run_id) = self.event_service.active_run_id(workspace_id) {
+            let conn = self.workspace_dao.db().conn();
+            let _ = self.instance_state_dao.upsert(
+                &conn,
+                instance_id,
+                &run_id,
+                agent_key,
+                "gone",
+            );
+        }
     }
 
     /// Called when an agent establishes a WebSocket connection.
     pub async fn handle_agent_connected(&self, workspace_id: &str, agent_key: &str) {
         tracing::info!(agent_key, workspace_id, "Agent connected");
-        self.event_bus.emit(SdkEvent::AgentConnected {
-            workspace_id: workspace_id.to_string(),
-            agent_key: agent_key.to_string(),
-        });
+        if let Some(run_id) = self.event_service.active_run_id(workspace_id) {
+            let conn = self.workspace_dao.db().conn();
+            let _ = self.connection_status_dao.upsert(&conn, agent_key, &run_id, true);
+        }
     }
 
     /// Called when an agent's WebSocket connection drops.
@@ -218,10 +232,8 @@ impl StatusService {
                 );
             }
         }
-        self.event_bus.emit(SdkEvent::AgentDisconnected {
-            workspace_id: workspace_id.to_string(),
-            agent_key: agent_key.to_string(),
-        });
+        let conn = self.workspace_dao.db().conn();
+        let _ = self.connection_status_dao.upsert(&conn, agent_key, &run_id, false);
     }
 
     /// Called when a container exits (from ContainerService monitoring).
@@ -246,20 +258,16 @@ impl StatusService {
                 "stopped",
                 Some(&now),
             );
-            self.event_bus.emit(SdkEvent::WorkspaceRunStopped {
-                workspace_id: workspace_id.to_string(),
-                run_id: active_run.id.clone(),
-            });
+            let conn = self.workspace_dao.db().conn();
+            let _ = self.run_status_dao.upsert(&conn, &active_run.id, "stopped");
         } else if status == "running" || status == "starting" {
             let _ = self.workspace_dao.update_run_status(
                 &active_run.id,
                 "failed",
                 Some(&now),
             );
-            self.event_bus.emit(SdkEvent::WorkspaceRunFailed {
-                workspace_id: workspace_id.to_string(),
-                run_id: active_run.id.clone(),
-            });
+            let conn = self.workspace_dao.db().conn();
+            let _ = self.run_status_dao.upsert(&conn, &active_run.id, "failed");
         }
     }
 
@@ -289,10 +297,8 @@ impl StatusService {
                 "failed",
                 Some(&now),
             );
-            self.event_bus.emit(SdkEvent::WorkspaceRunFailed {
-                workspace_id: workspace_id.to_string(),
-                run_id: active_run.id.clone(),
-            });
+            let conn = self.workspace_dao.db().conn();
+            let _ = self.run_status_dao.upsert(&conn, &active_run.id, "failed");
         }
     }
 

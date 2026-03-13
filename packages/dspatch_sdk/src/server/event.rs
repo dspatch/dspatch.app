@@ -16,7 +16,6 @@ use crate::domain::models::WorkspaceAgent;
 use crate::util::new_id;
 use crate::workspace_config::flat_agent::FlatAgent;
 
-use super::event_bus::{SdkEvent, SdkEventBus};
 use super::packages::*;
 
 // ── Callback types ──────────────────────────────────────────────────
@@ -84,7 +83,6 @@ struct PendingInquiryBubble {
 /// - Manages active run tracking
 pub struct EventService {
     pub workspace_dao: Arc<WorkspaceDao>,
-    pub event_bus: Arc<SdkEventBus>,
 
     // ── Injected transport & status delegates ──
     pub send_to_host: Mutex<Option<SendToHostFn>>,
@@ -131,11 +129,9 @@ impl EventService {
     pub fn new(
         workspace_dao: Arc<WorkspaceDao>,
         chain_heartbeat_interval: Duration,
-        event_bus: Arc<SdkEventBus>,
     ) -> Self {
         Self {
             workspace_dao,
-            event_bus,
             send_to_host: Mutex::new(None),
             send_to_instance: Mutex::new(None),
             is_host_connected: Mutex::new(None),
@@ -160,8 +156,8 @@ impl EventService {
         }
     }
 
-    pub fn with_default_interval(workspace_dao: Arc<WorkspaceDao>, event_bus: Arc<SdkEventBus>) -> Self {
-        Self::new(workspace_dao, Duration::from_secs(30), event_bus)
+    pub fn with_default_interval(workspace_dao: Arc<WorkspaceDao>) -> Self {
+        Self::new(workspace_dao, Duration::from_secs(30))
     }
 
     // ── Lifecycle ──
@@ -795,13 +791,7 @@ impl EventService {
                         transcript,
                     );
                 }
-                // Additionally broadcast for consumers:
-                self.event_bus.emit(SdkEvent::TurnCompleted {
-                    workspace_id: workspace_id.to_string(),
-                    agent_key: agent_key.to_string(),
-                    instance_id: event.instance_id.clone(),
-                    turn_id: turn_id.clone(),
-                });
+                // Table invalidation handles notification to consumers.
             }
         }
 
@@ -1526,11 +1516,7 @@ impl EventService {
             .await;
         }
 
-        // Fire on_inquiry_resolved.
-        self.event_bus.emit(SdkEvent::InquiryResolved {
-            workspace_id: workspace_id.to_string(),
-            inquiry_id: inquiry_id.to_string(),
-        });
+        // Table invalidation handles notification to consumers.
     }
 
     /// Cancels pending timer, closes spawned instance, re-calls
@@ -1709,11 +1695,11 @@ impl EventService {
     /// Surface an inquiry to the user when no supervisor can handle it.
     async fn surface_to_user(
         &self,
-        workspace_id: &str,
+        _workspace_id: &str,
         inquiry_id: &str,
         forwarding_chain: &[String],
-        priority: &WireInquiryPriority,
-        origin_agent_key: &str,
+        _priority: &WireInquiryPriority,
+        _origin_agent_key: &str,
     ) {
         if !forwarding_chain.is_empty() {
             if let Ok(chain_json) = serde_json::to_string(forwarding_chain) {
@@ -1723,17 +1709,7 @@ impl EventService {
             }
         }
 
-        let priority_str = match priority {
-            WireInquiryPriority::Normal => "normal",
-            WireInquiryPriority::High => "high",
-            WireInquiryPriority::Urgent => "urgent",
-        };
-        self.event_bus.emit(SdkEvent::InquiryCreated {
-            workspace_id: workspace_id.to_string(),
-            agent_key: origin_agent_key.to_string(),
-            inquiry_id: inquiry_id.to_string(),
-            priority: priority_str.to_string(),
-        });
+        // Table invalidation handles notification to consumers.
     }
 
     /// Walks chain links (BFS) to find supervisor's instance ID in the same
@@ -2161,11 +2137,7 @@ impl EventService {
             updated_at: now,
         };
         let _ = self.workspace_dao.insert_workspace_agent(&agent);
-        self.event_bus.emit(SdkEvent::InstanceCreated {
-            workspace_id: workspace_id.to_string(),
-            agent_key: agent_key.to_string(),
-            instance_id: instance_id.to_string(),
-        });
+        // Table invalidation handles notification to consumers.
     }
 
     /// Helper to call try_status_transition delegate.
