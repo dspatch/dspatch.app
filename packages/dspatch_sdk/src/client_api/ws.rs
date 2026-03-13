@@ -56,8 +56,17 @@ async fn handle_ws_connection(
 
     let mut shutdown_rx = runtime.subscribe_shutdown();
 
+    let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    ping_interval.tick().await; // Consume the immediate first tick.
+
     loop {
         tokio::select! {
+            _ = ping_interval.tick() => {
+                if socket.send(Message::Ping(vec![].into())).await.is_err() {
+                    tracing::info!("WebSocket ping failed, client likely disconnected");
+                    break;
+                }
+            }
             _ = shutdown_rx.recv() => {
                 tracing::info!("WebSocket closing: engine shutting down");
                 let shutdown_event = ServerFrame::Event {
