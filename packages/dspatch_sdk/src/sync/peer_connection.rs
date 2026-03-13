@@ -5,7 +5,7 @@
 //! Uses TCP streams with Signal Protocol E2E encryption as the transport layer.
 //! Each peer connection is a bidirectional encrypted channel identified by the
 //! remote device ID. The `PeerConnectionManager` handles connection lifecycle,
-//! message routing, and encryption/decryption via the `SignalManager`.
+//! message routing, and encryption/decryption via the `SignalService`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use std::sync::Arc;
 use futures::Stream;
 use tokio::sync::{mpsc, Mutex};
 
-use crate::signal::SignalManager;
+use crate::signal::SignalService;
 use crate::util::error::AppError;
 use crate::util::result::Result;
 
@@ -34,11 +34,11 @@ pub struct PeerConnection {
 
 /// Manages connections to multiple peer devices.
 ///
-/// All messages are encrypted using the `SignalManager` before transmission
+/// All messages are encrypted using the `SignalService` before transmission
 /// and decrypted on receipt. The transport is abstracted — currently uses
 /// in-process channels for testing and TCP for production.
 pub struct PeerConnectionManager {
-    signal_manager: Arc<Mutex<SignalManager>>,
+    signal_service: Arc<Mutex<SignalService>>,
     connections: Arc<Mutex<HashMap<String, PeerConnection>>>,
     /// Broadcast channel for incoming messages from all peers.
     incoming_tx: mpsc::Sender<(String, SyncMessage)>,
@@ -47,10 +47,10 @@ pub struct PeerConnectionManager {
 
 impl PeerConnectionManager {
     /// Creates a new peer connection manager with Signal Protocol encryption.
-    pub fn new(signal_manager: Arc<Mutex<SignalManager>>) -> Self {
+    pub fn new(signal_service: Arc<Mutex<SignalService>>) -> Self {
         let (incoming_tx, incoming_rx) = mpsc::channel(CHANNEL_CAPACITY);
         Self {
-            signal_manager,
+            signal_service,
             connections: Arc::new(Mutex::new(HashMap::new())),
             incoming_tx,
             incoming_rx: Arc::new(Mutex::new(incoming_rx)),
@@ -116,8 +116,10 @@ impl PeerConnectionManager {
 
         // Encrypt with Signal Protocol.
         let encrypted = {
-            let signal = self.signal_manager.lock().await;
-            signal.encrypt(device_id, 1, &plaintext)?
+            let addr = libsignal_protocol::ProtocolAddress::new(device_id.to_string(), libsignal_protocol::DeviceId::new(1).expect("valid device id"));
+            let mut signal = self.signal_service.lock().await;
+            signal.encrypt(&addr, &plaintext, &mut rand::rng()).await
+                .map_err(|e| AppError::Internal(format!("Signal encrypt failed: {e}")))?
         };
 
         peer.tx
@@ -188,8 +190,10 @@ impl PeerConnectionManager {
         encrypted: &[u8],
     ) -> Result<()> {
         let plaintext = {
-            let signal = self.signal_manager.lock().await;
-            signal.decrypt(from_device, 1, encrypted)?
+            let addr = libsignal_protocol::ProtocolAddress::new(from_device.to_string(), libsignal_protocol::DeviceId::new(1).expect("valid device id"));
+            let mut signal = self.signal_service.lock().await;
+            signal.decrypt(&addr, encrypted, &mut rand::rng()).await
+                .map_err(|e| AppError::Internal(format!("Signal decrypt failed: {e}")))?
         };
 
         let message: SyncMessage = serde_json::from_slice(&plaintext)

@@ -10,8 +10,7 @@ use dspatch_sdk::sync::message::{SyncChange, SyncMessage, SyncOp};
 use dspatch_sdk::sync::peer_connection::PeerConnectionManager;
 use dspatch_sdk::sync::sync_engine::SyncEngine;
 
-use ed25519_dalek::SigningKey;
-use rand::rngs::OsRng;
+use libsignal_protocol::IdentityKeyPair;
 use tokio::sync::{mpsc, Mutex};
 
 /// Helper: create an in-memory database for tests.
@@ -22,13 +21,14 @@ fn test_db() -> Arc<Database> {
 /// Helper: create a sync engine with a dummy peer manager (no encryption).
 fn test_engine(device_id: &str) -> SyncEngine {
     let db = test_db();
-    let signing_key = SigningKey::generate(&mut OsRng);
-    let signal_mgr = dspatch_sdk::signal::SignalManager::new(
-        Arc::clone(&db),
+    let mut rng = rand::rng();
+    let identity_key_pair = IdentityKeyPair::generate(&mut rng);
+    let signal_svc = dspatch_sdk::signal::SignalService::new(
+        db.conn_arc().clone(),
         1,
-        signing_key,
+        identity_key_pair,
     );
-    let peer_mgr = Arc::new(PeerConnectionManager::new(Arc::new(Mutex::new(signal_mgr))));
+    let peer_mgr = Arc::new(PeerConnectionManager::new(Arc::new(Mutex::new(signal_svc))));
     SyncEngine::new(db, peer_mgr, device_id)
 }
 
@@ -37,14 +37,15 @@ async fn test_engine_pair() -> (SyncEngine, SyncEngine) {
     let db_a = test_db();
     let db_b = test_db();
 
-    let signing_key_a = SigningKey::generate(&mut OsRng);
-    let signing_key_b = SigningKey::generate(&mut OsRng);
+    let mut rng = rand::rng();
+    let identity_a = IdentityKeyPair::generate(&mut rng);
+    let identity_b = IdentityKeyPair::generate(&mut rng);
 
-    let signal_a = Arc::new(Mutex::new(dspatch_sdk::signal::SignalManager::new(
-        Arc::clone(&db_a), 1, signing_key_a,
+    let signal_a = Arc::new(Mutex::new(dspatch_sdk::signal::SignalService::new(
+        db_a.conn_arc().clone(), 1, identity_a,
     )));
-    let signal_b = Arc::new(Mutex::new(dspatch_sdk::signal::SignalManager::new(
-        Arc::clone(&db_b), 2, signing_key_b,
+    let signal_b = Arc::new(Mutex::new(dspatch_sdk::signal::SignalService::new(
+        db_b.conn_arc().clone(), 2, identity_b,
     )));
 
     let peer_mgr_a = Arc::new(PeerConnectionManager::new(signal_a));
@@ -345,13 +346,10 @@ async fn test_reconcile_flow() {
         )
         .unwrap();
 
-    // Reconcile A → B: sends cursor exchange and changes.
+    // Reconcile A -> B: sends cursor exchange and changes.
     engine_a.reconcile("device-b").await.unwrap();
 
     // Read messages from B's channel and apply them.
-    // The peer_manager for B should have received raw bytes on its channel.
-    // In a real scenario, the engine would consume these via incoming_messages().
-    // Here we manually read and apply.
     let peer_mgr_b = Arc::clone(engine_b.peer_manager());
 
     // First message: CursorExchange.
@@ -382,7 +380,7 @@ async fn test_reconcile_flow() {
 }
 
 // -------------------------------------------------------------------------
-// Test 8: Conflict resolution — last-writer-wins by lamport timestamp
+// Test 8: Conflict resolution -- last-writer-wins by lamport timestamp
 // -------------------------------------------------------------------------
 
 #[test]
@@ -401,7 +399,7 @@ fn test_conflict_resolution_last_writer_wins() {
 
     let local_ts = engine.current_lamport();
 
-    // Remote device sends a change with LOWER lamport — should be rejected.
+    // Remote device sends a change with LOWER lamport -- should be rejected.
     let remote_lower = vec![SyncChange {
         id: "remote-old".into(),
         table: "workspaces".into(),
@@ -414,7 +412,7 @@ fn test_conflict_resolution_last_writer_wins() {
     let applied = engine.apply_remote_changes(remote_lower).unwrap();
     assert_eq!(applied, 0, "Lower lamport change should be rejected");
 
-    // Remote device sends a change with HIGHER lamport — should be accepted.
+    // Remote device sends a change with HIGHER lamport -- should be accepted.
     let remote_higher = vec![SyncChange {
         id: "remote-new".into(),
         table: "workspaces".into(),
@@ -495,7 +493,7 @@ fn test_acknowledge_prunes_outbox() {
 
     assert_eq!(engine.get_all_outbox().unwrap().len(), 3);
 
-    // Acknowledge up to c1 — should prune c1 only.
+    // Acknowledge up to c1 -- should prune c1 only.
     engine.acknowledge_up_to(&c1.id).unwrap();
     let remaining = engine.get_all_outbox().unwrap();
     assert_eq!(remaining.len(), 2);
