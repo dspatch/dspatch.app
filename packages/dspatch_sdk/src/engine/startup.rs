@@ -10,6 +10,7 @@ use tracing_subscriber::EnvFilter;
 
 use super::config::EngineConfig;
 use super::service_registry::ServiceRegistry;
+use crate::client_api::ephemeral::EphemeralEventEmitter;
 use crate::client_api::invalidation::InvalidationHandle;
 use crate::client_api::session::SessionStore;
 
@@ -21,6 +22,7 @@ pub struct EngineRuntime {
     session_store: SessionStore,
     services: Option<Arc<ServiceRegistry>>,
     invalidation: Option<InvalidationHandle>,
+    ephemeral: EphemeralEventEmitter,
 }
 
 impl EngineRuntime {
@@ -33,6 +35,7 @@ impl EngineRuntime {
             session_store: SessionStore::new(),
             services: None,
             invalidation: None,
+            ephemeral: EphemeralEventEmitter::new(),
         }
     }
 
@@ -45,6 +48,7 @@ impl EngineRuntime {
             session_store: SessionStore::new(),
             services: Some(services),
             invalidation: None,
+            ephemeral: EphemeralEventEmitter::new(),
         }
     }
 
@@ -58,6 +62,7 @@ impl EngineRuntime {
             session_store: SessionStore::new(),
             services: None,
             invalidation: Some(invalidation),
+            ephemeral: EphemeralEventEmitter::new(),
         }
     }
 
@@ -75,6 +80,7 @@ impl EngineRuntime {
             session_store: SessionStore::new(),
             services: Some(services),
             invalidation: Some(invalidation),
+            ephemeral: EphemeralEventEmitter::new(),
         }
     }
 
@@ -117,6 +123,11 @@ impl EngineRuntime {
     /// Sets the invalidation handle on an existing runtime.
     pub fn set_invalidation(&mut self, handle: InvalidationHandle) {
         self.invalidation = Some(handle);
+    }
+
+    /// Returns the ephemeral event emitter.
+    pub fn ephemeral(&self) -> &EphemeralEventEmitter {
+        &self.ephemeral
     }
 }
 

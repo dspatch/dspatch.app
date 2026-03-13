@@ -1154,3 +1154,32 @@ async fn ws_receives_invalidation_on_table_change() {
 
     runtime.trigger_shutdown();
 }
+
+#[tokio::test]
+async fn ephemeral_event_emitter_broadcasts_events() {
+    use dspatch_sdk::client_api::ephemeral::EphemeralEventEmitter;
+
+    let emitter = EphemeralEventEmitter::new();
+    let mut rx = emitter.subscribe();
+
+    emitter.emit("p2p_connected", serde_json::json!({"device_id": "abc"}));
+
+    let event = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        rx.recv(),
+    )
+    .await
+    .expect("should receive within timeout")
+    .expect("channel should not be closed");
+
+    assert_eq!(event.name, "p2p_connected");
+    assert_eq!(event.data["device_id"], "abc");
+}
+
+#[tokio::test]
+async fn ephemeral_event_emitter_silent_when_no_subscribers() {
+    use dspatch_sdk::client_api::ephemeral::EphemeralEventEmitter;
+
+    let emitter = EphemeralEventEmitter::new();
+    emitter.emit("p2p_disconnected", serde_json::json!({}));
+}
