@@ -87,7 +87,7 @@ class EngineClient {
     return sendCommand('create_workspace', {
       'name': name,
       'project_path': projectPath,
-      if (templateId != null) 'template_id': templateId,
+      'template_id': ?templateId,
     });
   }
 
@@ -130,7 +130,7 @@ class EngineClient {
     return sendCommand('respond_to_inquiry', {
       'inquiry_id': inquiryId,
       'response': response,
-      if (choiceIndex != null) 'choice_index': choiceIndex,
+      'choice_index': ?choiceIndex,
     });
   }
 
@@ -145,7 +145,7 @@ class EngineClient {
     return sendCommand('create_api_key', {
       'name': name,
       'value': value,
-      if (providerName != null) 'provider_name': providerName,
+      'provider_name': ?providerName,
     });
   }
 
@@ -164,6 +164,377 @@ class EngineClient {
   /// Sets a preference value.
   Future<Map<String, dynamic>> setPreference(String key, String value) {
     return sendCommand('set_preference', {'key': key, 'value': value});
+  }
+
+  // ── Auth Commands ──────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> logout() {
+    return sendCommand('logout');
+  }
+
+  Future<Map<String, dynamic>> enterAnonymousMode() {
+    return sendCommand('enter_anonymous_mode');
+  }
+
+  Future<Map<String, dynamic>> login({
+    required String username,
+    required String password,
+  }) {
+    return sendCommand('login', {
+      'username': username,
+      'password': password,
+    });
+  }
+
+  Future<Map<String, dynamic>> register({
+    required String username,
+    required String email,
+    required String password,
+  }) {
+    return sendCommand('register', {
+      'username': username,
+      'email': email,
+      'password': password,
+    });
+  }
+
+  Future<Map<String, dynamic>> verifyEmail({required String code}) {
+    return sendCommand('verify_email', {'code': code});
+  }
+
+  Future<Map<String, dynamic>> resendVerification() {
+    return sendCommand('resend_verification');
+  }
+
+  Future<Map<String, dynamic>> setup2Fa() {
+    return sendCommand('setup_2fa');
+  }
+
+  Future<Map<String, dynamic>> confirm2Fa({required String code}) {
+    return sendCommand('confirm_2fa', {'code': code});
+  }
+
+  Future<Map<String, dynamic>> verify2Fa({
+    required String code,
+    bool isBackupCode = false,
+  }) {
+    return sendCommand('verify_2fa', {
+      'code': code,
+      'is_backup_code': isBackupCode,
+    });
+  }
+
+  Future<Map<String, dynamic>> acknowledgeBackupCodes() {
+    return sendCommand('acknowledge_backup_codes');
+  }
+
+  Future<Map<String, dynamic>> registerDevice({
+    required Map<String, dynamic> request,
+  }) {
+    return sendCommand('register_device', request);
+  }
+
+  // ── Agent Provider Commands ───────────────────────────────────────
+
+  Future<Map<String, dynamic>> createAgentProvider({
+    required Map<String, dynamic> request,
+  }) {
+    return sendCommand('create_agent_provider', request);
+  }
+
+  Future<Map<String, dynamic>> updateAgentProvider({
+    required String id,
+    required Map<String, dynamic> request,
+  }) {
+    return sendCommand('update_agent_provider', {
+      'id': id,
+      ...request,
+    });
+  }
+
+  Future<Map<String, dynamic>> deleteAgentProvider(String id) {
+    return sendCommand('delete_agent_provider', {'id': id});
+  }
+
+  // ── Agent Template Commands ───────────────────────────────────────
+
+  Future<Map<String, dynamic>> createAgentTemplate({
+    required Map<String, dynamic> request,
+  }) {
+    return sendCommand('create_agent_template', request);
+  }
+
+  Future<Map<String, dynamic>> updateAgentTemplate({
+    required String id,
+    required String name,
+    required String sourceUri,
+  }) {
+    return sendCommand('update_agent_template', {
+      'id': id,
+      'name': name,
+      'source_uri': sourceUri,
+    });
+  }
+
+  Future<Map<String, dynamic>> deleteAgentTemplate(String id) {
+    return sendCommand('delete_agent_template', {'id': id});
+  }
+
+  // ── Workspace Instance Commands ───────────────────────────────────
+
+  Future<Map<String, dynamic>> startRootInstance({
+    required String runId,
+    required String agentKey,
+  }) {
+    return sendCommand('start_root_instance', {
+      'run_id': runId,
+      'agent_key': agentKey,
+    });
+  }
+
+  Future<Map<String, dynamic>> startSubInstance({
+    required String runId,
+    required String parentInstanceId,
+    required String agentKey,
+  }) {
+    return sendCommand('start_sub_instance', {
+      'run_id': runId,
+      'parent_instance_id': parentInstanceId,
+      'agent_key': agentKey,
+    });
+  }
+
+  Future<Map<String, dynamic>> stopInstance({
+    required String runId,
+    required String instanceId,
+  }) {
+    return sendCommand('stop_instance', {
+      'run_id': runId,
+      'instance_id': instanceId,
+    });
+  }
+
+  Future<Map<String, dynamic>> interruptInstance({
+    required String runId,
+    required String instanceId,
+  }) {
+    return sendCommand('interrupt_instance', {
+      'run_id': runId,
+      'instance_id': instanceId,
+    });
+  }
+
+  Future<Map<String, dynamic>> cleanupStaleInstances({
+    required String runId,
+  }) {
+    return sendCommand('cleanup_stale_instances', {'run_id': runId});
+  }
+
+  // ── Workspace Run Commands ────────────────────────────────────────
+
+  Future<Map<String, dynamic>> deleteWorkspaceRun(String id) {
+    return sendCommand('delete_workspace_run', {'id': id});
+  }
+
+  Future<Map<String, dynamic>> deleteNonActiveRuns({
+    required String workspaceId,
+  }) {
+    return sendCommand('delete_non_active_runs', {
+      'workspace_id': workspaceId,
+    });
+  }
+
+  // ── Docker / Engine Commands ──────────────────────────────────────
+
+  Future<Map<String, dynamic>> detectDockerStatus() {
+    return sendCommand('detect_docker_status');
+  }
+
+  Stream<String> buildRuntimeImage() async* {
+    final result = await sendCommand('build_runtime_image');
+    final lines = (result['lines'] as List<dynamic>?)?.cast<String>() ?? [];
+    for (final line in lines) {
+      yield line;
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteRuntimeImage() {
+    return sendCommand('delete_runtime_image');
+  }
+
+  Future<List<Map<String, dynamic>>> listContainers() async {
+    final result = await sendCommand('list_containers');
+    return (result['containers'] as List<dynamic>?)
+            ?.cast<Map<String, dynamic>>() ??
+        [];
+  }
+
+  Future<Map<String, dynamic>> stopContainer({required String id}) {
+    return sendCommand('stop_container', {'id': id});
+  }
+
+  Future<Map<String, dynamic>> removeContainer({required String id}) {
+    return sendCommand('remove_container', {'id': id});
+  }
+
+  Future<Map<String, dynamic>> stopAllContainers() {
+    return sendCommand('stop_all_containers');
+  }
+
+  Future<Map<String, dynamic>> deleteStoppedContainers() {
+    return sendCommand('delete_stopped_containers');
+  }
+
+  Future<Map<String, dynamic>> cleanOrphanedContainers() {
+    return sendCommand('clean_orphaned_containers');
+  }
+
+  Future<Map<String, dynamic>> containerStats({required String containerId}) {
+    return sendCommand('container_stats', {'container_id': containerId});
+  }
+
+  // ── Config / Utility Commands ─────────────────────────────────────
+
+  Future<Map<String, dynamic>> parseWorkspaceConfig({
+    required String yaml,
+  }) {
+    return sendCommand('parse_workspace_config', {'yaml': yaml});
+  }
+
+  Future<Map<String, dynamic>> encodeWorkspaceYaml({
+    required Map<String, dynamic> config,
+  }) {
+    return sendCommand('encode_workspace_yaml', {'config': config});
+  }
+
+  Future<Map<String, dynamic>> validateWorkspaceConfig({
+    required Map<String, dynamic> config,
+  }) {
+    return sendCommand('validate_workspace_config', {'config': config});
+  }
+
+  Future<Map<String, dynamic>> resolveWorkspaceTemplates({
+    required Map<String, dynamic> config,
+  }) {
+    return sendCommand('resolve_workspace_templates', {'config': config});
+  }
+
+  Future<Map<String, dynamic>> encryptString({
+    required String plaintext,
+    required String keyId,
+  }) {
+    return sendCommand('encrypt_string', {
+      'plaintext': plaintext,
+      'key_id': keyId,
+    });
+  }
+
+  Future<Map<String, dynamic>> decryptString({required String value}) {
+    return sendCommand('decrypt_string', {'value': value});
+  }
+
+  Future<Map<String, dynamic>> packageInspectorEntries({
+    required String runId,
+  }) {
+    return sendCommand('package_inspector_entries', {'run_id': runId});
+  }
+
+  // ── Hub Commands ──────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> hubBrowseAgents({
+    String? search,
+    String? category,
+    String? cursor,
+    int? perPage,
+  }) {
+    return sendCommand('hub_browse_agents', {
+      'search': ?search,
+      'category': ?category,
+      'cursor': ?cursor,
+      'per_page': ?perPage,
+    });
+  }
+
+  Future<Map<String, dynamic>> hubBrowseWorkspaces({
+    String? search,
+    String? category,
+    String? cursor,
+    int? perPage,
+  }) {
+    return sendCommand('hub_browse_workspaces', {
+      'search': ?search,
+      'category': ?category,
+      'cursor': ?cursor,
+      'per_page': ?perPage,
+    });
+  }
+
+  Future<Map<String, dynamic>> hubAgentCategories() {
+    return sendCommand('hub_agent_categories');
+  }
+
+  Future<Map<String, dynamic>> hubWorkspaceCategories() {
+    return sendCommand('hub_workspace_categories');
+  }
+
+  Future<Map<String, dynamic>> hubResolveAgent({required String slug}) {
+    return sendCommand('hub_resolve_agent', {'slug': slug});
+  }
+
+  Future<Map<String, dynamic>> hubResolveWorkspaceDetails({
+    required String slug,
+  }) {
+    return sendCommand('hub_resolve_workspace_details', {'slug': slug});
+  }
+
+  Future<Map<String, dynamic>> hubSubmitAgent({
+    required Map<String, dynamic> request,
+  }) {
+    return sendCommand('hub_submit_agent', request);
+  }
+
+  Future<Map<String, dynamic>> hubSubmitTemplate({
+    required Map<String, dynamic> request,
+  }) {
+    return sendCommand('hub_submit_template', request);
+  }
+
+  Future<Map<String, dynamic>> hubSubmitWorkspace({
+    required Map<String, dynamic> request,
+  }) {
+    return sendCommand('hub_submit_workspace', request);
+  }
+
+  Future<Map<String, dynamic>> hubVoteAgent({
+    required String slug,
+    required bool like,
+  }) {
+    return sendCommand('hub_vote_agent', {'slug': slug, 'like': like});
+  }
+
+  Future<Map<String, dynamic>> hubVoteWorkspace({
+    required String slug,
+    required bool like,
+  }) {
+    return sendCommand('hub_vote_workspace', {'slug': slug, 'like': like});
+  }
+
+  Future<Map<String, dynamic>> hubMyVotes({required String targetType}) {
+    return sendCommand('hub_my_votes', {'target_type': targetType});
+  }
+
+  Future<Map<String, dynamic>> hubSearchTags({
+    required String query,
+    String? tagType,
+  }) {
+    return sendCommand('hub_search_tags', {
+      'query': query,
+      'tag_type': ?tagType,
+    });
+  }
+
+  Future<Map<String, dynamic>> hubPopularTags({String? tagType}) {
+    return sendCommand('hub_popular_tags', {'tag_type': ?tagType});
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────
