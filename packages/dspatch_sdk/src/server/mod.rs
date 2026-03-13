@@ -5,7 +5,6 @@ pub mod packages;
 pub mod agent_server;
 pub mod communication;
 pub mod connection;
-pub mod container;
 pub mod event;
 pub mod event_bus;
 pub mod host_router;

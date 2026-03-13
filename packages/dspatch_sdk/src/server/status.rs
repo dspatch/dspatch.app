@@ -15,7 +15,7 @@ use crate::domain::enums::AgentState;
 use super::event::EventService;
 
 /// Drives agent and workspace state transitions based on signals from
-/// ConnectionService, EventService, and ContainerService.
+/// ConnectionService, EventService, and WorkspaceBridge.
 pub struct StatusService {
     workspace_dao: Arc<WorkspaceDao>,
     event_service: Arc<EventService>,
@@ -236,7 +236,7 @@ impl StatusService {
         let _ = self.connection_status_dao.upsert(&conn, agent_key, &run_id, false);
     }
 
-    /// Called when a container exits (from ContainerService monitoring).
+    /// Called when a container exits (from WorkspaceBridge monitoring).
     pub async fn handle_container_exited(
         &self,
         workspace_id: &str,

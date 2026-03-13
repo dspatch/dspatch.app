@@ -2,8 +2,7 @@
 
 //! Embedded WebSocket server for agent-to-app communication.
 //!
-//! Thin HTTP shell that delegates all service wiring to HostRouter
-//! and manages ContainerService separately.
+//! Thin HTTP shell that delegates all service wiring to HostRouter.
 //!
 //! Ported from `server/agent_server.dart`.
 
@@ -20,7 +19,6 @@ use tower_http::cors::CorsLayer;
 use crate::db::dao::WorkspaceDao;
 use crate::docker::DockerClient;
 
-use super::container::ContainerService;
 use super::host_router::HostRouter;
 
 /// Shared state for axum handlers.
@@ -39,7 +37,6 @@ pub struct EmbeddedAgentServer {
     docker_client: Arc<DockerClient>,
 
     host_router: Option<Arc<HostRouter>>,
-    pub container_service: Option<Arc<ContainerService>>,
 
     port: Option<u16>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
@@ -54,7 +51,6 @@ impl EmbeddedAgentServer {
             workspace_dao,
             docker_client,
             host_router: None,
-            container_service: None,
             port: None,
             shutdown_tx: None,
         }
@@ -90,34 +86,6 @@ impl EmbeddedAgentServer {
             Arc::clone(&self.workspace_dao),
             dev_mode,
         );
-
-        // Create ContainerService and wire to StatusService.
-        let container_service = Arc::new(ContainerService::new(Arc::clone(&self.docker_client)));
-        {
-            let ss = Arc::clone(&host_router.status_service);
-            *container_service.on_container_exited.lock().await = Some(Arc::new(
-                move |workspace_id: &str, _container_id: &str, exit_code: i32| {
-                    let ss = Arc::clone(&ss);
-                    let ws_id = workspace_id.to_string();
-                    tokio::spawn(async move {
-                        ss.handle_container_exited(&ws_id, Some(exit_code)).await;
-                    });
-                },
-            ));
-
-            let ss2 = Arc::clone(&host_router.status_service);
-            *container_service.on_health_check_failed.lock().await = Some(Arc::new(
-                move |workspace_id: &str, container_id: &str, error: &str| {
-                    let ss = Arc::clone(&ss2);
-                    let ws_id = workspace_id.to_string();
-                    let c_id = container_id.to_string();
-                    let err = error.to_string();
-                    tokio::spawn(async move {
-                        ss.handle_health_check_failed(&ws_id, &c_id, &err).await;
-                    });
-                },
-            ));
-        }
 
         // Set up routes.
         let state = Arc::new(AppState {
@@ -157,7 +125,6 @@ impl EmbeddedAgentServer {
         host_router.start().await;
 
         self.host_router = Some(host_router);
-        self.container_service = Some(container_service);
         self.port = Some(actual_port);
         self.shutdown_tx = Some(shutdown_tx);
 
@@ -168,9 +135,6 @@ impl EmbeddedAgentServer {
     pub async fn stop(&mut self) {
         if let Some(router) = self.host_router.take() {
             router.dispose().await;
-        }
-        if let Some(container) = self.container_service.take() {
-            container.dispose().await;
         }
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
