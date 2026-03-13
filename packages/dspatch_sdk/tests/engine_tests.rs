@@ -1072,3 +1072,85 @@ async fn engine_runtime_exposes_invalidation_handle() {
     // Should be able to subscribe via the runtime.
     let _rx = runtime.invalidation_handle().subscribe();
 }
+
+#[tokio::test]
+async fn ws_receives_invalidation_on_table_change() {
+    use std::sync::Arc;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::engine::service_registry::ServiceRegistry;
+    use dspatch_sdk::client_api::session::AuthMode;
+    use dspatch_sdk::client_api::invalidation::InvalidationBroadcaster;
+    use dspatch_sdk::db::reactive::TableChangeTracker;
+    use futures::StreamExt;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("test.db");
+    let db = Arc::new(dspatch_sdk::engine::startup::open_database(&db_path).unwrap());
+    let registry = Arc::new(ServiceRegistry::new(db.clone(), tmp.path().to_path_buf()));
+
+    // Set up the TableChangeTracker and InvalidationBroadcaster.
+    let tracker = Arc::new(TableChangeTracker::new());
+    tracker.subscribe(&["agent_messages"]);
+
+    let broadcaster = InvalidationBroadcaster::new(tracker.clone(), 30);
+    let handle = broadcaster.start();
+
+    let mut config = EngineConfig::default();
+    config.client_api_port = 0;
+    let runtime = Arc::new(EngineRuntime::with_services_and_invalidation(
+        config, registry, handle,
+    ));
+
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+
+    let runtime_clone = runtime.clone();
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+    let _server_handle = tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _ = port_tx.send(port);
+        let app = dspatch_sdk::client_api::server::build_router(runtime_clone.clone());
+        let mut shutdown = runtime_clone.subscribe_shutdown();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move { let _ = shutdown.recv().await; })
+            .await.unwrap();
+    });
+
+    let port = port_rx.await.unwrap();
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(
+        format!("ws://127.0.0.1:{port}/ws?token={token}"),
+    )
+    .await
+    .unwrap();
+
+    // Read welcome event.
+    let welcome = ws.next().await.unwrap().unwrap();
+    let welcome_json: serde_json::Value =
+        serde_json::from_str(welcome.to_text().unwrap()).unwrap();
+    assert_eq!(welcome_json["type"], "event");
+    assert_eq!(welcome_json["name"], "welcome");
+
+    // Trigger a table change.
+    tracker.notify("agent_messages");
+
+    // Read the invalidation frame.
+    let msg = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        ws.next(),
+    )
+    .await
+    .expect("should receive invalidation within timeout")
+    .unwrap()
+    .unwrap();
+
+    let text = msg.to_text().unwrap();
+    let frame: serde_json::Value = serde_json::from_str(text).unwrap();
+    assert_eq!(frame["type"], "invalidate");
+    let tables = frame["tables"].as_array().unwrap();
+    let table_names: Vec<&str> = tables.iter().map(|v| v.as_str().unwrap()).collect();
+    assert!(table_names.contains(&"agent_messages"));
+
+    runtime.trigger_shutdown();
+}

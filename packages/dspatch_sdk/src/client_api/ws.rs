@@ -10,6 +10,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use serde::Deserialize;
 
+use crate::db::schema::TABLE_NAMES;
 use crate::engine::startup::EngineRuntime;
 
 use super::protocol::{ClientFrame, ServerFrame};
@@ -59,17 +60,19 @@ async fn handle_ws_connection(
 
     let mut shutdown_rx = runtime.subscribe_shutdown();
 
+    // Subscribe to table invalidation broadcasts (if available).
+    let mut invalidation_rx = if runtime.has_invalidation() {
+        Some(runtime.invalidation_handle().subscribe())
+    } else {
+        None
+    };
+
     let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
     ping_interval.tick().await; // Consume the immediate first tick.
 
     loop {
         tokio::select! {
-            _ = ping_interval.tick() => {
-                if socket.send(Message::Ping(vec![].into())).await.is_err() {
-                    tracing::info!("WebSocket ping failed, client likely disconnected");
-                    break;
-                }
-            }
+            // Engine is shutting down.
             _ = shutdown_rx.recv() => {
                 tracing::info!("WebSocket closing: engine shutting down");
                 let shutdown_event = ServerFrame::Event {
@@ -79,6 +82,43 @@ async fn handle_ws_connection(
                 let _ = send_frame(&mut socket, &shutdown_event).await;
                 break;
             }
+            // Periodic ping for keepalive.
+            _ = ping_interval.tick() => {
+                if socket.send(Message::Ping(vec![].into())).await.is_err() {
+                    tracing::info!("WebSocket ping failed, client likely disconnected");
+                    break;
+                }
+            }
+            // Table invalidation batch from the broadcaster.
+            invalidation = async {
+                match &mut invalidation_rx {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                let tables = match invalidation {
+                    Ok(tables) => tables,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(
+                            missed = n,
+                            "invalidation receiver lagged, sending full invalidation"
+                        );
+                        TABLE_NAMES.iter().map(|s| s.to_string()).collect()
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        tracing::info!("invalidation broadcaster closed");
+                        invalidation_rx = None;
+                        continue;
+                    }
+                };
+
+                let frame = ServerFrame::Invalidate { tables };
+                if send_frame(&mut socket, &frame).await.is_err() {
+                    tracing::info!("WebSocket send failed during invalidation");
+                    break;
+                }
+            }
+            // Client sent a message.
             msg = recv_message(&mut socket) => {
                 match msg {
                     Some(Ok(text)) => {
