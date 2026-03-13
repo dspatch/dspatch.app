@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:dspatch_sdk/dspatch_sdk.dart';
 
+import '../database/engine_database.dart' show EngineDatabase;
 import '../features/agent_providers/models/agent_list_item.dart';
 
 // ---------------------------------------------------------------------------
@@ -16,6 +17,21 @@ import '../features/agent_providers/models/agent_list_item.dart';
 /// `sdkProvider.overrideWithValue(sdk)`.
 final sdkProvider = Provider<RustSdk>(
   (_) => throw UnimplementedError('Override sdkProvider in main.dart'),
+);
+
+// ---------------------------------------------------------------------------
+// Engine Database (read-only Drift)
+// ---------------------------------------------------------------------------
+
+/// The read-only Drift database backed by the engine's SQLite file.
+/// Must be overridden in main.dart with the correct database path.
+///
+/// Example:
+/// ```dart
+/// engineDatabaseProvider.overrideWithValue(EngineDatabase(dbPath))
+/// ```
+final engineDatabaseProvider = Provider<EngineDatabase>(
+  (_) => throw UnimplementedError('Override engineDatabaseProvider in main.dart'),
 );
 
 // ---------------------------------------------------------------------------
