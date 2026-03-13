@@ -16,6 +16,9 @@ pub trait WorkspaceTemplateService: Send + Sync {
     /// Watches all workspace templates, ordered by most recently updated.
     fn watch_workspace_templates(&self) -> WatchStream<Vec<WorkspaceTemplate>>;
 
+    /// Returns all workspace templates, ordered by most recently updated.
+    async fn list_workspace_templates(&self) -> Result<Vec<WorkspaceTemplate>>;
+
     /// Returns the workspace template with the given hub `slug`, or `None`.
     async fn get_by_hub_slug(&self, slug: &str) -> Result<Option<WorkspaceTemplate>>;
 

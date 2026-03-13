@@ -6,8 +6,6 @@
 
 use std::sync::Arc;
 
-use futures::StreamExt;
-
 use crate::domain::enums::SourceType;
 use crate::domain::services::{AgentProviderService, WorkspaceTemplateService};
 
@@ -38,11 +36,13 @@ impl HubVersionChecker {
     ///
     /// Returns a list of hub slugs that have a newer version available.
     pub async fn check_for_agent_updates(&self) -> Vec<String> {
-        // 1. Get current list of agent providers (first snapshot from stream).
-        let mut stream = self.provider_service.watch_agent_providers();
-        let providers = match stream.next().await {
-            Some(t) => t,
-            None => return Vec::new(),
+        // 1. Get current list of agent providers.
+        let providers = match self.provider_service.list_agent_providers().await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!(tag = "hub", "Failed to list agent providers: {e}");
+                return Vec::new();
+            }
         };
 
         // 2. Filter for hub-sourced providers with a slug.
@@ -100,10 +100,12 @@ impl HubVersionChecker {
     ///
     /// Returns a list of hub slugs that have a newer version available.
     pub async fn check_for_workspace_updates(&self) -> Vec<String> {
-        let mut stream = self.workspace_template_service.watch_workspace_templates();
-        let templates = match stream.next().await {
-            Some(t) => t,
-            None => return Vec::new(),
+        let templates = match self.workspace_template_service.list_workspace_templates().await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!(tag = "hub", "Failed to list workspace templates: {e}");
+                return Vec::new();
+            }
         };
 
         if templates.is_empty() {

@@ -56,6 +56,11 @@ impl LocalAgentProviderService {
         }))
     }
 
+    /// Returns all agent providers, ordered by most recently updated.
+    pub async fn list_agent_providers(&self) -> Result<Vec<AgentProvider>> {
+        self.dao.get_all_agent_providers()
+    }
+
     /// Returns the agent provider with the given `id`.
     pub async fn get_agent_provider(&self, id: &str) -> Result<AgentProvider> {
         self.dao.get_agent_provider(id)
@@ -155,6 +160,10 @@ impl AgentProviderService for LocalAgentProviderService {
 
     fn watch_agent_provider(&self, id: &str) -> WatchStream<Option<AgentProvider>> {
         self.watch_agent_provider(id)
+    }
+
+    async fn list_agent_providers(&self) -> Result<Vec<AgentProvider>> {
+        self.list_agent_providers().await
     }
 
     async fn get_agent_provider(&self, id: &str) -> Result<AgentProvider> {

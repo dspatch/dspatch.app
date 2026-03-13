@@ -39,6 +39,11 @@ impl LocalWorkspaceTemplateService {
         }))
     }
 
+    /// Returns all workspace templates, ordered by most recently updated.
+    pub async fn list_workspace_templates(&self) -> Result<Vec<WorkspaceTemplate>> {
+        self.dao.get_all_workspace_templates()
+    }
+
     /// Returns the workspace template with the given hub `slug`, or `None`.
     pub async fn get_by_hub_slug(&self, slug: &str) -> Result<Option<WorkspaceTemplate>> {
         self.dao.get_by_hub_slug(slug)
@@ -108,6 +113,10 @@ impl LocalWorkspaceTemplateService {
 impl WorkspaceTemplateService for LocalWorkspaceTemplateService {
     fn watch_workspace_templates(&self) -> WatchStream<Vec<WorkspaceTemplate>> {
         self.watch_workspace_templates()
+    }
+
+    async fn list_workspace_templates(&self) -> Result<Vec<WorkspaceTemplate>> {
+        self.list_workspace_templates().await
     }
 
     async fn get_by_hub_slug(&self, slug: &str) -> Result<Option<WorkspaceTemplate>> {

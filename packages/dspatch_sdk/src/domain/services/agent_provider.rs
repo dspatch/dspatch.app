@@ -21,6 +21,9 @@ pub trait AgentProviderService: Send + Sync {
     /// Emits `None` when the provider doesn't exist.
     fn watch_agent_provider(&self, id: &str) -> WatchStream<Option<AgentProvider>>;
 
+    /// Returns all agent providers, ordered by most recently updated.
+    async fn list_agent_providers(&self) -> Result<Vec<AgentProvider>>;
+
     /// Returns the agent provider with the given `id`.
     async fn get_agent_provider(&self, id: &str) -> Result<AgentProvider>;
 

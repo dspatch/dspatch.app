@@ -52,6 +52,20 @@ impl WorkspaceTemplateDao {
         )
     }
 
+    /// Returns all workspace templates, ordered by `updated_at` descending.
+    pub fn get_all_workspace_templates(&self) -> Result<Vec<WorkspaceTemplate>> {
+        let conn = self.db.conn();
+        let mut stmt = conn
+            .prepare(SELECT_ALL_SQL)
+            .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| Ok(row_to_workspace_template(row)))
+            .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Storage(format!("Row mapping failed: {e}")))?;
+        rows.into_iter().collect::<Result<Vec<_>>>()
+    }
+
     /// Returns the workspace template with the given hub `slug`, or `None`.
     pub fn get_by_hub_slug(&self, slug: &str) -> Result<Option<WorkspaceTemplate>> {
         let conn = self.db.conn();

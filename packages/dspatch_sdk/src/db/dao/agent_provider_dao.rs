@@ -84,6 +84,20 @@ impl AgentProviderDao {
         Box::pin(stream.map(|r| r.map(|v| v.into_iter().next().flatten())))
     }
 
+    /// Returns all agent providers, ordered by `updated_at` descending.
+    pub fn get_all_agent_providers(&self) -> Result<Vec<AgentProvider>> {
+        let conn = self.db.conn();
+        let mut stmt = conn
+            .prepare(SELECT_ALL_SQL)
+            .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| Ok(row_to_agent_provider(row)))
+            .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Storage(format!("Row mapping failed: {e}")))?;
+        rows.into_iter().collect::<Result<Vec<_>>>()
+    }
+
     /// Returns the agent provider with the given `id`. Errors if not found.
     pub fn get_agent_provider(&self, id: &str) -> Result<AgentProvider> {
         let conn = self.db.conn();
