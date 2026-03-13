@@ -251,3 +251,94 @@ async fn auth_register_without_backend_returns_error() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), http::StatusCode::SERVICE_UNAVAILABLE);
 }
+
+#[test]
+fn protocol_command_frame_serialization() {
+    use dspatch_sdk::client_api::protocol::ClientFrame;
+
+    let json = r#"{"id":"cmd_1","type":"command","method":"launch_workspace","params":{"workspace_id":"abc"}}"#;
+    let frame: ClientFrame = serde_json::from_str(json).unwrap();
+
+    match frame {
+        ClientFrame::Command { id, method, params } => {
+            assert_eq!(id, "cmd_1");
+            assert_eq!(method, "launch_workspace");
+            assert_eq!(params["workspace_id"], "abc");
+        }
+    }
+}
+
+#[test]
+fn protocol_result_frame_serialization() {
+    use dspatch_sdk::client_api::protocol::ServerFrame;
+
+    let frame = ServerFrame::Result {
+        id: "cmd_1".into(),
+        data: serde_json::json!({"run_id": "xyz"}),
+    };
+    let json = serde_json::to_string(&frame).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(parsed["id"], "cmd_1");
+    assert_eq!(parsed["type"], "result");
+    assert_eq!(parsed["data"]["run_id"], "xyz");
+}
+
+#[test]
+fn protocol_error_frame_serialization() {
+    use dspatch_sdk::client_api::protocol::ServerFrame;
+
+    let frame = ServerFrame::Error {
+        id: Some("cmd_1".into()),
+        code: "NOT_IMPLEMENTED".into(),
+        message: "Command not implemented".into(),
+    };
+    let json = serde_json::to_string(&frame).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(parsed["type"], "error");
+    assert_eq!(parsed["id"], "cmd_1");
+    assert_eq!(parsed["code"], "NOT_IMPLEMENTED");
+}
+
+#[test]
+fn protocol_invalidate_frame_serialization() {
+    use dspatch_sdk::client_api::protocol::ServerFrame;
+
+    let frame = ServerFrame::Invalidate {
+        tables: vec!["agent_messages".into(), "workspace_runs".into()],
+    };
+    let json = serde_json::to_string(&frame).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(parsed["type"], "invalidate");
+    assert_eq!(parsed["tables"][0], "agent_messages");
+    assert_eq!(parsed["tables"][1], "workspace_runs");
+}
+
+#[test]
+fn protocol_event_frame_serialization() {
+    use dspatch_sdk::client_api::protocol::ServerFrame;
+
+    let frame = ServerFrame::Event {
+        name: "engine_shutting_down".into(),
+        data: serde_json::json!({}),
+    };
+    let json = serde_json::to_string(&frame).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(parsed["type"], "event");
+    assert_eq!(parsed["name"], "engine_shutting_down");
+}
+
+#[test]
+fn protocol_welcome_event() {
+    use dspatch_sdk::client_api::protocol::ServerFrame;
+
+    let frame = ServerFrame::welcome();
+    let json = serde_json::to_string(&frame).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(parsed["type"], "event");
+    assert_eq!(parsed["name"], "welcome");
+}

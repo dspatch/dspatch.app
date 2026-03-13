@@ -4,5 +4,6 @@
 
 pub mod auth;
 pub mod health;
+pub mod protocol;
 pub mod server;
 pub mod session;
