@@ -7,7 +7,7 @@ description = "d:spatch SDK — core library for the d:spatch agent platform"
 
 [lib]
 name = "dspatch_sdk"
-crate-type = ["lib"]
+crate-type = ["lib", "cdylib"]
 
 [[bin]]
 name = "dspatch-engine"

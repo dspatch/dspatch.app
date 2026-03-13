@@ -7,7 +7,8 @@
 use std::path::PathBuf;
 
 /// Configuration for the dspatch engine daemon.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
 pub struct EngineConfig {
     /// Port for the client API server (Flutter app connects here).
     pub client_api_port: u16,

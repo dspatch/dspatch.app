@@ -22,4 +22,6 @@ pub mod hub;
 pub mod sdk;
 pub mod sync;
 
+pub mod ffi;
+
 pub use sdk::DspatchSdk;
