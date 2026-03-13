@@ -1053,3 +1053,22 @@ async fn invalidation_broadcaster_sends_separate_batches_across_windows() {
 
     handle.shutdown();
 }
+
+#[tokio::test]
+async fn engine_runtime_exposes_invalidation_handle() {
+    use std::sync::Arc;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::db::reactive::TableChangeTracker;
+    use dspatch_sdk::client_api::invalidation::{InvalidationBroadcaster, InvalidationHandle};
+
+    let tracker = Arc::new(TableChangeTracker::new());
+    let broadcaster = InvalidationBroadcaster::new(tracker.clone(), 50);
+    let handle = broadcaster.start();
+
+    let config = EngineConfig::default();
+    let runtime = EngineRuntime::with_invalidation(config, handle);
+
+    // Should be able to subscribe via the runtime.
+    let _rx = runtime.invalidation_handle().subscribe();
+}

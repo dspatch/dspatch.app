@@ -10,6 +10,7 @@ use tracing_subscriber::EnvFilter;
 
 use super::config::EngineConfig;
 use super::service_registry::ServiceRegistry;
+use crate::client_api::invalidation::InvalidationHandle;
 use crate::client_api::session::SessionStore;
 
 /// Core runtime state for the engine daemon.
@@ -19,6 +20,7 @@ pub struct EngineRuntime {
     shutdown_tx: broadcast::Sender<()>,
     session_store: SessionStore,
     services: Option<Arc<ServiceRegistry>>,
+    invalidation: Option<InvalidationHandle>,
 }
 
 impl EngineRuntime {
@@ -30,6 +32,7 @@ impl EngineRuntime {
             shutdown_tx,
             session_store: SessionStore::new(),
             services: None,
+            invalidation: None,
         }
     }
 
@@ -41,6 +44,37 @@ impl EngineRuntime {
             shutdown_tx,
             session_store: SessionStore::new(),
             services: Some(services),
+            invalidation: None,
+        }
+    }
+
+    /// Creates a runtime with an InvalidationHandle.
+    pub fn with_invalidation(config: EngineConfig, invalidation: InvalidationHandle) -> Self {
+        let (shutdown_tx, _) = broadcast::channel(1);
+        Self {
+            config,
+            started_at: Instant::now(),
+            shutdown_tx,
+            session_store: SessionStore::new(),
+            services: None,
+            invalidation: Some(invalidation),
+        }
+    }
+
+    /// Creates a runtime with both services and invalidation.
+    pub fn with_services_and_invalidation(
+        config: EngineConfig,
+        services: Arc<ServiceRegistry>,
+        invalidation: InvalidationHandle,
+    ) -> Self {
+        let (shutdown_tx, _) = broadcast::channel(1);
+        Self {
+            config,
+            started_at: Instant::now(),
+            shutdown_tx,
+            session_store: SessionStore::new(),
+            services: Some(services),
+            invalidation: Some(invalidation),
         }
     }
 
@@ -66,6 +100,23 @@ impl EngineRuntime {
 
     pub fn services(&self) -> Option<&Arc<ServiceRegistry>> {
         self.services.as_ref()
+    }
+
+    /// Returns true if the invalidation broadcaster has been started.
+    pub fn has_invalidation(&self) -> bool {
+        self.invalidation.is_some()
+    }
+
+    /// Returns the invalidation handle, if the broadcaster has been started.
+    pub fn invalidation_handle(&self) -> &InvalidationHandle {
+        self.invalidation
+            .as_ref()
+            .expect("InvalidationBroadcaster not started")
+    }
+
+    /// Sets the invalidation handle on an existing runtime.
+    pub fn set_invalidation(&mut self, handle: InvalidationHandle) {
+        self.invalidation = Some(handle);
     }
 }
 
