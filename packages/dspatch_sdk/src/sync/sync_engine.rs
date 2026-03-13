@@ -15,6 +15,7 @@ use crate::util::error::AppError;
 use crate::util::new_id;
 use crate::util::result::Result;
 
+use super::materializer::ChangeMaterializer;
 use super::message::{SyncChange, SyncMessage, SyncOp};
 use super::peer_connection::PeerConnectionManager;
 
@@ -348,6 +349,16 @@ impl SyncEngine {
                     &created_at,
                 ],
             )?;
+
+            // Materialize the change into the actual target table.
+            if let Err(e) = ChangeMaterializer::apply(&self.db.conn(), change) {
+                tracing::warn!(
+                    "Failed to materialize change {} for {}.{}: {e}",
+                    change.id,
+                    change.table,
+                    change.row_id,
+                );
+            }
 
             applied += 1;
         }

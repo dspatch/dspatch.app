@@ -14,11 +14,12 @@
 //! timestamps provide causal ordering; conflicts are resolved by
 //! last-writer-wins with device-ID tiebreaking.
 
+pub mod materializer;
 pub mod message;
+pub mod outbox_hook;
 pub mod peer_connection;
 pub mod signaling;
 pub mod sync_engine;
-pub mod outbox_hook;
 pub mod table_class;
 
 pub use message::{CommandResult, RemoteCommand, SyncChange, SyncMessage, SyncOp};
