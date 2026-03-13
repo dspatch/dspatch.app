@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dspatch_sdk/dspatch_sdk.dart';
 
 import '../database/engine_database.dart' show EngineDatabase;
+import '../engine_client/engine_client.dart';
 import '../features/agent_providers/models/agent_list_item.dart';
 
 // ---------------------------------------------------------------------------
@@ -32,6 +33,21 @@ final sdkProvider = Provider<RustSdk>(
 /// ```
 final engineDatabaseProvider = Provider<EngineDatabase>(
   (_) => throw UnimplementedError('Override engineDatabaseProvider in main.dart'),
+);
+
+// ---------------------------------------------------------------------------
+// Engine Client (WebSocket command API)
+// ---------------------------------------------------------------------------
+
+/// The Engine Client for sending commands to the engine over WebSocket.
+/// Must be overridden in main.dart with the connected instance from EngineBootstrap.
+///
+/// Example:
+/// ```dart
+/// engineClientProvider.overrideWithValue(bootstrapResult.client)
+/// ```
+final engineClientProvider = Provider<EngineClient>(
+  (_) => throw UnimplementedError('Override engineClientProvider in main.dart'),
 );
 
 // ---------------------------------------------------------------------------
