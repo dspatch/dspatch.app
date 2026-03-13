@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use futures::Stream;
 
+use crate::db::col::col;
 use crate::db::optional_ext::OptionalExt;
 use crate::db::reactive::watch_query;
 use crate::db::Database;
@@ -193,47 +194,27 @@ const SELECT_COLS: &str = "SELECT id, name, description, hub_slug, hub_author, h
 const SELECT_ALL_SQL: &str = "SELECT id, name, description, hub_slug, hub_author, hub_category, hub_tags_json, hub_version, config_json, agent_refs_json, created_at, updated_at FROM workspace_templates ORDER BY updated_at DESC";
 
 fn row_to_workspace_template(row: &rusqlite::Row<'_>) -> Result<WorkspaceTemplate> {
-    let hub_tags_json: String = row
-        .get(6)
-        .map_err(|e| AppError::Storage(format!("Failed to read hub_tags_json: {e}")))?;
+    let hub_tags_json: String = col(row, 6, "hub_tags_json")?;
     let hub_tags: Vec<String> = serde_json::from_str(&hub_tags_json)
         .map_err(|e| AppError::Storage(format!("JSON decode hub_tags failed: {e}")))?;
 
-    let agent_refs_json: String = row
-        .get(9)
-        .map_err(|e| AppError::Storage(format!("Failed to read agent_refs_json: {e}")))?;
+    let agent_refs_json: String = col(row, 9, "agent_refs_json")?;
     let agent_refs: Vec<String> = serde_json::from_str(&agent_refs_json)
         .map_err(|e| AppError::Storage(format!("JSON decode agent_refs failed: {e}")))?;
 
-    let created_at_str: String = row
-        .get(10)
-        .map_err(|e| AppError::Storage(format!("Failed to read created_at: {e}")))?;
-    let updated_at_str: String = row
-        .get(11)
-        .map_err(|e| AppError::Storage(format!("Failed to read updated_at: {e}")))?;
+    let created_at_str: String = col(row, 10, "created_at")?;
+    let updated_at_str: String = col(row, 11, "updated_at")?;
 
     Ok(WorkspaceTemplate {
-        id: row.get(0).map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        name: row.get(1).map_err(|e| AppError::Storage(format!("Failed to read name: {e}")))?,
-        description: row
-            .get(2)
-            .map_err(|e| AppError::Storage(format!("Failed to read description: {e}")))?,
-        hub_slug: row
-            .get(3)
-            .map_err(|e| AppError::Storage(format!("Failed to read hub_slug: {e}")))?,
-        hub_author: row
-            .get(4)
-            .map_err(|e| AppError::Storage(format!("Failed to read hub_author: {e}")))?,
-        hub_category: row
-            .get(5)
-            .map_err(|e| AppError::Storage(format!("Failed to read hub_category: {e}")))?,
+        id: col(row, 0, "id")?,
+        name: col(row, 1, "name")?,
+        description: col(row, 2, "description")?,
+        hub_slug: col(row, 3, "hub_slug")?,
+        hub_author: col(row, 4, "hub_author")?,
+        hub_category: col(row, 5, "hub_category")?,
         hub_tags,
-        hub_version: row
-            .get(7)
-            .map_err(|e| AppError::Storage(format!("Failed to read hub_version: {e}")))?,
-        config_yaml: row
-            .get(8)
-            .map_err(|e| AppError::Storage(format!("Failed to read config_json: {e}")))?,
+        hub_version: col(row, 7, "hub_version")?,
+        config_yaml: col(row, 8, "config_json")?,
         agent_refs,
         created_at: parse_datetime(&created_at_str)?,
         updated_at: parse_datetime(&updated_at_str)?,

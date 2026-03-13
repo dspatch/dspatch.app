@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use futures::Stream;
 
+use crate::db::col::col;
 use crate::db::optional_ext::OptionalExt;
 use crate::db::reactive::watch_query;
 use crate::db::Database;
@@ -98,21 +99,13 @@ impl ApiKeyDao {
 }
 
 fn row_to_api_key(row: &rusqlite::Row<'_>) -> Result<ApiKey> {
-    let created_at_str: String = row
-        .get(5)
-        .map_err(|e| AppError::Storage(format!("Failed to read created_at: {e}")))?;
+    let created_at_str: String = col(row, 5, "created_at")?;
     Ok(ApiKey {
-        id: row.get(0).map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        name: row.get(1).map_err(|e| AppError::Storage(format!("Failed to read name: {e}")))?,
-        provider_label: row
-            .get(2)
-            .map_err(|e| AppError::Storage(format!("Failed to read provider_label: {e}")))?,
-        encrypted_key: row
-            .get(3)
-            .map_err(|e| AppError::Storage(format!("Failed to read encrypted_key: {e}")))?,
-        display_hint: row
-            .get(4)
-            .map_err(|e| AppError::Storage(format!("Failed to read display_hint: {e}")))?,
+        id: col(row, 0, "id")?,
+        name: col(row, 1, "name")?,
+        provider_label: col(row, 2, "provider_label")?,
+        encrypted_key: col(row, 3, "encrypted_key")?,
+        display_hint: col(row, 4, "display_hint")?,
         created_at: parse_datetime(&created_at_str)?,
     })
 }

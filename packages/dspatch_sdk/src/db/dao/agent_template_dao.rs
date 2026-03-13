@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use futures::Stream;
 
+use crate::db::col::col;
 use crate::db::optional_ext::OptionalExt;
 use crate::db::reactive::watch_query;
 use crate::db::Database;
@@ -174,26 +175,14 @@ const SELECT_ALL_SQL: &str =
     "SELECT id, name, source_uri, file_path, created_at, updated_at FROM agent_templates ORDER BY updated_at DESC";
 
 fn row_to_agent_template(row: &rusqlite::Row<'_>) -> Result<AgentTemplate> {
-    let created_at_str: String = row
-        .get(4)
-        .map_err(|e| AppError::Storage(format!("Failed to read created_at: {e}")))?;
-    let updated_at_str: String = row
-        .get(5)
-        .map_err(|e| AppError::Storage(format!("Failed to read updated_at: {e}")))?;
+    let created_at_str: String = col(row, 4, "created_at")?;
+    let updated_at_str: String = col(row, 5, "updated_at")?;
 
     Ok(AgentTemplate {
-        id: row
-            .get(0)
-            .map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        name: row
-            .get(1)
-            .map_err(|e| AppError::Storage(format!("Failed to read name: {e}")))?,
-        source_uri: row
-            .get(2)
-            .map_err(|e| AppError::Storage(format!("Failed to read source_uri: {e}")))?,
-        file_path: row
-            .get(3)
-            .map_err(|e| AppError::Storage(format!("Failed to read file_path: {e}")))?,
+        id: col(row, 0, "id")?,
+        name: col(row, 1, "name")?,
+        source_uri: col(row, 2, "source_uri")?,
+        file_path: col(row, 3, "file_path")?,
         created_at: parse_datetime(&created_at_str)?,
         updated_at: parse_datetime(&updated_at_str)?,
     })

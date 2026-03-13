@@ -10,6 +10,7 @@ use std::sync::Arc;
 use chrono::NaiveDateTime;
 use futures::Stream;
 
+use crate::db::col::col;
 use crate::db::optional_ext::OptionalExt;
 use crate::db::reactive::watch_query;
 use crate::db::Database;
@@ -1306,84 +1307,46 @@ impl WorkspaceDao {
 // ── Row-to-model conversion helpers ─────────────────────────────────
 
 fn row_to_workspace(row: &rusqlite::Row<'_>) -> Result<Workspace> {
-    let created_at_str: String = row
-        .get(3)
-        .map_err(|e| AppError::Storage(format!("Failed to read created_at: {e}")))?;
-    let updated_at_str: String = row
-        .get(4)
-        .map_err(|e| AppError::Storage(format!("Failed to read updated_at: {e}")))?;
+    let created_at_str: String = col(row, 3, "created_at")?;
+    let updated_at_str: String = col(row, 4, "updated_at")?;
     Ok(Workspace {
-        id: row.get(0).map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        name: row.get(1).map_err(|e| AppError::Storage(format!("Failed to read name: {e}")))?,
-        project_path: row
-            .get(2)
-            .map_err(|e| AppError::Storage(format!("Failed to read project_path: {e}")))?,
+        id: col(row, 0, "id")?,
+        name: col(row, 1, "name")?,
+        project_path: col(row, 2, "project_path")?,
         created_at: parse_datetime(&created_at_str)?,
         updated_at: parse_datetime(&updated_at_str)?,
     })
 }
 
 fn row_to_workspace_run(row: &rusqlite::Row<'_>) -> Result<WorkspaceRun> {
-    let started_at_str: String = row
-        .get(7)
-        .map_err(|e| AppError::Storage(format!("Failed to read started_at: {e}")))?;
-    let stopped_at_str: Option<String> = row
-        .get(8)
-        .map_err(|e| AppError::Storage(format!("Failed to read stopped_at: {e}")))?;
-    let server_port: Option<i64> = row
-        .get(5)
-        .map_err(|e| AppError::Storage(format!("Failed to read server_port: {e}")))?;
+    let started_at_str: String = col(row, 7, "started_at")?;
+    let stopped_at_str: Option<String> = col(row, 8, "stopped_at")?;
+    let server_port: Option<i64> = col(row, 5, "server_port")?;
     Ok(WorkspaceRun {
-        id: row.get(0).map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        workspace_id: row
-            .get(1)
-            .map_err(|e| AppError::Storage(format!("Failed to read workspace_id: {e}")))?,
-        run_number: row
-            .get(2)
-            .map_err(|e| AppError::Storage(format!("Failed to read run_number: {e}")))?,
-        status: row
-            .get(3)
-            .map_err(|e| AppError::Storage(format!("Failed to read status: {e}")))?,
-        container_id: row
-            .get(4)
-            .map_err(|e| AppError::Storage(format!("Failed to read container_id: {e}")))?,
+        id: col(row, 0, "id")?,
+        workspace_id: col(row, 1, "workspace_id")?,
+        run_number: col(row, 2, "run_number")?,
+        status: col(row, 3, "status")?,
+        container_id: col(row, 4, "container_id")?,
         server_port: server_port.map(|p| p as u16),
-        api_key: row
-            .get(6)
-            .map_err(|e| AppError::Storage(format!("Failed to read api_key: {e}")))?,
+        api_key: col(row, 6, "api_key")?,
         started_at: parse_datetime(&started_at_str)?,
         stopped_at: stopped_at_str.as_deref().map(parse_datetime).transpose()?,
     })
 }
 
 fn row_to_workspace_agent(row: &rusqlite::Row<'_>) -> Result<WorkspaceAgent> {
-    let status_str: String = row
-        .get(6)
-        .map_err(|e| AppError::Storage(format!("Failed to read status: {e}")))?;
+    let status_str: String = col(row, 6, "status")?;
     let status = AgentState::from_db(&status_str).unwrap_or(AgentState::Disconnected);
-    let created_at_str: String = row
-        .get(7)
-        .map_err(|e| AppError::Storage(format!("Failed to read created_at: {e}")))?;
-    let updated_at_str: String = row
-        .get(8)
-        .map_err(|e| AppError::Storage(format!("Failed to read updated_at: {e}")))?;
+    let created_at_str: String = col(row, 7, "created_at")?;
+    let updated_at_str: String = col(row, 8, "updated_at")?;
     Ok(WorkspaceAgent {
-        id: row.get(0).map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        run_id: row
-            .get(1)
-            .map_err(|e| AppError::Storage(format!("Failed to read run_id: {e}")))?,
-        agent_key: row
-            .get(2)
-            .map_err(|e| AppError::Storage(format!("Failed to read agent_key: {e}")))?,
-        instance_id: row
-            .get(3)
-            .map_err(|e| AppError::Storage(format!("Failed to read instance_id: {e}")))?,
-        display_name: row
-            .get(4)
-            .map_err(|e| AppError::Storage(format!("Failed to read display_name: {e}")))?,
-        chain_json: row
-            .get(5)
-            .map_err(|e| AppError::Storage(format!("Failed to read chain_json: {e}")))?,
+        id: col(row, 0, "id")?,
+        run_id: col(row, 1, "run_id")?,
+        agent_key: col(row, 2, "agent_key")?,
+        instance_id: col(row, 3, "instance_id")?,
+        display_name: col(row, 4, "display_name")?,
+        chain_json: col(row, 5, "chain_json")?,
         status,
         created_at: parse_datetime(&created_at_str)?,
         updated_at: parse_datetime(&updated_at_str)?,
@@ -1391,75 +1354,41 @@ fn row_to_workspace_agent(row: &rusqlite::Row<'_>) -> Result<WorkspaceAgent> {
 }
 
 fn row_to_agent_message(row: &rusqlite::Row<'_>) -> Result<AgentMessage> {
-    let created_at_str: String = row
-        .get(10)
-        .map_err(|e| AppError::Storage(format!("Failed to read created_at: {e}")))?;
+    let created_at_str: String = col(row, 10, "created_at")?;
     Ok(AgentMessage {
-        id: row.get(0).map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        run_id: row.get(1).map_err(|e| AppError::Storage(format!("Failed to read run_id: {e}")))?,
-        role: row.get(2).map_err(|e| AppError::Storage(format!("Failed to read role: {e}")))?,
-        content: row
-            .get(3)
-            .map_err(|e| AppError::Storage(format!("Failed to read content: {e}")))?,
-        model: row.get(4).map_err(|e| AppError::Storage(format!("Failed to read model: {e}")))?,
-        input_tokens: row
-            .get(5)
-            .map_err(|e| AppError::Storage(format!("Failed to read input_tokens: {e}")))?,
-        output_tokens: row
-            .get(6)
-            .map_err(|e| AppError::Storage(format!("Failed to read output_tokens: {e}")))?,
-        instance_id: row
-            .get(7)
-            .map_err(|e| AppError::Storage(format!("Failed to read instance_id: {e}")))?,
-        turn_id: row
-            .get(8)
-            .map_err(|e| AppError::Storage(format!("Failed to read turn_id: {e}")))?,
-        sender_name: row
-            .get(9)
-            .map_err(|e| AppError::Storage(format!("Failed to read sender_name: {e}")))?,
+        id: col(row, 0, "id")?,
+        run_id: col(row, 1, "run_id")?,
+        role: col(row, 2, "role")?,
+        content: col(row, 3, "content")?,
+        model: col(row, 4, "model")?,
+        input_tokens: col(row, 5, "input_tokens")?,
+        output_tokens: col(row, 6, "output_tokens")?,
+        instance_id: col(row, 7, "instance_id")?,
+        turn_id: col(row, 8, "turn_id")?,
+        sender_name: col(row, 9, "sender_name")?,
         created_at: parse_datetime(&created_at_str)?,
     })
 }
 
 fn row_to_agent_activity(row: &rusqlite::Row<'_>) -> Result<AgentActivity> {
-    let timestamp_str: String = row
-        .get(8)
-        .map_err(|e| AppError::Storage(format!("Failed to read timestamp: {e}")))?;
+    let timestamp_str: String = col(row, 8, "timestamp")?;
     Ok(AgentActivity {
-        id: row.get(0).map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        run_id: row.get(1).map_err(|e| AppError::Storage(format!("Failed to read run_id: {e}")))?,
-        agent_key: row
-            .get(2)
-            .map_err(|e| AppError::Storage(format!("Failed to read agent_key: {e}")))?,
-        instance_id: row
-            .get(3)
-            .map_err(|e| AppError::Storage(format!("Failed to read instance_id: {e}")))?,
-        turn_id: row
-            .get(4)
-            .map_err(|e| AppError::Storage(format!("Failed to read turn_id: {e}")))?,
-        event_type: row
-            .get(5)
-            .map_err(|e| AppError::Storage(format!("Failed to read event_type: {e}")))?,
-        data_json: row
-            .get(6)
-            .map_err(|e| AppError::Storage(format!("Failed to read data_json: {e}")))?,
-        content: row
-            .get(7)
-            .map_err(|e| AppError::Storage(format!("Failed to read content: {e}")))?,
+        id: col(row, 0, "id")?,
+        run_id: col(row, 1, "run_id")?,
+        agent_key: col(row, 2, "agent_key")?,
+        instance_id: col(row, 3, "instance_id")?,
+        turn_id: col(row, 4, "turn_id")?,
+        event_type: col(row, 5, "event_type")?,
+        data_json: col(row, 6, "data_json")?,
+        content: col(row, 7, "content")?,
         timestamp: parse_datetime(&timestamp_str)?,
     })
 }
 
 fn row_to_agent_log(row: &rusqlite::Row<'_>) -> Result<AgentLog> {
-    let level_str: String = row
-        .get(5)
-        .map_err(|e| AppError::Storage(format!("Failed to read level: {e}")))?;
-    let source_str: String = row
-        .get(7)
-        .map_err(|e| AppError::Storage(format!("Failed to read source: {e}")))?;
-    let timestamp_str: String = row
-        .get(8)
-        .map_err(|e| AppError::Storage(format!("Failed to read timestamp: {e}")))?;
+    let level_str: String = col(row, 5, "level")?;
+    let source_str: String = col(row, 7, "source")?;
+    let timestamp_str: String = col(row, 8, "timestamp")?;
     let level = LogLevel::try_from_name(&level_str)
         .ok_or_else(|| AppError::Storage(format!("Unknown log level: {level_str}")))?;
     let source = match source_str.as_str() {
@@ -1470,84 +1399,46 @@ fn row_to_agent_log(row: &rusqlite::Row<'_>) -> Result<AgentLog> {
         }
     };
     Ok(AgentLog {
-        id: row.get(0).map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        run_id: row.get(1).map_err(|e| AppError::Storage(format!("Failed to read run_id: {e}")))?,
-        agent_key: row
-            .get(2)
-            .map_err(|e| AppError::Storage(format!("Failed to read agent_key: {e}")))?,
-        instance_id: row
-            .get(3)
-            .map_err(|e| AppError::Storage(format!("Failed to read instance_id: {e}")))?,
-        turn_id: row
-            .get(4)
-            .map_err(|e| AppError::Storage(format!("Failed to read turn_id: {e}")))?,
+        id: col(row, 0, "id")?,
+        run_id: col(row, 1, "run_id")?,
+        agent_key: col(row, 2, "agent_key")?,
+        instance_id: col(row, 3, "instance_id")?,
+        turn_id: col(row, 4, "turn_id")?,
         level,
-        message: row
-            .get(6)
-            .map_err(|e| AppError::Storage(format!("Failed to read message: {e}")))?,
+        message: col(row, 6, "message")?,
         source,
         timestamp: parse_datetime(&timestamp_str)?,
     })
 }
 
 fn row_to_agent_usage(row: &rusqlite::Row<'_>) -> Result<AgentUsage> {
-    let timestamp_str: String = row
-        .get(11)
-        .map_err(|e| AppError::Storage(format!("Failed to read timestamp: {e}")))?;
+    let timestamp_str: String = col(row, 11, "timestamp")?;
     Ok(AgentUsage {
-        id: row.get(0).map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        run_id: row.get(1).map_err(|e| AppError::Storage(format!("Failed to read run_id: {e}")))?,
-        agent_key: row
-            .get(2)
-            .map_err(|e| AppError::Storage(format!("Failed to read agent_key: {e}")))?,
-        instance_id: row
-            .get(3)
-            .map_err(|e| AppError::Storage(format!("Failed to read instance_id: {e}")))?,
-        turn_id: row
-            .get(4)
-            .map_err(|e| AppError::Storage(format!("Failed to read turn_id: {e}")))?,
-        model: row.get(5).map_err(|e| AppError::Storage(format!("Failed to read model: {e}")))?,
-        input_tokens: row
-            .get(6)
-            .map_err(|e| AppError::Storage(format!("Failed to read input_tokens: {e}")))?,
-        output_tokens: row
-            .get(7)
-            .map_err(|e| AppError::Storage(format!("Failed to read output_tokens: {e}")))?,
-        cache_read_tokens: row
-            .get(8)
-            .map_err(|e| AppError::Storage(format!("Failed to read cache_read_tokens: {e}")))?,
-        cache_write_tokens: row
-            .get(9)
-            .map_err(|e| AppError::Storage(format!("Failed to read cache_write_tokens: {e}")))?,
-        cost_usd: row
-            .get(10)
-            .map_err(|e| AppError::Storage(format!("Failed to read cost_usd: {e}")))?,
+        id: col(row, 0, "id")?,
+        run_id: col(row, 1, "run_id")?,
+        agent_key: col(row, 2, "agent_key")?,
+        instance_id: col(row, 3, "instance_id")?,
+        turn_id: col(row, 4, "turn_id")?,
+        model: col(row, 5, "model")?,
+        input_tokens: col(row, 6, "input_tokens")?,
+        output_tokens: col(row, 7, "output_tokens")?,
+        cache_read_tokens: col(row, 8, "cache_read_tokens")?,
+        cache_write_tokens: col(row, 9, "cache_write_tokens")?,
+        cost_usd: col(row, 10, "cost_usd")?,
         timestamp: parse_datetime(&timestamp_str)?,
     })
 }
 
 fn row_to_agent_file(row: &rusqlite::Row<'_>) -> Result<AgentFile> {
-    let timestamp_str: String = row
-        .get(7)
-        .map_err(|e| AppError::Storage(format!("Failed to read timestamp: {e}")))?;
+    let timestamp_str: String = col(row, 7, "timestamp")?;
     Ok(AgentFile {
-        id: row.get(0).map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        run_id: row.get(1).map_err(|e| AppError::Storage(format!("Failed to read run_id: {e}")))?,
-        agent_key: row
-            .get(2)
-            .map_err(|e| AppError::Storage(format!("Failed to read agent_key: {e}")))?,
-        instance_id: row
-            .get(3)
-            .map_err(|e| AppError::Storage(format!("Failed to read instance_id: {e}")))?,
-        turn_id: row
-            .get(4)
-            .map_err(|e| AppError::Storage(format!("Failed to read turn_id: {e}")))?,
-        file_path: row
-            .get(5)
-            .map_err(|e| AppError::Storage(format!("Failed to read file_path: {e}")))?,
-        operation: row
-            .get(6)
-            .map_err(|e| AppError::Storage(format!("Failed to read operation: {e}")))?,
+        id: col(row, 0, "id")?,
+        run_id: col(row, 1, "run_id")?,
+        agent_key: col(row, 2, "agent_key")?,
+        instance_id: col(row, 3, "instance_id")?,
+        turn_id: col(row, 4, "turn_id")?,
+        file_path: col(row, 5, "file_path")?,
+        operation: col(row, 6, "operation")?,
         timestamp: parse_datetime(&timestamp_str)?,
     })
 }
@@ -1557,18 +1448,10 @@ const INQUIRY_SELECT_COLS: &str = "SELECT id, run_id, agent_key, instance_id, st
 const INQUIRY_SELECT_SQL_RUN: &str = "SELECT id, run_id, agent_key, instance_id, status, priority, content_markdown, attachments_json, suggestions_json, response_text, response_suggestion_index, responded_by_agent_key, forwarding_chain_json, created_at, responded_at FROM workspace_inquiries WHERE run_id = ?1 ORDER BY created_at DESC";
 
 fn row_to_workspace_inquiry(row: &rusqlite::Row<'_>) -> Result<WorkspaceInquiry> {
-    let status_str: String = row
-        .get(4)
-        .map_err(|e| AppError::Storage(format!("Failed to read status: {e}")))?;
-    let priority_str: String = row
-        .get(5)
-        .map_err(|e| AppError::Storage(format!("Failed to read priority: {e}")))?;
-    let created_at_str: String = row
-        .get(13)
-        .map_err(|e| AppError::Storage(format!("Failed to read created_at: {e}")))?;
-    let responded_at_str: Option<String> = row
-        .get(14)
-        .map_err(|e| AppError::Storage(format!("Failed to read responded_at: {e}")))?;
+    let status_str: String = col(row, 4, "status")?;
+    let priority_str: String = col(row, 5, "priority")?;
+    let created_at_str: String = col(row, 13, "created_at")?;
+    let responded_at_str: Option<String> = col(row, 14, "responded_at")?;
 
     let status = match status_str.as_str() {
         "pending" => InquiryStatus::Pending,
@@ -1585,43 +1468,19 @@ fn row_to_workspace_inquiry(row: &rusqlite::Row<'_>) -> Result<WorkspaceInquiry>
     };
 
     Ok(WorkspaceInquiry {
-        id: row.get(0).map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        run_id: row.get(1).map_err(|e| AppError::Storage(format!("Failed to read run_id: {e}")))?,
-        agent_key: row
-            .get(2)
-            .map_err(|e| AppError::Storage(format!("Failed to read agent_key: {e}")))?,
-        instance_id: row
-            .get(3)
-            .map_err(|e| AppError::Storage(format!("Failed to read instance_id: {e}")))?,
+        id: col(row, 0, "id")?,
+        run_id: col(row, 1, "run_id")?,
+        agent_key: col(row, 2, "agent_key")?,
+        instance_id: col(row, 3, "instance_id")?,
         status,
         priority,
-        content_markdown: row
-            .get(6)
-            .map_err(|e| AppError::Storage(format!("Failed to read content_markdown: {e}")))?,
-        attachments_json: row
-            .get(7)
-            .map_err(|e| AppError::Storage(format!("Failed to read attachments_json: {e}")))?,
-        suggestions_json: row
-            .get(8)
-            .map_err(|e| AppError::Storage(format!("Failed to read suggestions_json: {e}")))?,
-        response_text: row
-            .get(9)
-            .map_err(|e| AppError::Storage(format!("Failed to read response_text: {e}")))?,
-        response_suggestion_index: row
-            .get(10)
-            .map_err(|e| {
-                AppError::Storage(format!("Failed to read response_suggestion_index: {e}"))
-            })?,
-        responded_by_agent_key: row
-            .get(11)
-            .map_err(|e| {
-                AppError::Storage(format!("Failed to read responded_by_agent_key: {e}"))
-            })?,
-        forwarding_chain_json: row
-            .get(12)
-            .map_err(|e| {
-                AppError::Storage(format!("Failed to read forwarding_chain_json: {e}"))
-            })?,
+        content_markdown: col(row, 6, "content_markdown")?,
+        attachments_json: col(row, 7, "attachments_json")?,
+        suggestions_json: col(row, 8, "suggestions_json")?,
+        response_text: col(row, 9, "response_text")?,
+        response_suggestion_index: col(row, 10, "response_suggestion_index")?,
+        responded_by_agent_key: col(row, 11, "responded_by_agent_key")?,
+        forwarding_chain_json: col(row, 12, "forwarding_chain_json")?,
         created_at: parse_datetime(&created_at_str)?,
         responded_at: responded_at_str
             .as_deref()
@@ -1632,12 +1491,8 @@ fn row_to_workspace_inquiry(row: &rusqlite::Row<'_>) -> Result<WorkspaceInquiry>
 
 fn row_to_inquiry_with_workspace(row: &rusqlite::Row<'_>) -> Result<InquiryWithWorkspace> {
     let inquiry = row_to_workspace_inquiry(row)?;
-    let workspace_name: String = row
-        .get(15)
-        .map_err(|e| AppError::Storage(format!("Failed to read workspace_name: {e}")))?;
-    let workspace_id: String = row
-        .get(16)
-        .map_err(|e| AppError::Storage(format!("Failed to read workspace_id: {e}")))?;
+    let workspace_name: String = col(row, 15, "workspace_name")?;
+    let workspace_id: String = col(row, 16, "workspace_id")?;
     Ok(InquiryWithWorkspace {
         inquiry,
         workspace_name,

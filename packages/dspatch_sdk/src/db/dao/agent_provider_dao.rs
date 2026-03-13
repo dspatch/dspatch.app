@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::db::col::col;
 use crate::db::optional_ext::OptionalExt;
 
 use futures::Stream;
@@ -269,9 +270,7 @@ const SELECT_COLS: &str = "SELECT id, name, source_type, source_path, git_url, g
 const SELECT_ALL_SQL: &str = "SELECT id, name, source_type, source_path, git_url, git_branch, entry_point, description, readme, required_env_json, required_mounts_json, fields_json, hub_slug, hub_author, hub_category, hub_tags_json, hub_version, hub_repo_url, hub_commit_hash, created_at, updated_at FROM agent_providers ORDER BY updated_at DESC";
 
 fn row_to_agent_provider(row: &rusqlite::Row<'_>) -> Result<AgentProvider> {
-    let source_type_str: String = row
-        .get(2)
-        .map_err(|e| AppError::Storage(format!("Failed to read source_type: {e}")))?;
+    let source_type_str: String = col(row, 2, "source_type")?;
     let source_type: SourceType = match source_type_str.as_str() {
         "local" => SourceType::Local,
         "git" => SourceType::Git,
@@ -283,81 +282,45 @@ fn row_to_agent_provider(row: &rusqlite::Row<'_>) -> Result<AgentProvider> {
         }
     };
 
-    let required_env_json: String = row
-        .get(9)
-        .map_err(|e| AppError::Storage(format!("Failed to read required_env_json: {e}")))?;
+    let required_env_json: String = col(row, 9, "required_env_json")?;
     let required_env: Vec<String> = serde_json::from_str(&required_env_json)
         .map_err(|e| AppError::Storage(format!("JSON decode required_env failed: {e}")))?;
 
-    let required_mounts_json: String = row
-        .get(10)
-        .map_err(|e| AppError::Storage(format!("Failed to read required_mounts_json: {e}")))?;
+    let required_mounts_json: String = col(row, 10, "required_mounts_json")?;
     let required_mounts: Vec<String> = serde_json::from_str(&required_mounts_json)
         .map_err(|e| AppError::Storage(format!("JSON decode required_mounts failed: {e}")))?;
 
-    let fields_json: String = row
-        .get(11)
-        .map_err(|e| AppError::Storage(format!("Failed to read fields_json: {e}")))?;
+    let fields_json: String = col(row, 11, "fields_json")?;
     let fields: HashMap<String, String> = serde_json::from_str(&fields_json)
         .map_err(|e| AppError::Storage(format!("JSON decode fields failed: {e}")))?;
 
-    let hub_tags_json: String = row
-        .get(15)
-        .map_err(|e| AppError::Storage(format!("Failed to read hub_tags_json: {e}")))?;
+    let hub_tags_json: String = col(row, 15, "hub_tags_json")?;
     let hub_tags: Vec<String> = serde_json::from_str(&hub_tags_json)
         .map_err(|e| AppError::Storage(format!("JSON decode hub_tags failed: {e}")))?;
 
-    let created_at_str: String = row
-        .get(19)
-        .map_err(|e| AppError::Storage(format!("Failed to read created_at: {e}")))?;
-    let updated_at_str: String = row
-        .get(20)
-        .map_err(|e| AppError::Storage(format!("Failed to read updated_at: {e}")))?;
+    let created_at_str: String = col(row, 19, "created_at")?;
+    let updated_at_str: String = col(row, 20, "updated_at")?;
 
     Ok(AgentProvider {
-        id: row.get(0).map_err(|e| AppError::Storage(format!("Failed to read id: {e}")))?,
-        name: row.get(1).map_err(|e| AppError::Storage(format!("Failed to read name: {e}")))?,
+        id: col(row, 0, "id")?,
+        name: col(row, 1, "name")?,
         source_type,
-        source_path: row
-            .get(3)
-            .map_err(|e| AppError::Storage(format!("Failed to read source_path: {e}")))?,
-        git_url: row
-            .get(4)
-            .map_err(|e| AppError::Storage(format!("Failed to read git_url: {e}")))?,
-        git_branch: row
-            .get(5)
-            .map_err(|e| AppError::Storage(format!("Failed to read git_branch: {e}")))?,
-        entry_point: row
-            .get(6)
-            .map_err(|e| AppError::Storage(format!("Failed to read entry_point: {e}")))?,
-        description: row
-            .get(7)
-            .map_err(|e| AppError::Storage(format!("Failed to read description: {e}")))?,
-        readme: row
-            .get(8)
-            .map_err(|e| AppError::Storage(format!("Failed to read readme: {e}")))?,
+        source_path: col(row, 3, "source_path")?,
+        git_url: col(row, 4, "git_url")?,
+        git_branch: col(row, 5, "git_branch")?,
+        entry_point: col(row, 6, "entry_point")?,
+        description: col(row, 7, "description")?,
+        readme: col(row, 8, "readme")?,
         required_env,
         required_mounts,
         fields,
-        hub_slug: row
-            .get(12)
-            .map_err(|e| AppError::Storage(format!("Failed to read hub_slug: {e}")))?,
-        hub_author: row
-            .get(13)
-            .map_err(|e| AppError::Storage(format!("Failed to read hub_author: {e}")))?,
-        hub_category: row
-            .get(14)
-            .map_err(|e| AppError::Storage(format!("Failed to read hub_category: {e}")))?,
+        hub_slug: col(row, 12, "hub_slug")?,
+        hub_author: col(row, 13, "hub_author")?,
+        hub_category: col(row, 14, "hub_category")?,
         hub_tags,
-        hub_version: row
-            .get(16)
-            .map_err(|e| AppError::Storage(format!("Failed to read hub_version: {e}")))?,
-        hub_repo_url: row
-            .get(17)
-            .map_err(|e| AppError::Storage(format!("Failed to read hub_repo_url: {e}")))?,
-        hub_commit_hash: row
-            .get(18)
-            .map_err(|e| AppError::Storage(format!("Failed to read hub_commit_hash: {e}")))?,
+        hub_version: col(row, 16, "hub_version")?,
+        hub_repo_url: col(row, 17, "hub_repo_url")?,
+        hub_commit_hash: col(row, 18, "hub_commit_hash")?,
         created_at: parse_datetime(&created_at_str)?,
         updated_at: parse_datetime(&updated_at_str)?,
     })
