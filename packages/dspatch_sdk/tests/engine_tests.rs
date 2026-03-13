@@ -125,3 +125,45 @@ async fn client_api_server_starts_and_responds_to_health() {
     runtime.trigger_shutdown();
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await;
 }
+
+#[test]
+fn session_store_insert_and_validate() {
+    use dspatch_sdk::client_api::session::{SessionStore, AuthMode};
+
+    let store = SessionStore::new();
+    let token = store.create_session(AuthMode::Anonymous, None);
+    assert!(!token.is_empty());
+    assert_eq!(token.len(), 64); // 32 bytes = 64 hex chars
+
+    let session = store.validate(&token);
+    assert!(session.is_some());
+    let session = session.unwrap();
+    assert_eq!(session.auth_mode, AuthMode::Anonymous);
+    assert!(session.username.is_none());
+
+    assert!(store.validate("bogus-token").is_none());
+}
+
+#[test]
+fn session_store_remove() {
+    use dspatch_sdk::client_api::session::{SessionStore, AuthMode};
+
+    let store = SessionStore::new();
+    let token = store.create_session(AuthMode::Connected, Some("alice".into()));
+
+    assert!(store.validate(&token).is_some());
+    store.remove(&token);
+    assert!(store.validate(&token).is_none());
+}
+
+#[test]
+fn session_store_connected_mode_has_username() {
+    use dspatch_sdk::client_api::session::{SessionStore, AuthMode};
+
+    let store = SessionStore::new();
+    let token = store.create_session(AuthMode::Connected, Some("bob".into()));
+
+    let session = store.validate(&token).unwrap();
+    assert_eq!(session.auth_mode, AuthMode::Connected);
+    assert_eq!(session.username.as_deref(), Some("bob"));
+}
