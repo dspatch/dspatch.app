@@ -12,3 +12,4 @@
 library;
 
 export 'engine_database.dart';
+export 'invalidation_bridge.dart';
