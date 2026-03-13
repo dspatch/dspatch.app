@@ -20,9 +20,11 @@ pub mod outbox_hook;
 pub mod peer_connection;
 pub mod signaling;
 pub mod sync_engine;
+pub mod sync_loop;
 pub mod table_class;
 
 pub use message::{CommandResult, RemoteCommand, SyncChange, SyncMessage, SyncOp};
 pub use peer_connection::PeerConnectionManager;
 pub use signaling::SignalingClient;
 pub use sync_engine::SyncEngine;
+pub use sync_loop::start_sync_loop;
