@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS signal_prekeys (
+    id INTEGER PRIMARY KEY,
+    record BLOB NOT NULL
+);
