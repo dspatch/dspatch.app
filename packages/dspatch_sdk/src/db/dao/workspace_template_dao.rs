@@ -117,45 +117,21 @@ impl WorkspaceTemplateDao {
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
 
-        if let Some(val) = name {
-            sets.push(format!("name = ?{idx}"));
-            params.push(Box::new(val.to_string()));
-            idx += 1;
-        }
-        if let Some(val) = description {
-            sets.push(format!("description = ?{idx}"));
-            params.push(Box::new(val.to_string()));
-            idx += 1;
-        }
-        if let Some(val) = hub_category {
-            sets.push(format!("hub_category = ?{idx}"));
-            params.push(Box::new(val.to_string()));
-            idx += 1;
-        }
-        if let Some(tags) = hub_tags {
-            let json = serde_json::to_string(tags)
-                .map_err(|e| AppError::Storage(format!("JSON encode failed: {e}")))?;
-            sets.push(format!("hub_tags_json = ?{idx}"));
-            params.push(Box::new(json));
-            idx += 1;
-        }
-        if let Some(val) = hub_version {
-            sets.push(format!("hub_version = ?{idx}"));
-            params.push(Box::new(val));
-            idx += 1;
-        }
-        if let Some(val) = config_yaml {
-            sets.push(format!("config_json = ?{idx}"));
-            params.push(Box::new(val.to_string()));
-            idx += 1;
-        }
-        if let Some(refs) = agent_refs {
-            let json = serde_json::to_string(refs)
-                .map_err(|e| AppError::Storage(format!("JSON encode failed: {e}")))?;
-            sets.push(format!("agent_refs_json = ?{idx}"));
-            params.push(Box::new(json));
-            idx += 1;
-        }
+        let name = name.map(|s| s.to_string());
+        let description = description.map(|s| s.to_string());
+        let hub_category = hub_category.map(|s| s.to_string());
+        let hub_tags = hub_tags.map(|t| t.to_vec());
+        let hub_version = hub_version.map(|v| v);
+        let config_yaml = config_yaml.map(|s| s.to_string());
+        let agent_refs = agent_refs.map(|r| r.to_vec());
+
+        maybe_set!(sets, params, idx, name, "name");
+        maybe_set!(sets, params, idx, description, "description");
+        maybe_set!(sets, params, idx, hub_category, "hub_category");
+        maybe_set_json!(sets, params, idx, hub_tags, "hub_tags_json");
+        maybe_set!(sets, params, idx, hub_version, "hub_version");
+        maybe_set!(sets, params, idx, config_yaml, "config_json");
+        maybe_set_json!(sets, params, idx, agent_refs, "agent_refs_json");
 
         if sets.is_empty() {
             return Ok(());

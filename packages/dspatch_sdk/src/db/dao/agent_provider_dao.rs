@@ -180,29 +180,7 @@ impl AgentProviderDao {
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
 
-        macro_rules! maybe_set {
-            ($field:ident, $col:expr) => {
-                if let Some(ref val) = update.$field {
-                    sets.push(format!("{} = ?{}", $col, idx));
-                    params.push(Box::new(val.clone()));
-                    idx += 1;
-                }
-            };
-        }
-
-        macro_rules! maybe_set_json {
-            ($field:ident, $col:expr) => {
-                if let Some(ref val) = update.$field {
-                    let json = serde_json::to_string(val)
-                        .map_err(|e| AppError::Storage(format!("JSON encode failed: {e}")))?;
-                    sets.push(format!("{} = ?{}", $col, idx));
-                    params.push(Box::new(json));
-                    idx += 1;
-                }
-            };
-        }
-
-        maybe_set!(name, "name");
+        maybe_set!(sets, params, idx, update.name, "name");
 
         if let Some(ref source_type) = update.source_type {
             let st = serde_json::to_value(source_type)
@@ -215,22 +193,22 @@ impl AgentProviderDao {
             idx += 1;
         }
 
-        maybe_set!(source_path, "source_path");
-        maybe_set!(git_url, "git_url");
-        maybe_set!(git_branch, "git_branch");
-        maybe_set!(entry_point, "entry_point");
-        maybe_set!(description, "description");
-        maybe_set!(readme, "readme");
-        maybe_set_json!(required_env, "required_env_json");
-        maybe_set_json!(required_mounts, "required_mounts_json");
-        maybe_set_json!(fields, "fields_json");
-        maybe_set!(hub_slug, "hub_slug");
-        maybe_set!(hub_author, "hub_author");
-        maybe_set!(hub_category, "hub_category");
-        maybe_set_json!(hub_tags, "hub_tags_json");
-        maybe_set!(hub_version, "hub_version");
-        maybe_set!(hub_repo_url, "hub_repo_url");
-        maybe_set!(hub_commit_hash, "hub_commit_hash");
+        maybe_set!(sets, params, idx, update.source_path, "source_path");
+        maybe_set!(sets, params, idx, update.git_url, "git_url");
+        maybe_set!(sets, params, idx, update.git_branch, "git_branch");
+        maybe_set!(sets, params, idx, update.entry_point, "entry_point");
+        maybe_set!(sets, params, idx, update.description, "description");
+        maybe_set!(sets, params, idx, update.readme, "readme");
+        maybe_set_json!(sets, params, idx, update.required_env, "required_env_json");
+        maybe_set_json!(sets, params, idx, update.required_mounts, "required_mounts_json");
+        maybe_set_json!(sets, params, idx, update.fields, "fields_json");
+        maybe_set!(sets, params, idx, update.hub_slug, "hub_slug");
+        maybe_set!(sets, params, idx, update.hub_author, "hub_author");
+        maybe_set!(sets, params, idx, update.hub_category, "hub_category");
+        maybe_set_json!(sets, params, idx, update.hub_tags, "hub_tags_json");
+        maybe_set!(sets, params, idx, update.hub_version, "hub_version");
+        maybe_set!(sets, params, idx, update.hub_repo_url, "hub_repo_url");
+        maybe_set!(sets, params, idx, update.hub_commit_hash, "hub_commit_hash");
 
         if sets.is_empty() {
             return Ok(());

@@ -133,16 +133,10 @@ impl WorkspaceDao {
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
 
-        if let Some(n) = name {
-            sets.push(format!("name = ?{idx}"));
-            params.push(Box::new(n.to_string()));
-            idx += 1;
-        }
-        if let Some(p) = project_path {
-            sets.push(format!("project_path = ?{idx}"));
-            params.push(Box::new(p.to_string()));
-            idx += 1;
-        }
+        let name = name.map(|s| s.to_string());
+        let project_path = project_path.map(|s| s.to_string());
+        maybe_set!(sets, params, idx, name, "name");
+        maybe_set!(sets, params, idx, project_path, "project_path");
         if sets.is_empty() {
             return Ok(());
         }
@@ -309,21 +303,15 @@ impl WorkspaceDao {
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
 
-        if let Some(val) = container_id {
-            sets.push(format!("container_id = ?{idx}"));
-            params.push(Box::new(val.to_string()));
-            idx += 1;
-        }
+        let container_id = container_id.map(|s| s.to_string());
+        let api_key = api_key.map(|s| s.to_string());
+        maybe_set!(sets, params, idx, container_id, "container_id");
         if let Some(val) = server_port {
             sets.push(format!("server_port = ?{idx}"));
             params.push(Box::new(val as i64));
             idx += 1;
         }
-        if let Some(val) = api_key {
-            sets.push(format!("api_key = ?{idx}"));
-            params.push(Box::new(val.to_string()));
-            idx += 1;
-        }
+        maybe_set!(sets, params, idx, api_key, "api_key");
         if sets.is_empty() {
             return Ok(());
         }
@@ -485,11 +473,8 @@ impl WorkspaceDao {
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
 
-        if let Some(val) = display_name {
-            sets.push(format!("display_name = ?{idx}"));
-            params.push(Box::new(val.to_string()));
-            idx += 1;
-        }
+        let display_name = display_name.map(|s| s.to_string());
+        maybe_set!(sets, params, idx, display_name, "display_name");
         if let Some(val) = status {
             sets.push(format!("status = ?{idx}"));
             params.push(Box::new(agent_state_to_db(val)));
@@ -606,16 +591,10 @@ impl WorkspaceDao {
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
 
-        if let Some(val) = content {
-            sets.push(format!("content = ?{idx}"));
-            params.push(Box::new(val.to_string()));
-            idx += 1;
-        }
-        if let Some(val) = model {
-            sets.push(format!("model = ?{idx}"));
-            params.push(Box::new(val.to_string()));
-            idx += 1;
-        }
+        let content = content.map(|s| s.to_string());
+        let model = model.map(|s| s.to_string());
+        maybe_set!(sets, params, idx, content, "content");
+        maybe_set!(sets, params, idx, model, "model");
         if let Some(val) = input_tokens {
             sets.push(format!("input_tokens = ?{idx}"));
             params.push(Box::new(val));
@@ -718,21 +697,12 @@ impl WorkspaceDao {
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
 
-        if let Some(val) = event_type {
-            sets.push(format!("event_type = ?{idx}"));
-            params.push(Box::new(val.to_string()));
-            idx += 1;
-        }
-        if let Some(val) = data_json {
-            sets.push(format!("data_json = ?{idx}"));
-            params.push(Box::new(val.to_string()));
-            idx += 1;
-        }
-        if let Some(val) = content {
-            sets.push(format!("content = ?{idx}"));
-            params.push(Box::new(val.to_string()));
-            idx += 1;
-        }
+        let event_type = event_type.map(|s| s.to_string());
+        let data_json = data_json.map(|s| s.to_string());
+        let content = content.map(|s| s.to_string());
+        maybe_set!(sets, params, idx, event_type, "event_type");
+        maybe_set!(sets, params, idx, data_json, "data_json");
+        maybe_set!(sets, params, idx, content, "content");
         if sets.is_empty() {
             return Ok(());
         }
