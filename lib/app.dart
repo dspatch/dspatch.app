@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import 'engine_client/models/auth_state.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -268,13 +268,13 @@ class _AuthNotifier extends ChangeNotifier {
       notifyListeners();
     });
     _dbSub = ref
-        .listen<AsyncValue<DatabaseReadyState>>(databaseStateStreamProvider, (_, _) {
+        .listen<AsyncValue<String>>(databaseStateStreamProvider, (_, _) {
       notifyListeners();
     });
   }
 
   late final ProviderSubscription<AsyncValue<AuthState>> _authSub;
-  late final ProviderSubscription<AsyncValue<DatabaseReadyState>> _dbSub;
+  late final ProviderSubscription<AsyncValue<String>> _dbSub;
 
   @override
   void dispose() {

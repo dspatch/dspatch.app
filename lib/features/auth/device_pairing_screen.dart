@@ -1,5 +1,4 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import 'dart:io' show Platform;
 import 'dart:typed_data';
 
@@ -64,27 +63,25 @@ class _DevicePairingScreenState extends ConsumerState<DevicePairingScreen> {
         keyPair: identityKeyPair,
       );
 
-      // Build the hex representation of the private key so the Rust SDK
+      // Build the hex representation of the private key so the engine
       // can persist it per-user.
       final identityPrivateBytes = await identityKeyPair.extractPrivateKeyBytes();
       final identityKeyHex =
           _bytesToHex(Uint8List.fromList(identityPrivateBytes));
 
-      final request = DeviceRegistrationRequest(
-        name: _hostname,
-        deviceType: 'desktop',
-        platform: _platformId,
-        identityKey: Uint8List.fromList(identityPublicKey.bytes),
-        signedPreKey: signedPreKeyBytes,
-        signedPreKeyId: 1,
-        signedPreKeySignature: Uint8List.fromList(signature.bytes),
-        oneTimePreKeys: const [],
-      );
+      final request = <String, dynamic>{
+        'name': _hostname,
+        'device_type': 'desktop',
+        'platform': _platformId,
+        'identity_key': identityPublicKey.bytes,
+        'signed_pre_key': signedPreKeyBytes,
+        'signed_pre_key_id': 1,
+        'signed_pre_key_signature': signature.bytes,
+        'one_time_pre_keys': <List<int>>[],
+        'identity_key_hex': identityKeyHex,
+      };
 
-      await ref.read(sdkProvider).registerDevice(
-            request: request,
-            identityKeyHex: identityKeyHex,
-          );
+      await ref.read(engineClientProvider).registerDevice(request: request);
       // Auth state becomes full -> route guard redirects to /sessions
     } catch (e) {
       if (!mounted) return;

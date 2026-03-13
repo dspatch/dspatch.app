@@ -1,5 +1,4 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,7 +16,7 @@ class TotpSetupScreen extends ConsumerStatefulWidget {
 }
 
 class _TotpSetupScreenState extends ConsumerState<TotpSetupScreen> {
-  TotpSetupData? _setupData;
+  Map<String, dynamic>? _setupData;
   bool _isLoadingSetup = true;
   bool _isConfirming = false;
   String? _setupError;
@@ -31,7 +30,7 @@ class _TotpSetupScreenState extends ConsumerState<TotpSetupScreen> {
 
   Future<void> _loadSetupData() async {
     try {
-      final data = await ref.read(sdkProvider).setup2Fa();
+      final data = await ref.read(engineClientProvider).setup2Fa();
 
       if (!mounted) return;
 
@@ -56,9 +55,10 @@ class _TotpSetupScreenState extends ConsumerState<TotpSetupScreen> {
     });
 
     try {
-      final data = await ref.read(sdkProvider).confirm2Fa(code: code);
+      final data = await ref.read(engineClientProvider).confirm2Fa(code: code);
       // Stash backup codes so BackupCodesScreen can display them.
-      ref.read(pendingBackupCodesProvider.notifier).state = data.backupCodes;
+      final codes = (data['backup_codes'] as List<dynamic>?)?.cast<String>();
+      ref.read(pendingBackupCodesProvider.notifier).state = codes;
       // Scope is now awaitingBackupConfirmation -- the route guard will
       // redirect to /auth/backup-codes automatically.
     } catch (e) {
@@ -137,6 +137,8 @@ class _TotpSetupScreenState extends ConsumerState<TotpSetupScreen> {
 
   Widget _buildSetupContent() {
     final data = _setupData!;
+    final totpUri = data['totp_uri'] as String? ?? '';
+    final secret = data['secret'] as String? ?? '';
 
     return Column(
       children: [
@@ -148,7 +150,7 @@ class _TotpSetupScreenState extends ConsumerState<TotpSetupScreen> {
             borderRadius: BorderRadius.circular(8),
           ),
           child: QrImageView(
-            data: data.totpUri,
+            data: totpUri,
             version: QrVersions.auto,
             size: 200,
             backgroundColor: Colors.white,
@@ -180,7 +182,7 @@ class _TotpSetupScreenState extends ConsumerState<TotpSetupScreen> {
             children: [
               Expanded(
                 child: SelectableText(
-                  data.secret,
+                  secret,
                   style: const TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 13,
@@ -191,7 +193,7 @@ class _TotpSetupScreenState extends ConsumerState<TotpSetupScreen> {
               ),
               const SizedBox(width: Spacing.sm),
               CopyButton(
-                textToCopy: data.secret,
+                textToCopy: secret,
                 iconSize: 16,
               ),
             ],

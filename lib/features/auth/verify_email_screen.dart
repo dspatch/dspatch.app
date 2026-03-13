@@ -37,7 +37,7 @@ class _VerifyEmailScreenState extends ConsumerState<VerifyEmailScreen> {
     });
 
     try {
-      await ref.read(sdkProvider).verifyEmail(code: code);
+      await ref.read(engineClientProvider).verifyEmail(code: code);
 
       if (!mounted) return;
 
@@ -57,7 +57,7 @@ class _VerifyEmailScreenState extends ConsumerState<VerifyEmailScreen> {
     if (_resendCooldown > 0) return;
 
     try {
-      await ref.read(sdkProvider).resendVerification();
+      await ref.read(engineClientProvider).resendVerification();
       if (!mounted) return;
       toast('Verification code resent', type: ToastType.success);
 

@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import '../../engine_client/models/auth_state.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart' hide DropdownMenuItem;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -224,7 +224,7 @@ class _UserMenuTile extends ConsumerWidget {
         DropdownMenuItem(
           icon: LucideIcons.log_in,
           label: 'Sign in',
-          onTap: () => ref.read(sdkProvider).logout(),
+          onTap: () => ref.read(engineClientProvider).logout(),
         ),
         const DropdownMenuSeparator(),
       ],
@@ -249,7 +249,7 @@ class _UserMenuTile extends ConsumerWidget {
         DropdownMenuItem(
           icon: LucideIcons.log_out,
           label: 'Log out',
-          onTap: () => ref.read(sdkProvider).logout(),
+          onTap: () => ref.read(engineClientProvider).logout(),
         ),
       ],
     ];

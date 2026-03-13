@@ -7,7 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../di/providers.dart';
 
-/// Notification preference key constants (mirrored from Rust SDK).
+/// Notification preference key constants.
 class _NotifKeys {
   static const newInquiry = 'notification.new_inquiry';
   static const highPriorityInquiry = 'notification.high_priority_inquiry';
@@ -43,13 +43,11 @@ const _notificationEvents = [
   ),
 ];
 
-/// Provider that watches all notification preference keys and returns a
-/// map of key -> enabled (bool). Defaults to true when unset.
+/// Provider that loads notification preference values.
+/// Defaults to true when unset.
 final notificationPreferencesProvider =
-    StreamProvider.autoDispose<Map<String, bool>>((ref) async* {
-  final sdk = ref.watch(sdkProvider);
-  // Combine streams for all keys into a single map.
-  // We re-fetch all values whenever any one changes.
+    FutureProvider.autoDispose<Map<String, bool>>((ref) async {
+  final client = ref.watch(engineClientProvider);
   final keys = [
     _NotifKeys.newInquiry,
     _NotifKeys.highPriorityInquiry,
@@ -57,25 +55,17 @@ final notificationPreferencesProvider =
     _NotifKeys.sessionFailed,
   ];
 
-  // Emit initial values.
-  final initial = <String, bool>{};
+  final result = <String, bool>{};
   for (final key in keys) {
-    final value = await sdk.getPreference(key: key);
-    initial[key] = value != null ? value == 'true' : true;
+    try {
+      final pref = await client.getPreference(key);
+      final value = pref['value'] as String?;
+      result[key] = value != null ? value == 'true' : true;
+    } catch (_) {
+      result[key] = true;
+    }
   }
-  yield initial;
-
-  // Watch each key and re-emit full map on any change.
-  for (final key in keys) {
-    sdk.watchPreference(key: key).listen((_) async {
-      final updated = <String, bool>{};
-      for (final k in keys) {
-        final v = await sdk.getPreference(key: k);
-        updated[k] = v != null ? v == 'true' : true;
-      }
-      // StreamProvider will emit the new value.
-    });
-  }
+  return result;
 });
 
 class NotificationsScreen extends ConsumerWidget {
@@ -138,11 +128,10 @@ class NotificationsScreen extends ConsumerWidget {
                     value: enabled,
                     onChanged: (value) {
                       ref
-                          .read(sdkProvider)
-                          .setPreference(
-                            key: event.key,
-                            value: value.toString(),
-                          );
+                          .read(engineClientProvider)
+                          .setPreference(event.key, value.toString());
+                      // Refresh preferences to reflect the change.
+                      ref.invalidate(notificationPreferencesProvider);
                     },
                   );
                 },

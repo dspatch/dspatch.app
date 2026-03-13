@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import '../../engine_client/models/auth_state.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -44,7 +44,7 @@ Future<bool> requireAuth(BuildContext context, WidgetRef ref) async {
   );
 
   if (result == true) {
-    await ref.read(sdkProvider).logout();
+    await ref.read(engineClientProvider).logout();
     return false;
   }
 

@@ -19,7 +19,7 @@ class _BackupCodesScreenState extends ConsumerState<BackupCodesScreen> {
   Future<void> _acknowledge() async {
     setState(() => _isAcknowledging = true);
 
-    await ref.read(sdkProvider).acknowledgeBackupCodes();
+    await ref.read(engineClientProvider).acknowledgeBackupCodes();
     // Clear the ephemeral cache after acknowledgement.
     ref.read(pendingBackupCodesProvider.notifier).state = null;
     // Route guard will redirect to /auth/device-pairing after the scope

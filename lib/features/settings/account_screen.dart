@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import '../../engine_client/models/auth_state.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -44,11 +44,11 @@ class AccountScreen extends ConsumerWidget {
             _ConnectedAccountInfo(
               username: authState?.username ?? 'User',
               email: authState?.email,
-              onLogout: () => ref.read(sdkProvider).logout(),
+              onLogout: () => ref.read(engineClientProvider).logout(),
             )
           else
             _GuestAccountInfo(
-              onSignIn: () => ref.read(sdkProvider).logout(),
+              onSignIn: () => ref.read(engineClientProvider).logout(),
             ),
         ],
       ),

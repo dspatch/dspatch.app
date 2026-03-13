@@ -36,7 +36,7 @@ class _Verify2faScreenState extends ConsumerState<Verify2faScreen> {
     });
 
     try {
-      await ref.read(sdkProvider).verify2Fa(
+      await ref.read(engineClientProvider).verify2Fa(
             code: code,
             isBackupCode: isBackupCode,
           );
@@ -118,7 +118,7 @@ class _Verify2faScreenState extends ConsumerState<Verify2faScreen> {
             icon: LucideIcons.arrow_left,
             onPressed: _isLoading
                 ? null
-                : () => ref.read(sdkProvider).logout(),
+                : () => ref.read(engineClientProvider).logout(),
           ),
         ],
       ),

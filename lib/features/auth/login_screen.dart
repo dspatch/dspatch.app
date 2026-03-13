@@ -44,7 +44,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     });
 
     try {
-      await ref.read(sdkProvider).login(
+      await ref.read(engineClientProvider).login(
             username: username,
             password: password,
           );
@@ -60,7 +60,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _handleAnonymousMode() async {
     setState(() => _isLoading = true);
-    await ref.read(sdkProvider).enterAnonymousMode();
+    await ref.read(engineClientProvider).enterAnonymousMode();
     // Auth state change triggers route guard → /sessions
   }
 

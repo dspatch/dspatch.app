@@ -73,7 +73,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     });
 
     try {
-      await ref.read(sdkProvider).register(
+      await ref.read(engineClientProvider).register(
             username: username,
             email: email,
             password: password,

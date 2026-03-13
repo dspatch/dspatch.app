@@ -1,23 +1,22 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'dart:async';
 
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../di/providers.dart';
+import '../../engine_client/protocol/protocol.dart';
 
 /// Gateway screen shown after authentication.
 ///
-/// Handles the full post-auth initialization sequence:
-/// 1. Initializes the SDK (starts auth watcher).
-/// 2. Waits for database state (Ready or MigrationPending).
-/// 3. If migration pending, prompts the user.
-/// 4. Loads saved theme preference.
-/// 5. Initializes notifications.
-/// 6. Redirects to /workspaces when ready.
+/// With the engine architecture, the engine process manages DB initialization
+/// and migration. This screen now:
+/// 1. Waits for the engine to signal database readiness.
+/// 2. If migration pending, prompts the user.
+/// 3. Loads saved theme preference.
+/// 4. Redirects to /workspaces when ready.
 class SetupScreen extends ConsumerStatefulWidget {
   const SetupScreen({super.key});
 
@@ -43,30 +42,34 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     debugPrint('[SETUP] Starting setup...');
 
     try {
-      final sdk = ref.read(sdkProvider);
-
-      // Initialize the SDK (starts auth watcher, opens DB asynchronously).
-      await sdk.initialize();
-      debugPrint('[SETUP] SDK initialized');
+      final client = ref.read(engineClientProvider);
 
       // Wait for the database to become ready or signal migration.
-      await _waitForDatabase(sdk);
+      setState(() => _status = 'Waiting for database...');
+      await _waitForDatabase();
+
+      debugPrint('[SETUP] Database ready');
 
       // Load saved theme.
       if (!mounted) return;
       setState(() => _status = 'Loading preferences...');
 
-      final pref = await sdk.getPreference(key: 'theme_mode');
-      if (!mounted) return;
-      if (pref != null) {
-        final mode = ThemeMode.values.firstWhere(
-          (m) => m.name == pref,
-          orElse: () => ThemeMode.system,
-        );
-        final container = ProviderScope.containerOf(context);
-        container.updateOverrides([
-          themeModeProvider.overrideWith((_) => mode),
-        ]);
+      try {
+        final pref = await client.getPreference('theme_mode');
+        final value = pref['value'] as String?;
+        if (!mounted) return;
+        if (value != null) {
+          final mode = ThemeMode.values.firstWhere(
+            (m) => m.name == value,
+            orElse: () => ThemeMode.system,
+          );
+          final container = ProviderScope.containerOf(context);
+          container.updateOverrides([
+            themeModeProvider.overrideWith((_) => mode),
+          ]);
+        }
+      } catch (_) {
+        // Preference not set — use default theme.
       }
 
       debugPrint('[SETUP] Setup complete, navigating to /workspaces');
@@ -79,40 +82,40 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
   /// Waits for the database to become ready, handling migration if needed.
   ///
-  /// Checks both the stream (for future events) and `isMigrationPending()`
-  /// (for events that fired before we subscribed).
-  Future<void> _waitForDatabase(RustSdk sdk) async {
-    // If already ready, skip.
-    if (await sdk.isDatabaseReady()) return;
+  /// Listens to engine events for database state changes. The engine manages
+  /// the actual DB initialization; we just react to its state signals.
+  Future<void> _waitForDatabase() async {
+    final client = ref.read(engineClientProvider);
 
-    // Check if migration was already signalled before we subscribed.
-    if (await sdk.isMigrationPending()) {
-      debugPrint('[SETUP] Migration pending (caught on check) — prompting user');
-      if (!mounted) return;
-      await _showMigrationDialog(sdk);
-      return;
+    // Check if already ready by sending a command.
+    try {
+      final status = await client.sendCommand('get_database_state');
+      final state = status['state'] as String?;
+      if (state == 'ready') return;
+      if (state == 'migration_pending') {
+        if (!mounted) return;
+        await _showMigrationDialog();
+        return;
+      }
+    } catch (_) {
+      // Command may not exist — fall through to event-based approach.
     }
 
-    // Otherwise wait for the next state event.
+    // Otherwise wait for the next state event from the engine's event stream.
     final completer = Completer<void>();
-    late final StreamSubscription<DatabaseReadyState> sub;
+    late final StreamSubscription<EventFrame> sub;
 
-    sub = sdk.watchDatabaseState().listen((state) async {
-      switch (state) {
-        case DatabaseReadyState.ready:
-          debugPrint('[SETUP] Database ready');
-          sub.cancel();
-          if (!completer.isCompleted) completer.complete();
-
-        case DatabaseReadyState.migrationPending:
-          debugPrint('[SETUP] Migration pending — prompting user');
-          sub.cancel();
-          if (!mounted) return;
-          await _showMigrationDialog(sdk);
-          if (!completer.isCompleted) completer.complete();
-
-        case DatabaseReadyState.closed:
-          break; // Transient state, ignore.
+    sub = client.events.listen((event) async {
+      if (event.name != 'database_state_changed') return;
+      final state = event.data['state'] as String?;
+      if (state == 'ready') {
+        sub.cancel();
+        if (!completer.isCompleted) completer.complete();
+      } else if (state == 'migration_pending') {
+        sub.cancel();
+        if (!mounted) return;
+        await _showMigrationDialog();
+        if (!completer.isCompleted) completer.complete();
       }
     }, onError: (e) {
       sub.cancel();
@@ -123,7 +126,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   }
 
   /// Shows a dialog asking the user whether to migrate their anonymous data.
-  Future<void> _showMigrationDialog(RustSdk sdk) async {
+  Future<void> _showMigrationDialog() async {
+    final client = ref.read(engineClientProvider);
+
     final migrate = await DspatchAlertDialog.show<bool>(
       context: context,
       builder: (ctx) => Column(
@@ -157,10 +162,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
     if (migrate == true) {
       debugPrint('[SETUP] User chose to migrate');
-      await sdk.performMigration();
+      await client.sendCommand('perform_migration');
     } else {
       debugPrint('[SETUP] User chose to skip migration');
-      await sdk.skipMigration();
+      await client.sendCommand('skip_migration');
     }
   }
 
