@@ -48,6 +48,11 @@ rand = "0.8"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 
+# Signal Protocol — official implementation from signalapp/libsignal
+# Not published to crates.io; must use git dependency.
+# Requires cmake + C compiler for BoringSSL (boring crate).
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal", branch = "main" }
+
 # CLI
 clap = { version = "4", features = ["derive"] }
 comfy-table = "7"
