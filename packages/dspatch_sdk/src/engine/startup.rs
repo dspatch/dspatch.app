@@ -55,6 +55,17 @@ pub fn init_tracing(log_level: &str) {
 }
 
 /// Waits for Ctrl+C (SIGINT). Returns when the signal is received.
+/// Opens (or creates) the engine's SQLite database at the given path.
+///
+/// Applies all pending migrations. WAL mode is enabled automatically.
+pub fn open_database(path: &std::path::Path) -> crate::util::result::Result<crate::db::Database> {
+    tracing::info!(path = %path.display(), "opening engine database");
+    let db = crate::db::Database::open(path, None)?;
+    tracing::info!("database ready");
+    Ok(db)
+}
+
+/// Waits for Ctrl+C (SIGINT). Returns when the signal is received.
 pub async fn wait_for_shutdown_signal() {
     #[cfg(unix)]
     {
