@@ -7,7 +7,7 @@ part of 'workspace_controller.dart';
 // **************************************************************************
 
 String _$workspaceControllerHash() =>
-    r'307b53799e88a407d0ac366f88e4114f14776b72';
+    r'602984c4fc62281dbf5919e5ff65955fc7b21433';
 
 /// See also [WorkspaceController].
 @ProviderFor(WorkspaceController)

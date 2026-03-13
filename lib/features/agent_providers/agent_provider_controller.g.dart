@@ -7,7 +7,7 @@ part of 'agent_provider_controller.dart';
 // **************************************************************************
 
 String _$agentProviderControllerHash() =>
-    r'529f1b7532e9cc5f053520413aa6ed73150cedde';
+    r'a965d51374b9209b5c4a6c0c7fd6da49199ff713';
 
 /// See also [AgentProviderController].
 @ProviderFor(AgentProviderController)

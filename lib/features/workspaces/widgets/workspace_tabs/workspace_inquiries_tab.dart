@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import 'package:dspatch_engine/dspatch_engine.dart';
 import '../../../../core/utils/datetime_ext.dart';
 import 'dart:convert';
 

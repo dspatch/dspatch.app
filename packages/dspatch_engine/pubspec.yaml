@@ -1,0 +1,29 @@
+name: dspatch_engine
+description: dspatch engine — Rust-backed Flutter package via flutter_rust_bridge
+version: 0.1.0
+publish_to: none
+
+flutter:
+  plugin:
+    platforms:
+      windows:
+        ffiPlugin: true
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+  flutter: ">=3.19.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_rust_bridge: 2.11.1
+  freezed_annotation: ^2.4.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  integration_test:
+    sdk: flutter
+  freezed: ^2.5.7
+  build_runner: ^2.4.13

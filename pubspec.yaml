@@ -10,8 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_rust_bridge: ^2.11.1
-  dspatch_sdk:
-    path: packages/dspatch_sdk
+  dspatch_engine:
+    path: packages/dspatch_engine
   dspatch_ui:
     path: packages/dspatch_ui
   flutter_riverpod: ^2.6.1

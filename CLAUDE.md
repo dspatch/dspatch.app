@@ -24,9 +24,9 @@ The engine is the single authority over all data and logic. Nothing else writes 
 
 See the design doc for full details on multi-device routing, P2P sync, and auth flow.
 
-### Engine crate structure (`packages/dspatch_sdk/`)
+### Engine crate structure (`packages/dspatch_engine/`)
 
-The Rust engine crate lives at `packages/dspatch_sdk/`. Key modules:
+The Rust engine crate lives at `packages/dspatch_engine/`. Key modules:
 
 - **`src/engine/`** — engine daemon core
   - `config.rs` — `EngineConfig` with hardcoded defaults (port 9847, `~/.dspatch/data`, etc.)
@@ -50,9 +50,26 @@ The Rust engine crate lives at `packages/dspatch_sdk/`. Key modules:
   - `col.rs` — shared `col()` helper for typed column extraction with error mapping
   - `update_builder.rs` — shared `maybe_set!` / `maybe_set_json!` macros for dynamic UPDATE clauses
   - `schema.rs` — table constants via `include_str!` from `shared/schema/*.sql`
-  - `migrations.rs` — incremental migrations (current: v11)
+  - `migrations.rs` — incremental migrations (current: v12)
+- **`src/signal/`** — Signal Protocol E2E encryption via `libsignal-protocol` (official crate, git dep)
+  - `identity_store.rs` — `SqliteIdentityStore` implements `IdentityKeyStore`
+  - `prekey_store.rs` — `SqlitePreKeyStore` implements `PreKeyStore`
+  - `signed_prekey_store.rs` — `SqliteSignedPreKeyStore` implements `SignedPreKeyStore`
+  - `session_store.rs` — `SqliteSessionStore` implements `SessionStore`
+  - `sender_key_store.rs` — `SqliteSenderKeyStore` implements `SenderKeyStore`
+  - `kyber_prekey_store.rs` — `SqliteKyberPreKeyStore` implements `KyberPreKeyStore` (for PQXDH)
+  - `protocol.rs` — `SignalService` — wrapper around libsignal for key gen, session establishment, encrypt/decrypt
+- **`src/sync/`** — P2P sync engine for device-to-device data synchronization
+  - `message.rs` — `SyncChange`, `SyncOp`, `SyncMessage`, `RemoteCommand`, `CommandResult`
+  - `sync_engine.rs` — `SyncEngine` — outbox, cursors, Lamport clock, LWW conflict resolution, change materialization
+  - `peer_connection.rs` — `PeerConnectionManager` — encrypted peer connections via `SignalService`
+  - `signaling.rs` — `SignalingClient` — WebSocket signaling for connection establishment
+  - `table_class.rs` — `TableClassification` — 15 synced tables (5 account LWW, 10 workspace-owned)
+  - `outbox_hook.rs` — `OutboxHook` — SQLite update hook that auto-records synced table mutations
+  - `sync_loop.rs` — `start_sync_loop()` — background task for periodic outbox flush + incoming handler
+  - `materializer.rs` — `ChangeMaterializer` — applies remote `SyncChange` to actual database tables
 - **`src/util/`** — utilities (`id.rs` for `new_id()` UUID generation, `error.rs`, `result.rs`)
-- **`shared/schema/`** — 27 `.sql` files (one per table), shared between Rust and Dart
+- **`shared/schema/`** — 28 `.sql` files (one per table), shared between Rust and Dart
 
 **Test runner:** `cargo test --lib --tests` (from crate root)
 

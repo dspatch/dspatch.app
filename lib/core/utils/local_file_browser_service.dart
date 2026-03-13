@@ -2,7 +2,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import 'package:dspatch_engine/dspatch_engine.dart';
 import 'package:path/path.dart' as p;
 import 'package:watcher/watcher.dart';
 

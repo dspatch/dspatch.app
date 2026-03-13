@@ -1,0 +1,5 @@
+rust_input: crate::bridge::api
+dart_output: lib/src/generated/
+rust_root: .
+rust_features:
+  - flutter

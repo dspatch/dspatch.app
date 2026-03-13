@@ -3,6 +3,8 @@
 /// Workspace configuration types for the visual editor and YAML parsing.
 ///
 /// These replace the FRB-generated types from dspatch_sdk.
+library;
+
 
 class WorkspaceConfig {
   const WorkspaceConfig({

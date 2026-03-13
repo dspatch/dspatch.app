@@ -1,0 +1,319 @@
+// Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
+
+//! Data-access object for the `agent_providers` table.
+
+use std::collections::HashMap;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use crate::db::col::col;
+use crate::db::optional_ext::OptionalExt;
+
+use futures::Stream;
+
+use crate::db::reactive::watch_query;
+use crate::db::Database;
+use crate::domain::enums::SourceType;
+use crate::domain::models::{AgentProvider, UpdateAgentProviderRequest};
+use crate::util::error::AppError;
+use crate::util::result::Result;
+
+use super::{format_datetime, parse_datetime};
+
+/// Provides typed CRUD and reactive watch operations on the `agent_providers`
+/// table.
+pub struct AgentProviderDao {
+    db: Arc<Database>,
+}
+
+impl AgentProviderDao {
+    /// Creates a new DAO backed by the given database.
+    pub fn new(db: Arc<Database>) -> Self {
+        Self { db }
+    }
+
+    /// Returns a stream of all agent providers, ordered by `updated_at` descending.
+    pub fn watch_agent_providers(
+        &self,
+    ) -> Pin<Box<dyn Stream<Item = Result<Vec<AgentProvider>>> + Send>> {
+        watch_query(
+            self.db.tracker(),
+            self.db.conn_arc(),
+            &["agent_providers"],
+            |conn| {
+                let mut stmt = conn
+                    .prepare(SELECT_ALL_SQL)
+                    .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
+                let rows = stmt
+                    .query_map([], |row| Ok(row_to_agent_provider(row)))
+                    .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(|e| AppError::Storage(format!("Row mapping failed: {e}")))?;
+                rows.into_iter().collect::<Result<Vec<_>>>()
+            },
+        )
+    }
+
+    /// Returns a stream that emits the agent provider with `id`, or `None`.
+    pub fn watch_agent_provider(
+        &self,
+        id: &str,
+    ) -> Pin<Box<dyn Stream<Item = Result<Option<AgentProvider>>> + Send>> {
+        let id = id.to_string();
+        let stream = watch_query(
+            self.db.tracker(),
+            self.db.conn_arc(),
+            &["agent_providers"],
+            move |conn| {
+                let mut stmt = conn
+                    .prepare(&format!("{SELECT_COLS} FROM agent_providers WHERE id = ?1"))
+                    .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
+                let result = stmt
+                    .query_row(rusqlite::params![id], |row| {
+                        Ok(row_to_agent_provider(row))
+                    })
+                    .optional()
+                    .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?;
+                match result {
+                    Some(r) => Ok(vec![Some(r?)]),
+                    None => Ok(vec![None]),
+                }
+            },
+        );
+        use futures::StreamExt;
+        Box::pin(stream.map(|r| r.map(|v| v.into_iter().next().flatten())))
+    }
+
+    /// Returns all agent providers, ordered by `updated_at` descending.
+    pub fn get_all_agent_providers(&self) -> Result<Vec<AgentProvider>> {
+        let conn = self.db.conn();
+        let mut stmt = conn
+            .prepare(SELECT_ALL_SQL)
+            .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| Ok(row_to_agent_provider(row)))
+            .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Storage(format!("Row mapping failed: {e}")))?;
+        rows.into_iter().collect::<Result<Vec<_>>>()
+    }
+
+    /// Returns the agent provider with the given `id`. Errors if not found.
+    pub fn get_agent_provider(&self, id: &str) -> Result<AgentProvider> {
+        let conn = self.db.conn();
+        let mut stmt = conn
+            .prepare(&format!("{SELECT_COLS} FROM agent_providers WHERE id = ?1"))
+            .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
+        let result = stmt
+            .query_row(rusqlite::params![id], |row| {
+                Ok(row_to_agent_provider(row))
+            })
+            .optional()
+            .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?;
+        match result {
+            Some(r) => r,
+            None => Err(AppError::NotFound(format!(
+                "Agent provider not found: {id}"
+            ))),
+        }
+    }
+
+    /// Returns the agent provider with the given `name`, or `None`.
+    pub fn get_agent_provider_by_name(&self, name: &str) -> Result<Option<AgentProvider>> {
+        let conn = self.db.conn();
+        let mut stmt = conn
+            .prepare(&format!("{SELECT_COLS} FROM agent_providers WHERE name = ?1"))
+            .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
+        let result = stmt
+            .query_row(rusqlite::params![name], |row| {
+                Ok(row_to_agent_provider(row))
+            })
+            .optional()
+            .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?;
+        match result {
+            Some(r) => Ok(Some(r?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Inserts a new agent provider. JSON fields are serialized from the model.
+    pub fn insert_agent_provider(&self, template: &AgentProvider) -> Result<()> {
+        let required_env_json = serde_json::to_string(&template.required_env)
+            .map_err(|e| AppError::Storage(format!("JSON encode failed: {e}")))?;
+        let required_mounts_json = serde_json::to_string(&template.required_mounts)
+            .map_err(|e| AppError::Storage(format!("JSON encode failed: {e}")))?;
+        let fields_json = serde_json::to_string(&template.fields)
+            .map_err(|e| AppError::Storage(format!("JSON encode failed: {e}")))?;
+        let hub_tags_json = serde_json::to_string(&template.hub_tags)
+            .map_err(|e| AppError::Storage(format!("JSON encode failed: {e}")))?;
+        let source_type_str = serde_json::to_value(&template.source_type)
+            .map_err(|e| AppError::Storage(format!("JSON encode failed: {e}")))?
+            .as_str()
+            .unwrap_or("local")
+            .to_string();
+        let created_at = format_datetime(&template.created_at);
+        let updated_at = format_datetime(&template.updated_at);
+
+        self.db.execute(
+            "INSERT INTO agent_providers (id, name, source_type, source_path, git_url, git_branch, entry_point, description, readme, required_env_json, required_mounts_json, fields_json, hub_slug, hub_author, hub_category, hub_tags_json, hub_version, hub_repo_url, hub_commit_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+            &[
+                &template.id as &dyn rusqlite::types::ToSql,
+                &template.name,
+                &source_type_str,
+                &template.source_path as &dyn rusqlite::types::ToSql,
+                &template.git_url as &dyn rusqlite::types::ToSql,
+                &template.git_branch as &dyn rusqlite::types::ToSql,
+                &template.entry_point,
+                &template.description as &dyn rusqlite::types::ToSql,
+                &template.readme as &dyn rusqlite::types::ToSql,
+                &required_env_json,
+                &required_mounts_json,
+                &fields_json,
+                &template.hub_slug as &dyn rusqlite::types::ToSql,
+                &template.hub_author as &dyn rusqlite::types::ToSql,
+                &template.hub_category as &dyn rusqlite::types::ToSql,
+                &hub_tags_json,
+                &template.hub_version as &dyn rusqlite::types::ToSql,
+                &template.hub_repo_url as &dyn rusqlite::types::ToSql,
+                &template.hub_commit_hash as &dyn rusqlite::types::ToSql,
+                &created_at,
+                &updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Partially updates the agent provider with `id`. Only non-`None` fields
+    /// in `update` are applied.
+    pub fn update_agent_provider(
+        &self,
+        id: &str,
+        update: &UpdateAgentProviderRequest,
+    ) -> Result<()> {
+        let mut sets = Vec::new();
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut idx = 1;
+
+        maybe_set!(sets, params, idx, update.name, "name");
+
+        if let Some(ref source_type) = update.source_type {
+            let st = serde_json::to_value(source_type)
+                .map_err(|e| AppError::Storage(format!("JSON encode failed: {e}")))?
+                .as_str()
+                .unwrap_or("local")
+                .to_string();
+            sets.push(format!("source_type = ?{idx}"));
+            params.push(Box::new(st));
+            idx += 1;
+        }
+
+        maybe_set!(sets, params, idx, update.source_path, "source_path");
+        maybe_set!(sets, params, idx, update.git_url, "git_url");
+        maybe_set!(sets, params, idx, update.git_branch, "git_branch");
+        maybe_set!(sets, params, idx, update.entry_point, "entry_point");
+        maybe_set!(sets, params, idx, update.description, "description");
+        maybe_set!(sets, params, idx, update.readme, "readme");
+        maybe_set_json!(sets, params, idx, update.required_env, "required_env_json");
+        maybe_set_json!(sets, params, idx, update.required_mounts, "required_mounts_json");
+        maybe_set_json!(sets, params, idx, update.fields, "fields_json");
+        maybe_set!(sets, params, idx, update.hub_slug, "hub_slug");
+        maybe_set!(sets, params, idx, update.hub_author, "hub_author");
+        maybe_set!(sets, params, idx, update.hub_category, "hub_category");
+        maybe_set_json!(sets, params, idx, update.hub_tags, "hub_tags_json");
+        maybe_set!(sets, params, idx, update.hub_version, "hub_version");
+        maybe_set!(sets, params, idx, update.hub_repo_url, "hub_repo_url");
+        maybe_set!(sets, params, idx, update.hub_commit_hash, "hub_commit_hash");
+
+        if sets.is_empty() {
+            return Ok(());
+        }
+
+        // Always bump updated_at.
+        let now = chrono::Utc::now().naive_utc();
+        sets.push(format!("updated_at = ?{idx}"));
+        params.push(Box::new(format_datetime(&now)));
+        idx += 1;
+
+        let sql = format!(
+            "UPDATE agent_providers SET {} WHERE id = ?{}",
+            sets.join(", "),
+            idx
+        );
+        params.push(Box::new(id.to_string()));
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
+        self.db.execute(&sql, &param_refs)?;
+        Ok(())
+    }
+
+    /// Deletes the agent provider with the given `id`.
+    pub fn delete_agent_provider(&self, id: &str) -> Result<()> {
+        self.db.execute(
+            "DELETE FROM agent_providers WHERE id = ?1",
+            &[&id as &dyn rusqlite::types::ToSql],
+        )?;
+        Ok(())
+    }
+}
+
+const SELECT_COLS: &str = "SELECT id, name, source_type, source_path, git_url, git_branch, entry_point, description, readme, required_env_json, required_mounts_json, fields_json, hub_slug, hub_author, hub_category, hub_tags_json, hub_version, hub_repo_url, hub_commit_hash, created_at, updated_at";
+
+const SELECT_ALL_SQL: &str = "SELECT id, name, source_type, source_path, git_url, git_branch, entry_point, description, readme, required_env_json, required_mounts_json, fields_json, hub_slug, hub_author, hub_category, hub_tags_json, hub_version, hub_repo_url, hub_commit_hash, created_at, updated_at FROM agent_providers ORDER BY updated_at DESC";
+
+fn row_to_agent_provider(row: &rusqlite::Row<'_>) -> Result<AgentProvider> {
+    let source_type_str: String = col(row, 2, "source_type")?;
+    let source_type: SourceType = match source_type_str.as_str() {
+        "local" => SourceType::Local,
+        "git" => SourceType::Git,
+        "hub" => SourceType::Hub,
+        other => {
+            return Err(AppError::Storage(format!(
+                "Unknown source_type: {other}"
+            )))
+        }
+    };
+
+    let required_env_json: String = col(row, 9, "required_env_json")?;
+    let required_env: Vec<String> = serde_json::from_str(&required_env_json)
+        .map_err(|e| AppError::Storage(format!("JSON decode required_env failed: {e}")))?;
+
+    let required_mounts_json: String = col(row, 10, "required_mounts_json")?;
+    let required_mounts: Vec<String> = serde_json::from_str(&required_mounts_json)
+        .map_err(|e| AppError::Storage(format!("JSON decode required_mounts failed: {e}")))?;
+
+    let fields_json: String = col(row, 11, "fields_json")?;
+    let fields: HashMap<String, String> = serde_json::from_str(&fields_json)
+        .map_err(|e| AppError::Storage(format!("JSON decode fields failed: {e}")))?;
+
+    let hub_tags_json: String = col(row, 15, "hub_tags_json")?;
+    let hub_tags: Vec<String> = serde_json::from_str(&hub_tags_json)
+        .map_err(|e| AppError::Storage(format!("JSON decode hub_tags failed: {e}")))?;
+
+    let created_at_str: String = col(row, 19, "created_at")?;
+    let updated_at_str: String = col(row, 20, "updated_at")?;
+
+    Ok(AgentProvider {
+        id: col(row, 0, "id")?,
+        name: col(row, 1, "name")?,
+        source_type,
+        source_path: col(row, 3, "source_path")?,
+        git_url: col(row, 4, "git_url")?,
+        git_branch: col(row, 5, "git_branch")?,
+        entry_point: col(row, 6, "entry_point")?,
+        description: col(row, 7, "description")?,
+        readme: col(row, 8, "readme")?,
+        required_env,
+        required_mounts,
+        fields,
+        hub_slug: col(row, 12, "hub_slug")?,
+        hub_author: col(row, 13, "hub_author")?,
+        hub_category: col(row, 14, "hub_category")?,
+        hub_tags,
+        hub_version: col(row, 16, "hub_version")?,
+        hub_repo_url: col(row, 17, "hub_repo_url")?,
+        hub_commit_hash: col(row, 18, "hub_commit_hash")?,
+        created_at: parse_datetime(&created_at_str)?,
+        updated_at: parse_datetime(&updated_at_str)?,
+    })
+}

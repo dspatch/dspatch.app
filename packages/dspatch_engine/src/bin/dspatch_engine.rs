@@ -1,0 +1,81 @@
+// Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
+
+//! dspatch engine daemon — standalone entry point.
+//!
+//! Starts the engine, opens/migrates the database, starts the client API
+//! server on the configured port, and runs until Ctrl+C (or SIGTERM on Unix).
+
+use std::sync::Arc;
+
+use dspatch_engine::client_api::invalidation::InvalidationBroadcaster;
+use dspatch_engine::client_api::server::start_client_api;
+use dspatch_engine::engine::config::EngineConfig;
+use dspatch_engine::engine::service_registry::ServiceRegistry;
+use dspatch_engine::engine::startup::{
+    init_tracing, open_database, wait_for_shutdown_signal, EngineRuntime,
+};
+
+#[tokio::main]
+async fn main() {
+    let config = EngineConfig::default();
+
+    // 1. Initialize tracing/logging.
+    init_tracing(&config.log_level);
+
+    tracing::info!(
+        port = config.client_api_port,
+        db_dir = %config.db_dir.display(),
+        "dspatch engine starting"
+    );
+
+    // 2. Open/migrate the database.
+    let db_path = config.db_dir.join("engine.db");
+    let db = match open_database(&db_path) {
+        Ok(db) => {
+            tracing::info!("database initialized successfully");
+            Arc::new(db)
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "failed to open database — exiting");
+            std::process::exit(1);
+        }
+    };
+
+    // 3. Start the invalidation broadcaster.
+    let broadcaster = InvalidationBroadcaster::new(
+        db.tracker().clone(),
+        config.invalidation_debounce_ms,
+    );
+    let invalidation_handle = broadcaster.start();
+
+    // 4. Create the service registry and engine runtime.
+    let registry = Arc::new(ServiceRegistry::new(db, config.db_dir.clone()));
+    let runtime = Arc::new(EngineRuntime::with_services_and_invalidation(
+        config, registry, invalidation_handle,
+    ));
+
+    // 5. Start the client API server in a background task.
+    let api_runtime = runtime.clone();
+    let shutdown_rx = runtime.subscribe_shutdown();
+    let api_handle = tokio::spawn(async move {
+        if let Err(e) = start_client_api(api_runtime, shutdown_rx).await {
+            tracing::error!(error = %e, "client API server failed");
+        }
+    });
+
+    // 6. Wait for shutdown signal (Ctrl+C / SIGTERM).
+    wait_for_shutdown_signal().await;
+
+    // 7. Trigger graceful shutdown.
+    tracing::info!("shutting down...");
+    runtime.trigger_shutdown();
+
+    // 8. Wait for the server to finish.
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        api_handle,
+    )
+    .await;
+
+    tracing::info!("dspatch engine stopped");
+}

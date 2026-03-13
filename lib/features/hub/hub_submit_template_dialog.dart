@@ -2,7 +2,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dspatch_sdk/dspatch_sdk.dart' show AgentTemplate, HubTagRef;
+import 'package:dspatch_engine/dspatch_engine.dart' show AgentTemplate, HubTagRef;
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
