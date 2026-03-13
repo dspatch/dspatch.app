@@ -1183,3 +1183,68 @@ async fn ephemeral_event_emitter_silent_when_no_subscribers() {
     let emitter = EphemeralEventEmitter::new();
     emitter.emit("p2p_disconnected", serde_json::json!({}));
 }
+
+#[tokio::test]
+async fn ws_receives_ephemeral_events() {
+    use std::sync::Arc;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::client_api::session::AuthMode;
+    use futures::StreamExt;
+
+    let mut config = EngineConfig::default();
+    config.client_api_port = 0;
+    let runtime = Arc::new(EngineRuntime::new(config));
+
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+
+    let runtime_clone = runtime.clone();
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+    let _server_handle = tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _ = port_tx.send(port);
+        let app = dspatch_sdk::client_api::server::build_router(runtime_clone.clone());
+        let mut shutdown = runtime_clone.subscribe_shutdown();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move { let _ = shutdown.recv().await; })
+            .await.unwrap();
+    });
+
+    let port = port_rx.await.unwrap();
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(
+        format!("ws://127.0.0.1:{port}/ws?token={token}"),
+    )
+    .await
+    .unwrap();
+
+    // Read welcome.
+    let welcome = ws.next().await.unwrap().unwrap();
+    let welcome_json: serde_json::Value =
+        serde_json::from_str(welcome.to_text().unwrap()).unwrap();
+    assert_eq!(welcome_json["name"], "welcome");
+
+    // Emit an ephemeral event.
+    runtime.ephemeral().emit(
+        "p2p_connected",
+        serde_json::json!({"device_id": "dev1", "device_name": "MacBook"}),
+    );
+
+    // Read the event frame.
+    let msg = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        ws.next(),
+    )
+    .await
+    .expect("should receive event within timeout")
+    .unwrap()
+    .unwrap();
+
+    let frame: serde_json::Value = serde_json::from_str(msg.to_text().unwrap()).unwrap();
+    assert_eq!(frame["type"], "event");
+    assert_eq!(frame["name"], "p2p_connected");
+    assert_eq!(frame["data"]["device_id"], "dev1");
+
+    runtime.trigger_shutdown();
+}

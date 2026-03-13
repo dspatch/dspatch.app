@@ -67,6 +67,9 @@ async fn handle_ws_connection(
         None
     };
 
+    // Subscribe to ephemeral engine events.
+    let mut ephemeral_rx = runtime.ephemeral().subscribe();
+
     let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
     ping_interval.tick().await; // Consume the immediate first tick.
 
@@ -116,6 +119,28 @@ async fn handle_ws_connection(
                 if send_frame(&mut socket, &frame).await.is_err() {
                     tracing::info!("WebSocket send failed during invalidation");
                     break;
+                }
+            }
+            // Ephemeral engine lifecycle event.
+            event = ephemeral_rx.recv() => {
+                match event {
+                    Ok(evt) => {
+                        let frame = ServerFrame::Event {
+                            name: evt.name,
+                            data: evt.data,
+                        };
+                        if send_frame(&mut socket, &frame).await.is_err() {
+                            tracing::info!("WebSocket send failed during ephemeral event");
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(missed = n, "ephemeral event receiver lagged, dropping missed events");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        tracing::info!("ephemeral event emitter closed");
+                        break;
+                    }
                 }
             }
             // Client sent a message.
