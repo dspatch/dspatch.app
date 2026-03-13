@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
-//! CREATE TABLE statements for all 23 tables in the d:spatch schema.
+//! CREATE TABLE statements for all 27 tables in the d:spatch schema.
 //!
 //! Each constant corresponds to a Drift table class in the Dart SDK.
 //! Column types follow the Drift → SQLite mapping:
@@ -44,6 +44,19 @@ pub const CREATE_SIGNAL_SENDER_KEYS: &str = include_str!("../../shared/schema/si
 pub const CREATE_SYNC_OUTBOX: &str = include_str!("../../shared/schema/sync_outbox.sql");
 pub const CREATE_SYNC_CURSORS: &str = include_str!("../../shared/schema/sync_cursors.sql");
 
+// ---------------------------------------------------------------------------
+// Ephemeral state tables
+// ---------------------------------------------------------------------------
+
+pub const CREATE_AGENT_INSTANCE_STATES: &str =
+    include_str!("../../shared/schema/agent_instance_states.sql");
+pub const CREATE_AGENT_CONNECTION_STATUS: &str =
+    include_str!("../../shared/schema/agent_connection_status.sql");
+pub const CREATE_CONTAINER_HEALTH: &str =
+    include_str!("../../shared/schema/container_health.sql");
+pub const CREATE_WORKSPACE_RUN_STATUS: &str =
+    include_str!("../../shared/schema/workspace_run_status.sql");
+
 /// All CREATE TABLE statements in dependency order.
 pub const ALL_TABLES: &[&str] = &[
     CREATE_WORKSPACES,
@@ -69,6 +82,10 @@ pub const ALL_TABLES: &[&str] = &[
     CREATE_SIGNAL_SENDER_KEYS,
     CREATE_SYNC_OUTBOX,
     CREATE_SYNC_CURSORS,
+    CREATE_AGENT_INSTANCE_STATES,
+    CREATE_AGENT_CONNECTION_STATUS,
+    CREATE_CONTAINER_HEALTH,
+    CREATE_WORKSPACE_RUN_STATUS,
 ];
 
 /// Table names used by the reactive layer for change tracking.
@@ -96,4 +113,8 @@ pub const TABLE_NAMES: &[&str] = &[
     "signal_sender_keys",
     "sync_outbox",
     "sync_cursors",
+    "agent_instance_states",
+    "agent_connection_status",
+    "container_health",
+    "workspace_run_status",
 ];

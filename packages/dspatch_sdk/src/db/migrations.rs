@@ -22,7 +22,7 @@ use crate::util::result::Result;
 use super::schema::ALL_TABLES;
 
 /// Current schema version. Must match the Dart SDK's `schemaVersion`.
-pub const SCHEMA_VERSION: i32 = 10;
+pub const SCHEMA_VERSION: i32 = 11;
 
 /// Creates all tables from scratch (fresh database, version 0 → current).
 pub fn create_tables(conn: &Connection) -> Result<()> {
@@ -94,6 +94,16 @@ pub fn run_migrations(conn: &Connection, from_version: i32) -> Result<()> {
         // Create new agent_templates table for lightweight config presets.
         conn.execute_batch(super::schema::CREATE_AGENT_TEMPLATES)
             .map_err(|e| AppError::Storage(format!("Migration v10 (create agent_templates) failed: {e}")))?;
+    }
+    if from_version < 11 {
+        conn.execute_batch(super::schema::CREATE_AGENT_INSTANCE_STATES)
+            .map_err(|e| AppError::Storage(format!("Migration v11 (agent_instance_states) failed: {e}")))?;
+        conn.execute_batch(super::schema::CREATE_AGENT_CONNECTION_STATUS)
+            .map_err(|e| AppError::Storage(format!("Migration v11 (agent_connection_status) failed: {e}")))?;
+        conn.execute_batch(super::schema::CREATE_CONTAINER_HEALTH)
+            .map_err(|e| AppError::Storage(format!("Migration v11 (container_health) failed: {e}")))?;
+        conn.execute_batch(super::schema::CREATE_WORKSPACE_RUN_STATUS)
+            .map_err(|e| AppError::Storage(format!("Migration v11 (workspace_run_status) failed: {e}")))?;
     }
 
     Ok(())

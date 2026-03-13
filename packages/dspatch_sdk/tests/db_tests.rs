@@ -35,7 +35,7 @@ fn test_schema_creation_all_15_tables() {
         .filter_map(|r| r.ok())
         .collect();
 
-    assert_eq!(tables.len(), 22, "Expected 22 tables, got: {tables:?}");
+    assert_eq!(tables.len(), 27, "Expected 27 tables, got: {tables:?}");
 
     // Verify each expected table name is present.
     for &expected in TABLE_NAMES {
@@ -268,4 +268,31 @@ fn test_open_checked_corrupt_database_resets() {
 
     let (status, _db) = open_checked(&db_path, None).expect("Should reset and reopen");
     assert_eq!(status, DbHealthStatus::Reset);
+}
+
+// ---------------------------------------------------------------------------
+// Migration v11 — ephemeral state tables
+// ---------------------------------------------------------------------------
+
+#[test]
+fn migration_v11_creates_ephemeral_state_tables() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    dspatch_sdk::db::migrations::create_tables(&conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO workspaces (id, name, project_path) VALUES ('w1', 'test', '/tmp');
+         INSERT INTO workspace_runs (id, workspace_id, run_number) VALUES ('r1', 'w1', 1);"
+    ).unwrap();
+
+    conn.execute_batch(
+        "INSERT INTO agent_instance_states (instance_id, run_id, agent_key, state) VALUES ('i1', 'r1', 'a1', 'idle');"
+    ).unwrap();
+    conn.execute_batch(
+        "INSERT INTO agent_connection_status (agent_key, run_id, connected) VALUES ('a1', 'r1', 1);"
+    ).unwrap();
+    conn.execute_batch(
+        "INSERT INTO container_health (run_id, status) VALUES ('r1', 'running');"
+    ).unwrap();
+    conn.execute_batch(
+        "INSERT INTO workspace_run_status (run_id, status) VALUES ('r1', 'running');"
+    ).unwrap();
 }
