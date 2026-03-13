@@ -429,3 +429,103 @@ async fn ws_accepts_authenticated_connection_and_sends_welcome() {
     runtime.trigger_shutdown();
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await;
 }
+
+#[tokio::test]
+async fn ws_command_returns_not_implemented() {
+    use std::sync::Arc;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::client_api::session::AuthMode;
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite;
+
+    let mut config = EngineConfig::default();
+    config.client_api_port = 0;
+    let runtime = Arc::new(EngineRuntime::new(config));
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+
+    let runtime_clone = runtime.clone();
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+    let server_handle = tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _ = port_tx.send(port);
+        let app = dspatch_sdk::client_api::server::build_router(runtime_clone.clone());
+        let mut shutdown = runtime_clone.subscribe_shutdown();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move { let _ = shutdown.recv().await; })
+            .await.unwrap();
+    });
+
+    let port = port_rx.await.unwrap();
+    let url = format!("ws://127.0.0.1:{port}/ws?token={token}");
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+
+    // Consume welcome.
+    let _welcome = ws.next().await.unwrap().unwrap();
+
+    // Send a command.
+    let cmd = r#"{"id":"cmd_42","type":"command","method":"launch_workspace","params":{"workspace_id":"w1"}}"#;
+    ws.send(tungstenite::Message::Text(cmd.into())).await.unwrap();
+
+    let msg = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+        .await.unwrap().unwrap().unwrap();
+
+    let text = msg.into_text().unwrap();
+    let frame: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(frame["type"], "error");
+    assert_eq!(frame["id"], "cmd_42");
+    assert_eq!(frame["code"], "NOT_IMPLEMENTED");
+    assert!(frame["message"].as_str().unwrap().contains("launch_workspace"));
+
+    runtime.trigger_shutdown();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await;
+}
+
+#[tokio::test]
+async fn ws_invalid_frame_returns_parse_error() {
+    use std::sync::Arc;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::client_api::session::AuthMode;
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite;
+
+    let mut config = EngineConfig::default();
+    config.client_api_port = 0;
+    let runtime = Arc::new(EngineRuntime::new(config));
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+
+    let runtime_clone = runtime.clone();
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+    let server_handle = tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _ = port_tx.send(port);
+        let app = dspatch_sdk::client_api::server::build_router(runtime_clone.clone());
+        let mut shutdown = runtime_clone.subscribe_shutdown();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move { let _ = shutdown.recv().await; })
+            .await.unwrap();
+    });
+
+    let port = port_rx.await.unwrap();
+    let url = format!("ws://127.0.0.1:{port}/ws?token={token}");
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+
+    let _welcome = ws.next().await.unwrap().unwrap();
+
+    ws.send(tungstenite::Message::Text("not json".into())).await.unwrap();
+
+    let msg = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+        .await.unwrap().unwrap().unwrap();
+
+    let text = msg.into_text().unwrap();
+    let frame: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(frame["type"], "error");
+    assert_eq!(frame["code"], "INVALID_FRAME");
+    assert!(frame["id"].is_null());
+
+    runtime.trigger_shutdown();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await;
+}
