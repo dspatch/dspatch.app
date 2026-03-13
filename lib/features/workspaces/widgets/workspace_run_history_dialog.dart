@@ -1,10 +1,10 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import '../../../core/utils/datetime_ext.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../database/engine_database.dart';
 import '../../../di/providers.dart';
 import 'workspace_run_viewer_dialog.dart';
 
@@ -55,7 +55,7 @@ class WorkspaceRunHistoryDialog extends ConsumerWidget {
                   icon: LucideIcons.trash_2,
                   onPressed: () async {
                     try {
-                      await ref.read(sdkProvider).deleteNonActiveRuns(
+                      await ref.read(engineClientProvider).deleteNonActiveRuns(
                             workspaceId: workspaceId,
                           );
                     } catch (e) {
@@ -161,9 +161,11 @@ class _RunRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final duration = run.stoppedAt != null
-        ? run.stoppedAt!.difference(run.startedAt)
-        : DateTime.now().difference(run.startedAt);
+    final startedAt = parseDate(run.startedAt);
+    final stoppedAt = run.stoppedAt != null ? parseDate(run.stoppedAt!) : null;
+    final duration = stoppedAt != null
+        ? stoppedAt.difference(startedAt)
+        : DateTime.now().difference(startedAt);
     final durationStr = '${duration.inMinutes}m ${duration.inSeconds % 60}s';
 
     return Padding(
@@ -185,7 +187,7 @@ class _RunRow extends ConsumerWidget {
           ),
           const SizedBox(width: Spacing.sm),
           Text(
-            run.startedAt.formatted(),
+            startedAt.formatted(),
             style: const TextStyle(
               color: AppColors.mutedForeground,
               fontSize: 12,
@@ -218,8 +220,8 @@ class _RunRow extends ConsumerWidget {
               size: ButtonSize.sm,
               onPressed: () async {
                 try {
-                  await ref.read(sdkProvider).deleteWorkspaceRun(
-                        runId: run.id,
+                  await ref.read(engineClientProvider).deleteWorkspaceRun(
+                        run.id,
                       );
                 } catch (e) {
                   if (context.mounted) {

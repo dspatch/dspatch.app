@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import 'package:dspatch_sdk/dspatch_sdk.dart' show HubAgentSummary;
 import 'dart:io';
 
 import 'package:dspatch_ui/dspatch_ui.dart';
@@ -45,7 +45,7 @@ class _AgentProviderFormScreenState
   final _gitUrlController = TextEditingController();
   final _gitBranchController = TextEditingController();
 
-  SourceType _sourceType = SourceType.local;
+  String _sourceType = 'local';
   List<String> _requiredEnv = [];
   List<String> _requiredMounts = [];
   final Map<String, String?> _errors = {};
@@ -435,8 +435,8 @@ class _AgentProviderFormScreenState
           }
           if (doc['source_type'] != null) {
             final st = doc['source_type'].toString();
-            if (st == 'git') _sourceType = SourceType.git;
-            if (st == 'local') _sourceType = SourceType.local;
+            if (st == 'git') _sourceType = 'git';
+            if (st == 'local') _sourceType = 'local';
           }
           if (doc['source_path'] != null) {
             _sourcePathController.text = doc['source_path'].toString();
@@ -462,10 +462,10 @@ class _AgentProviderFormScreenState
     if (entryPoint.isNotEmpty) buf.writeln('entry_point: $entryPoint');
     if (description.isNotEmpty) buf.writeln('description: $description');
 
-    if (_sourceType == SourceType.local && _sourcePathController.text.trim().isNotEmpty) {
+    if (_sourceType == 'local' && _sourcePathController.text.trim().isNotEmpty) {
       buf.writeln('source_type: local');
       buf.writeln('source_path: ${_sourcePathController.text.trim()}');
-    } else if (_sourceType == SourceType.git && _gitUrlController.text.trim().isNotEmpty) {
+    } else if (_sourceType == 'git' && _gitUrlController.text.trim().isNotEmpty) {
       buf.writeln('source_type: git');
       buf.writeln('git_url: ${_gitUrlController.text.trim()}');
       final branch = _gitBranchController.text.trim();
@@ -526,12 +526,12 @@ class _AgentProviderFormScreenState
     } else {
       // New template: create first to get filePath, then write YAML.
       try {
-        final sdk = ref.read(sdkProvider);
-        final template = await sdk.createAgentTemplate(
-          name: name,
-          sourceUri: _sourceUri!,
-        );
-        await _writeTemplateYaml(template.filePath);
+        final client = ref.read(engineClientProvider);
+        final result = await client.createAgentTemplate(request: {
+          'name': name,
+          'source_uri': _sourceUri!,
+        });
+        await _writeTemplateYaml(result['file_path'] as String? ?? '');
         toast('Template created', type: ToastType.success);
         if (mounted) context.go('/agent-providers');
       } catch (e) {
@@ -568,46 +568,40 @@ class _AgentProviderFormScreenState
     if (_isEdit) {
       success = await controller.updateAgentProvider(
         widget.id!,
-        UpdateAgentProviderRequest(
-          name: name,
-          sourceType: _sourceType,
-          sourcePath: _sourceType == SourceType.local
-              ? _sourcePathController.text.trim()
-              : null,
-          gitUrl: _sourceType == SourceType.git
-              ? _gitUrlController.text.trim()
-              : null,
-          gitBranch: _sourceType == SourceType.git
-              ? _gitBranchController.text.trim().ifEmpty(null)
-              : null,
-          entryPoint: entryPoint,
-          description: _descriptionController.text.trim().ifEmpty(null),
-          requiredEnv: _requiredEnv,
-          requiredMounts: _requiredMounts,
-          fields: _fields,
-        ),
+        {
+          'name': name,
+          'source_type': _sourceType,
+          if (_sourceType == 'local')
+            'source_path': _sourcePathController.text.trim(),
+          if (_sourceType == 'git')
+            'git_url': _gitUrlController.text.trim(),
+          if (_sourceType == 'git')
+            'git_branch': _gitBranchController.text.trim().ifEmpty(null),
+          'entry_point': entryPoint,
+          'description': _descriptionController.text.trim().ifEmpty(null),
+          'required_env': _requiredEnv,
+          'required_mounts': _requiredMounts,
+          'fields': _fields,
+        },
       );
     } else {
       success = await controller.createAgentProvider(
-        CreateAgentProviderRequest(
-          name: name,
-          sourceType: _sourceType,
-          sourcePath: _sourceType == SourceType.local
-              ? _sourcePathController.text.trim()
-              : null,
-          gitUrl: _sourceType == SourceType.git
-              ? _gitUrlController.text.trim()
-              : null,
-          gitBranch: _sourceType == SourceType.git
-              ? _gitBranchController.text.trim().ifEmpty(null)
-              : null,
-          entryPoint: entryPoint,
-          description: _descriptionController.text.trim().ifEmpty(null),
-          requiredEnv: _requiredEnv,
-          requiredMounts: _requiredMounts,
-          fields: _fields,
-          hubTags: const [],
-        ),
+        {
+          'name': name,
+          'source_type': _sourceType,
+          if (_sourceType == 'local')
+            'source_path': _sourcePathController.text.trim(),
+          if (_sourceType == 'git')
+            'git_url': _gitUrlController.text.trim(),
+          if (_sourceType == 'git')
+            'git_branch': _gitBranchController.text.trim().ifEmpty(null),
+          'entry_point': entryPoint,
+          'description': _descriptionController.text.trim().ifEmpty(null),
+          'required_env': _requiredEnv,
+          'required_mounts': _requiredMounts,
+          'fields': _fields,
+          'hub_tags': const [],
+        },
       );
     }
 
@@ -697,30 +691,28 @@ class _AgentProviderFormScreenState
               if (result != null && mounted) {
                 // Create a local provider from the hub agent, then set source.
                 try {
-                  final sdk = ref.read(sdkProvider);
+                  final client = ref.read(engineClientProvider);
                   final author = result.author ?? 'unknown';
                   final resolved =
-                      await sdk.hubResolveAgent(slug: '$author/${result.slug}');
-                  await sdk.createAgentProvider(
-                    request: CreateAgentProviderRequest(
-                      name: result.name,
-                      sourceType: SourceType.hub,
-                      hubSlug: result.slug,
-                      hubAuthor: result.author,
-                      hubCategory: result.category,
-                      hubTags: result.tags.map((t) => t.displayName).toList(),
-                      hubVersion: resolved.version,
-                      hubRepoUrl: resolved.repoUrl,
-                      hubCommitHash: resolved.commitHash,
-                      entryPoint: resolved.entryPoint ?? '',
-                      gitUrl: resolved.repoUrl,
-                      gitBranch: resolved.branch,
-                      description: result.description,
-                      requiredEnv: const [],
-                      requiredMounts: const [],
-                      fields: const {},
-                    ),
-                  );
+                      await client.hubResolveAgent(slug: '$author/${result.slug}');
+                  await client.createAgentProvider(request: {
+                    'name': result.name,
+                    'source_type': 'hub',
+                    'hub_slug': result.slug,
+                    'hub_author': result.author,
+                    'hub_category': result.category,
+                    'hub_tags': result.tags.map((t) => t.displayName).toList(),
+                    'hub_version': resolved['version'],
+                    'hub_repo_url': resolved['repo_url'],
+                    'hub_commit_hash': resolved['commit_hash'],
+                    'entry_point': resolved['entry_point'] ?? '',
+                    'git_url': resolved['repo_url'],
+                    'git_branch': resolved['branch'],
+                    'description': result.description,
+                    'required_env': const [],
+                    'required_mounts': const [],
+                    'fields': const {},
+                  });
                   if (mounted) {
                     setState(() {
                       _sourceUri = 'dspatch://agent/${result.author}/${result.slug}';
@@ -855,13 +847,13 @@ class _AgentProviderFormScreenState
                     style: ToggleGroupStyle.grouped,
                     variant: ToggleVariant.outline,
                     iconMode: false,
-                    value: {_sourceType.name},
+                    value: {_sourceType},
                     onChanged: (v) {
                       if (v.isNotEmpty) {
                         setState(() {
                           _sourceType = v.first == 'local'
-                              ? SourceType.local
-                              : SourceType.git;
+                              ? 'local'
+                              : 'git';
                         });
                       }
                     },
@@ -871,7 +863,7 @@ class _AgentProviderFormScreenState
                     ],
                   ),
                   const SizedBox(height: Spacing.lg),
-                  if (_sourceType == SourceType.local) ...[
+                  if (_sourceType == 'local') ...[
                     Field(
                       label: 'Source Path',
                       required: true,
@@ -889,7 +881,7 @@ class _AgentProviderFormScreenState
                       ),
                     ),
                   ],
-                  if (_sourceType == SourceType.git) ...[
+                  if (_sourceType == 'git') ...[
                     Field(
                       label: 'Repository URL',
                       required: true,
@@ -944,7 +936,7 @@ class _AgentProviderFormScreenState
                         ? 'Auto-detected from DspatchAgent pattern.'
                         : 'The Python file containing your DspatchAgent.',
                     error: _errors['entryPoint'],
-                    child: _sourceType == SourceType.local
+                    child: _sourceType == 'local'
                         ? PathPickerInput(
                             mode: PathPickerMode.file,
                             controller: _entryPointController,
@@ -985,7 +977,7 @@ class _AgentProviderFormScreenState
                           ),
                   ),
                   // Auto-detect button
-                  if (_sourceType == SourceType.local &&
+                  if (_sourceType == 'local' &&
                       _sourcePathController.text.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: Spacing.sm),
@@ -1033,7 +1025,7 @@ class _AgentProviderFormScreenState
                       setState(() => _requiredEnv = keys);
                     },
                   ),
-                  if (_sourceType == SourceType.local &&
+                  if (_sourceType == 'local' &&
                       _sourcePathController.text.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: Spacing.sm),
@@ -1083,7 +1075,7 @@ class _AgentProviderFormScreenState
                       setState(() => _requiredMounts = paths);
                     },
                   ),
-                  if (_sourceType == SourceType.local &&
+                  if (_sourceType == 'local' &&
                       _sourcePathController.text.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: Spacing.sm),
@@ -1132,7 +1124,7 @@ class _AgentProviderFormScreenState
                       setState(() => _fields = fields);
                     },
                   ),
-                  if (_sourceType == SourceType.local &&
+                  if (_sourceType == 'local' &&
                       _sourcePathController.text.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: Spacing.sm),

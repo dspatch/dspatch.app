@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import '../../database/engine_database.dart' show AgentProvider;
 import 'dart:io';
 
 import 'package:dspatch_ui/dspatch_ui.dart';
@@ -148,23 +148,21 @@ class _HubCloneTemplateDialogState
         }
       }
 
-      // 3. Create the local template via the Rust SDK.
-      final sdk = ref.read(sdkProvider);
-      await sdk.createAgentProvider(
-        request: CreateAgentProviderRequest(
-          name: name,
-          sourceType: SourceType.local,
-          sourcePath: finalPath,
-          entryPoint: widget.template.entryPoint,
-          description: widget.template.description,
-          gitUrl: _cloneableUrl,
-          gitBranch: widget.template.gitBranch,
-          requiredEnv: List.of(widget.template.requiredEnv),
-          requiredMounts: List.of(widget.template.requiredMounts),
-          fields: Map.of(widget.template.fields),
-          hubTags: const [],
-        ),
-      );
+      // 3. Create the local provider via the engine.
+      final client = ref.read(engineClientProvider);
+      await client.createAgentProvider(request: {
+        'name': name,
+        'source_type': 'local',
+        'source_path': finalPath,
+        'entry_point': widget.template.entryPoint,
+        'description': widget.template.description,
+        'git_url': _cloneableUrl,
+        'git_branch': widget.template.gitBranch,
+        'required_env_json': widget.template.requiredEnvJson,
+        'required_mounts_json': widget.template.requiredMountsJson,
+        'fields_json': widget.template.fieldsJson,
+        'hub_tags': const [],
+      });
 
       if (mounted) {
         toast("Cloned '$name' to $finalPath", type: ToastType.success);

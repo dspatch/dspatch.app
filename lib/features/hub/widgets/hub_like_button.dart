@@ -67,11 +67,11 @@ class _HubLikeButtonState extends ConsumerState<HubLikeButton> {
 
     setState(() => _loading = true);
     try {
-      final sdk = ref.read(sdkProvider);
+      final client = ref.read(engineClientProvider);
       if (widget.targetType == 'agent') {
-        await sdk.hubVoteAgent(slug: widget.slug);
+        await client.hubVoteAgent(slug: widget.slug, like: _liked);
       } else {
-        await sdk.hubVoteWorkspace(slug: widget.slug);
+        await client.hubVoteWorkspace(slug: widget.slug, like: _liked);
       }
     } catch (e) {
       // Revert optimistic update

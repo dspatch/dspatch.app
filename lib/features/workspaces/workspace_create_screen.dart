@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import 'package:dspatch_sdk/dspatch_sdk.dart' show WorkspaceConfig, AgentConfig, DockerConfig, MountConfig;
 import 'dart:io';
 
 import 'package:dspatch_ui/dspatch_ui.dart';
@@ -81,8 +81,90 @@ class _WorkspaceCreateScreenState
     super.dispose();
   }
 
-  Future<String> _configToYaml(WorkspaceConfig config) {
-    return ref.read(sdkProvider).encodeWorkspaceYaml(config: config);
+  Future<String> _configToYaml(WorkspaceConfig config) async {
+    final result = await ref.read(engineClientProvider).encodeWorkspaceYaml(config: _configToMap(config));
+    return result['yaml'] as String? ?? '';
+  }
+
+  // ── FRB ↔ Map bridging helpers ──
+
+  static Map<String, dynamic> _configToMap(WorkspaceConfig config) {
+    return {
+      'name': config.name,
+      'env': config.env,
+      'agents': config.agents.map((k, v) => MapEntry(k, _agentConfigToMap(v))),
+      'agent_order': config.agentOrder,
+      if (config.workspaceDir != null) 'workspace_dir': config.workspaceDir,
+      'mounts': config.mounts.map((m) => {
+        'host_path': m.hostPath,
+        'container_path': m.containerPath,
+        'read_only': m.readOnly,
+      }).toList(),
+      'docker': {
+        if (config.docker.memoryLimit != null) 'memory_limit': config.docker.memoryLimit,
+        if (config.docker.cpuLimit != null) 'cpu_limit': config.docker.cpuLimit,
+        'network_mode': config.docker.networkMode,
+        'ports': config.docker.ports,
+        'gpu': config.docker.gpu,
+        'home_persistence': config.docker.homePersistence,
+        if (config.docker.homeSize != null) 'home_size': config.docker.homeSize,
+      },
+    };
+  }
+
+  static Map<String, dynamic> _agentConfigToMap(AgentConfig agent) {
+    return {
+      'template': agent.template,
+      'env': agent.env,
+      'sub_agents': agent.subAgents.map((k, v) => MapEntry(k, _agentConfigToMap(v))),
+      'sub_agent_order': agent.subAgentOrder,
+      'peers': agent.peers,
+      if (agent.autoStart != null) 'auto_start': agent.autoStart,
+    };
+  }
+
+  static WorkspaceConfig _configFromMap(Map<String, dynamic> m) {
+    final agentsMap = (m['agents'] as Map<String, dynamic>?) ?? {};
+    return WorkspaceConfig(
+      name: m['name'] as String? ?? '',
+      env: ((m['env'] as Map<String, dynamic>?) ?? {}).cast<String, String>(),
+      agents: agentsMap.map((k, v) => MapEntry(k, _agentConfigFromMap(v as Map<String, dynamic>))),
+      agentOrder: ((m['agent_order'] as List<dynamic>?) ?? []).cast<String>(),
+      workspaceDir: m['workspace_dir'] as String?,
+      mounts: ((m['mounts'] as List<dynamic>?) ?? []).map((e) {
+        final mm = e as Map<String, dynamic>;
+        return MountConfig(
+          hostPath: mm['host_path'] as String? ?? '',
+          containerPath: mm['container_path'] as String? ?? '',
+          readOnly: mm['read_only'] as bool? ?? true,
+        );
+      }).toList(),
+      docker: _dockerConfigFromMap((m['docker'] as Map<String, dynamic>?) ?? {}),
+    );
+  }
+
+  static AgentConfig _agentConfigFromMap(Map<String, dynamic> m) {
+    final subMap = (m['sub_agents'] as Map<String, dynamic>?) ?? {};
+    return AgentConfig(
+      template: m['template'] as String? ?? '',
+      env: ((m['env'] as Map<String, dynamic>?) ?? {}).cast<String, String>(),
+      subAgents: subMap.map((k, v) => MapEntry(k, _agentConfigFromMap(v as Map<String, dynamic>))),
+      subAgentOrder: ((m['sub_agent_order'] as List<dynamic>?) ?? []).cast<String>(),
+      peers: ((m['peers'] as List<dynamic>?) ?? []).cast<String>(),
+      autoStart: m['auto_start'] as bool?,
+    );
+  }
+
+  static DockerConfig _dockerConfigFromMap(Map<String, dynamic> m) {
+    return DockerConfig(
+      memoryLimit: m['memory_limit'] as String?,
+      cpuLimit: (m['cpu_limit'] as num?)?.toDouble(),
+      networkMode: m['network_mode'] as String? ?? 'host',
+      ports: ((m['ports'] as List<dynamic>?) ?? []).cast<String>(),
+      gpu: m['gpu'] as bool? ?? false,
+      homePersistence: m['home_persistence'] as bool? ?? false,
+      homeSize: m['home_size'] as String?,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -92,7 +174,7 @@ class _WorkspaceCreateScreenState
   Future<void> _onTabChanged(String tab) async {
     if (tab == _activeTab) return;
 
-    final sdk = ref.read(sdkProvider);
+    final client = ref.read(engineClientProvider);
     if (tab == 'yaml') {
       // Visual → YAML: serialize current config.
       if (_parsedConfig != null) {
@@ -102,7 +184,8 @@ class _WorkspaceCreateScreenState
     } else {
       // YAML → Visual: parse current YAML.
       try {
-        _parsedConfig = await sdk.parseWorkspaceConfig(yaml: _configYaml);
+        final result = await client.parseWorkspaceConfig(yaml: _configYaml);
+        _parsedConfig = _configFromMap(result);
         _parseError = null;
       } on FormatException catch (e) {
         toast('Cannot switch to Visual: ${e.message}',
@@ -139,14 +222,15 @@ class _WorkspaceCreateScreenState
   }
 
   Future<void> _validateConfig(String yaml) async {
-    final sdk = ref.read(sdkProvider);
+    final client = ref.read(engineClientProvider);
     final errors = <JsonEditorError>[];
     WorkspaceConfig? config;
     String? parseError;
 
     // 1. Parse YAML
     try {
-      config = await sdk.parseWorkspaceConfig(yaml: yaml);
+      final result = await client.parseWorkspaceConfig(yaml: yaml);
+      config = _configFromMap(result);
     } on FormatException catch (e) {
       parseError = e.message;
       errors.add(JsonEditorError(
@@ -163,13 +247,20 @@ class _WorkspaceCreateScreenState
 
     // 2. Validate config structure
     if (config != null) {
-      final validationErrors =
-          await sdk.validateWorkspaceConfig(config: config);
-      for (final ve in validationErrors) {
-        errors.add(JsonEditorError(
-          message: '${ve.field}: ${ve.message}',
-          severity: JsonEditorSeverity.error,
-        ));
+      try {
+        final validationResult =
+            await client.validateWorkspaceConfig(config: _configToMap(config));
+        final validationErrors =
+            (validationResult['errors'] as List<dynamic>?) ?? [];
+        for (final ve in validationErrors) {
+          final veMap = ve as Map<String, dynamic>;
+          errors.add(JsonEditorError(
+            message: '${veMap['field']}: ${veMap['message']}',
+            severity: JsonEditorSeverity.error,
+          ));
+        }
+      } catch (_) {
+        // Validation not available, skip
       }
     }
 
@@ -177,39 +268,55 @@ class _WorkspaceCreateScreenState
     if (config != null) {
       try {
         final resolution =
-            await sdk.resolveWorkspaceTemplates(config: config);
-        for (final t in resolution.unresolvedTemplates) {
+            await client.resolveWorkspaceTemplates(config: _configToMap(config));
+        final unresolvedTemplates =
+            (resolution['unresolved_templates'] as List<dynamic>?) ?? [];
+        final missingApiKeys =
+            (resolution['missing_api_keys'] as List<dynamic>?) ?? [];
+        final missingRequiredEnv =
+            (resolution['missing_required_env'] as List<dynamic>?) ?? [];
+        final emptyRequiredEnv =
+            (resolution['empty_required_env'] as List<dynamic>?) ?? [];
+        final missingRequiredMounts =
+            (resolution['missing_required_mounts'] as List<dynamic>?) ?? [];
+
+        for (final t in unresolvedTemplates) {
+          final tMap = t as Map<String, dynamic>;
           errors.add(JsonEditorError(
             message:
-                '${t.agentPath}: template "${t.templateName}" not found',
+                '${tMap['agent_path']}: template "${tMap['template_name']}" not found',
             severity: JsonEditorSeverity.error,
           ));
         }
-        for (final k in resolution.missingApiKeys) {
+        for (final k in missingApiKeys) {
+          final kMap = k as Map<String, dynamic>;
           errors.add(JsonEditorError(
             message:
-                '${k.agentPath}: API key "${k.keyName}" not found',
+                '${kMap['agent_path']}: API key "${kMap['key_name']}" not found',
             severity: JsonEditorSeverity.error,
           ));
         }
-        for (final e in resolution.missingRequiredEnv) {
+        for (final e in missingRequiredEnv) {
+          final eMap = e as Map<String, dynamic>;
           errors.add(JsonEditorError(
             message:
-                '${e.agentPath}: required env "${e.envKey}" missing (template: ${e.templateName})',
+                '${eMap['agent_path']}: required env "${eMap['env_key']}" missing (template: ${eMap['template_name']})',
             severity: JsonEditorSeverity.error,
           ));
         }
-        for (final e in resolution.emptyRequiredEnv) {
+        for (final e in emptyRequiredEnv) {
+          final eMap = e as Map<String, dynamic>;
           errors.add(JsonEditorError(
             message:
-                '${e.agentPath}: required env "${e.envKey}" is empty (template: ${e.templateName})',
+                '${eMap['agent_path']}: required env "${eMap['env_key']}" is empty (template: ${eMap['template_name']})',
             severity: JsonEditorSeverity.warning,
           ));
         }
-        for (final m in resolution.missingRequiredMounts) {
+        for (final m in missingRequiredMounts) {
+          final mMap = m as Map<String, dynamic>;
           errors.add(JsonEditorError(
             message:
-                '${m.agentPath}: required mount "${m.containerPath}" not provided (template: ${m.templateName})',
+                '${mMap['agent_path']}: required mount "${mMap['container_path']}" not provided (template: ${mMap['template_name']})',
             severity: JsonEditorSeverity.error,
           ));
         }
@@ -268,10 +375,10 @@ class _WorkspaceCreateScreenState
     try {
       final success = await ref
           .read(workspaceControllerProvider.notifier)
-          .createWorkspace(CreateWorkspaceRequest(
+          .createWorkspace(
             projectPath: projectPath,
             configYaml: _configYaml,
-          ));
+          );
 
       if (!mounted) return;
 

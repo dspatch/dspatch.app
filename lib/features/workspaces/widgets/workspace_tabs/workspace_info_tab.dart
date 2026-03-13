@@ -1,11 +1,11 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import '../../../../core/extensions/agent_state_ext.dart';
 import '../../../../core/utils/datetime_ext.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../database/engine_database.dart';
 import '../../../../di/providers.dart';
 import '../workspace_run_history_dialog.dart';
 
@@ -59,8 +59,8 @@ class WorkspaceInfoTab extends ConsumerWidget {
           _KV('Name', workspace.name),
           _KV('Status', activeRun?.status ?? 'idle'),
           _KV('Project path', workspace.projectPath),
-          _KV('Created', workspace.createdAt.formatted()),
-          _KV('Updated', workspace.updatedAt.formatted()),
+          _KV('Created', parseDate(workspace.createdAt).formatted()),
+          _KV('Updated', parseDate(workspace.updatedAt).formatted()),
 
           const SizedBox(height: Spacing.md),
 
@@ -74,7 +74,7 @@ class WorkspaceInfoTab extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _KV('Current run', 'Run #${activeRun.runNumber}'),
-                  _KV('Started', activeRun.startedAt.formatted()),
+                  _KV('Started', parseDate(activeRun.startedAt).formatted()),
                   _KV('Status', activeRun.status),
                   const SizedBox(height: Spacing.sm),
                   Button(
@@ -128,8 +128,8 @@ class WorkspaceInfoTab extends ConsumerWidget {
               ),
             )
           else
-            FutureBuilder<ContainerStats>(
-              future: ref.read(sdkProvider).containerStats(
+            FutureBuilder<Map<String, dynamic>>(
+              future: ref.read(engineClientProvider).containerStats(
                     containerId: containerId,
                   ),
               builder: (context, snapshot) {
@@ -155,11 +155,11 @@ class WorkspaceInfoTab extends ConsumerWidget {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _KV('CPU', stats.cpuPerc),
-                    _KV('Memory', stats.memUsage),
-                    _KV('Network I/O', stats.netIo),
-                    _KV('Block I/O', stats.blockIo),
-                    _KV('PIDs', stats.pids),
+                    _KV('CPU', stats['cpu_perc'] as String? ?? '\u2014'),
+                    _KV('Memory', stats['mem_usage'] as String? ?? '\u2014'),
+                    _KV('Network I/O', stats['net_io'] as String? ?? '\u2014'),
+                    _KV('Block I/O', stats['block_io'] as String? ?? '\u2014'),
+                    _KV('PIDs', stats['pids'] as String? ?? '\u2014'),
                   ],
                 );
               },
@@ -170,54 +170,31 @@ class WorkspaceInfoTab extends ConsumerWidget {
           // ── Config: Environment Variables ──
           if (config != null) ...[
             const _SectionLabel('Environment Variables'),
-            if (config.env.isEmpty)
-              const _EmptyHint('No global env vars configured')
-            else
-              for (final entry in config.env.entries)
-                _KV(entry.key, entry.value),
+            ..._buildConfigEnvSection(config),
 
             const SizedBox(height: Spacing.md),
 
             // ── Config: Workspace Directory ──
             const _SectionLabel('Workspace Directory'),
-            _KV('workspace_dir', config.workspaceDir ?? '(project directory)'),
+            _KV('workspace_dir', config['workspace_dir'] as String? ?? '(project directory)'),
 
             const SizedBox(height: Spacing.md),
 
             // ── Config: Mounts ──
             const _SectionLabel('Mounts'),
-            if (config.mounts.isEmpty)
-              const _EmptyHint('No additional mounts')
-            else
-              for (final m in config.mounts) ...[
-                _KV('Host', m.hostPath),
-                _KV('Container', m.containerPath),
-                _KV('Read-only', m.readOnly ? 'yes' : 'no'),
-                const SizedBox(height: Spacing.xs),
-              ],
+            ..._buildConfigMountsSection(config),
 
             const SizedBox(height: Spacing.md),
 
             // ── Config: Docker ──
             const _SectionLabel('Docker'),
-            _KV('Memory limit',
-                config.docker.memoryLimit ?? 'default'),
-            _KV('CPU limit',
-                config.docker.cpuLimit?.toString() ?? 'default'),
-            _KV('Network mode', config.docker.networkMode),
-            if (config.docker.ports.isNotEmpty)
-              _KV('Ports', config.docker.ports.join(', ')),
-            _KV('GPU', config.docker.gpu ? 'enabled' : 'disabled'),
+            ..._buildConfigDockerSection(config),
 
             const SizedBox(height: Spacing.md),
 
             // ── Config: Agents ──
             const _SectionLabel('Agent Configuration'),
-            if (config.agents.isEmpty)
-              const _EmptyHint('No agents configured')
-            else
-              for (final entry in config.agents.entries)
-                _AgentConfigBlock(name: entry.key, config: entry.value),
+            ..._buildConfigAgentsSection(config),
           ] else if (configAsync.isLoading)
             const Padding(
               padding: EdgeInsets.only(top: Spacing.sm),
@@ -255,7 +232,7 @@ class WorkspaceInfoTab extends ConsumerWidget {
               children: [
                 for (final a in agents)
                   DspatchBadge(
-                    label: '${a.agentKey} (${a.status.name})',
+                    label: '${a.agentKey} (${a.status})',
                     variant: _statusVariant(a.status),
                   ),
               ],
@@ -267,7 +244,52 @@ class WorkspaceInfoTab extends ConsumerWidget {
     );
   }
 
-  BadgeVariant _statusVariant(AgentState s) {
+  List<Widget> _buildConfigEnvSection(Map<String, dynamic> config) {
+    final env = config['env'] as Map<String, dynamic>? ?? {};
+    if (env.isEmpty) return [const _EmptyHint('No global env vars configured')];
+    return env.entries
+        .map((entry) => _KV(entry.key, entry.value.toString()))
+        .toList();
+  }
+
+  List<Widget> _buildConfigMountsSection(Map<String, dynamic> config) {
+    final mounts = config['mounts'] as List<dynamic>? ?? [];
+    if (mounts.isEmpty) return [const _EmptyHint('No additional mounts')];
+    final widgets = <Widget>[];
+    for (final m in mounts) {
+      final mount = m as Map<String, dynamic>;
+      widgets.add(_KV('Host', mount['host_path'] as String? ?? ''));
+      widgets.add(_KV('Container', mount['container_path'] as String? ?? ''));
+      widgets.add(_KV('Read-only', (mount['read_only'] as bool? ?? false) ? 'yes' : 'no'));
+      widgets.add(const SizedBox(height: Spacing.xs));
+    }
+    return widgets;
+  }
+
+  List<Widget> _buildConfigDockerSection(Map<String, dynamic> config) {
+    final docker = config['docker'] as Map<String, dynamic>? ?? {};
+    final ports = (docker['ports'] as List<dynamic>?)?.cast<String>() ?? [];
+    return [
+      _KV('Memory limit', docker['memory_limit'] as String? ?? 'default'),
+      _KV('CPU limit', docker['cpu_limit']?.toString() ?? 'default'),
+      _KV('Network mode', docker['network_mode'] as String? ?? 'host'),
+      if (ports.isNotEmpty) _KV('Ports', ports.join(', ')),
+      _KV('GPU', (docker['gpu'] as bool? ?? false) ? 'enabled' : 'disabled'),
+    ];
+  }
+
+  List<Widget> _buildConfigAgentsSection(Map<String, dynamic> config) {
+    final configAgents = config['agents'] as Map<String, dynamic>? ?? {};
+    if (configAgents.isEmpty) {
+      return [const _EmptyHint('No agents configured')];
+    }
+    return configAgents.entries
+        .map((entry) => _AgentConfigBlock(
+            name: entry.key, config: entry.value as Map<String, dynamic>))
+        .toList();
+  }
+
+  BadgeVariant _statusVariant(String s) {
     return switch (s) {
       AgentState.disconnected => BadgeVariant.secondary,
       AgentState.idle => BadgeVariant.secondary,
@@ -277,6 +299,7 @@ class WorkspaceInfoTab extends ConsumerWidget {
       AgentState.completed => BadgeVariant.primary,
       AgentState.failed => BadgeVariant.destructive,
       AgentState.crashed => BadgeVariant.destructive,
+      _ => BadgeVariant.secondary,
     };
   }
 }
@@ -358,10 +381,15 @@ class _EmptyHint extends StatelessWidget {
 class _AgentConfigBlock extends StatelessWidget {
   const _AgentConfigBlock({required this.name, required this.config});
   final String name;
-  final AgentConfig config;
+  final Map<String, dynamic> config;
 
   @override
   Widget build(BuildContext context) {
+    final template = config['template'] as String? ?? '';
+    final env = config['env'] as Map<String, dynamic>? ?? {};
+    final peers = (config['peers'] as List<dynamic>?)?.cast<String>() ?? [];
+    final subAgents = config['sub_agents'] as Map<String, dynamic>? ?? {};
+
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.sm),
       child: Column(
@@ -381,15 +409,16 @@ class _AgentConfigBlock extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _KV('Template', config.template),
-                if (config.env.isNotEmpty)
-                  _KV('Env', config.env.entries
+                _KV('Template', template),
+                if (env.isNotEmpty)
+                  _KV('Env', env.entries
                       .map((e) => '${e.key}=${e.value}')
                       .join(', ')),
-                if (config.peers.isNotEmpty)
-                  _KV('Peers', config.peers.join(', ')),
-                for (final sub in config.subAgents.entries)
-                  _AgentConfigBlock(name: sub.key, config: sub.value),
+                if (peers.isNotEmpty)
+                  _KV('Peers', peers.join(', ')),
+                for (final sub in subAgents.entries)
+                  _AgentConfigBlock(
+                      name: sub.key, config: sub.value as Map<String, dynamic>),
               ],
             ),
           ),

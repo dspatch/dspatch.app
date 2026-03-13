@@ -1,5 +1,4 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,8 +13,8 @@ class WorkspacePackagesTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return FutureBuilder<List<BridgePackageLogEntry>>(
-      future: ref.read(sdkProvider).packageInspectorEntries(runId: runId),
+    return FutureBuilder<Map<String, dynamic>>(
+      future: ref.read(engineClientProvider).packageInspectorEntries(runId: runId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: Spinner());
@@ -31,7 +30,9 @@ class WorkspacePackagesTab extends ConsumerWidget {
             ),
           );
         }
-        final entries = snapshot.data!;
+        final result = snapshot.data!;
+        final entries =
+            (result['entries'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
         if (entries.isEmpty) {
           return const ContentArea(
             alignment: Alignment.topLeft,
@@ -49,7 +50,10 @@ class WorkspacePackagesTab extends ConsumerWidget {
           itemCount: entries.length,
           itemBuilder: (context, index) {
             final entry = entries[entries.length - 1 - index]; // newest first
-            final isSent = entry.direction == 'sent';
+            final isSent = entry['direction'] == 'sent';
+            final roundtripMismatch = entry['roundtrip_mismatch'] as bool? ?? false;
+            final error = entry['error'] as String?;
+            final rawJson = entry['raw_json'] as String? ?? '';
             return Padding(
               padding: const EdgeInsets.only(bottom: Spacing.xs),
               child: Row(
@@ -65,7 +69,7 @@ class WorkspacePackagesTab extends ConsumerWidget {
                           : AppColors.success,
                     ),
                   ),
-                  if (entry.roundtripMismatch)
+                  if (roundtripMismatch)
                     const Padding(
                       padding: EdgeInsets.only(right: Spacing.xs),
                       child: Icon(
@@ -74,7 +78,7 @@ class WorkspacePackagesTab extends ConsumerWidget {
                         color: AppColors.warning,
                       ),
                     ),
-                  if (entry.error != null)
+                  if (error != null)
                     const Padding(
                       padding: EdgeInsets.only(right: Spacing.xs),
                       child: Icon(
@@ -85,7 +89,7 @@ class WorkspacePackagesTab extends ConsumerWidget {
                     ),
                   Expanded(
                     child: Text(
-                      entry.rawJson,
+                      rawJson,
                       style: const TextStyle(
                         fontFamily: AppFonts.mono,
                         fontSize: 11,

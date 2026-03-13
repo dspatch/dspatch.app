@@ -2,7 +2,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import 'package:dspatch_sdk/dspatch_sdk.dart' show AgentTemplate, HubTagRef;
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -90,20 +90,20 @@ class _HubSubmitTemplateDialogState
     });
 
     try {
-      final sdk = ref.read(sdkProvider);
+      final client = ref.read(engineClientProvider);
       final allTags = [..._generalTags, ..._modelTags, ..._frameworkTags]
           .map((t) => {'slug': t.slug, 'category': t.category})
           .toList();
       final description = _descController.text.trim();
 
-      await sdk.hubSubmitTemplate(
-        name: name,
-        configYaml: configYaml,
-        sourceSlug: sourceUri,
-        description: description.isEmpty ? null : description,
-        category: _selectedCategory,
-        tagsJson: allTags.isEmpty ? null : jsonEncode(allTags),
-      );
+      await client.hubSubmitTemplate(request: {
+        'name': name,
+        'config_yaml': configYaml,
+        'source_slug': sourceUri,
+        if (description.isNotEmpty) 'description': description,
+        if (_selectedCategory != null) 'category': _selectedCategory,
+        if (allTags.isNotEmpty) 'tags_json': jsonEncode(allTags),
+      });
 
       if (mounted) {
         toast('Template submitted — pending review', type: ToastType.success);

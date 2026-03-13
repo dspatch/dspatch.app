@@ -1,10 +1,11 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import '../../../core/extensions/agent_state_ext.dart';
 import '../../../core/utils/datetime_ext.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../database/engine_database.dart';
 import '../../../di/providers.dart';
 import 'workspace_tabs/workspace_logs_tab.dart';
 
@@ -41,9 +42,11 @@ class _WorkspaceRunViewerDialogState
     final agentsAsync = ref.watch(workspaceAgentsProvider(run.id));
     final agents = agentsAsync.valueOrNull ?? [];
 
-    final duration = run.stoppedAt != null
-        ? run.stoppedAt!.difference(run.startedAt)
-        : DateTime.now().difference(run.startedAt);
+    final startedAt = parseDate(run.startedAt);
+    final stoppedAt = run.stoppedAt != null ? parseDate(run.stoppedAt!) : null;
+    final duration = stoppedAt != null
+        ? stoppedAt.difference(startedAt)
+        : DateTime.now().difference(startedAt);
     final durationStr = '${duration.inMinutes}m ${duration.inSeconds % 60}s';
 
     return Dialog.fullscreen(
@@ -94,7 +97,7 @@ class _WorkspaceRunViewerDialogState
                   ),
                   const SizedBox(width: Spacing.sm),
                   Text(
-                    run.startedAt.formatted(),
+                    startedAt.formatted(),
                     style: const TextStyle(
                       fontSize: 12,
                       color: AppColors.mutedForeground,
@@ -286,7 +289,7 @@ class _RunAgentSidebar extends StatelessWidget {
                               ),
                               const SizedBox(width: Spacing.xs),
                               DspatchBadge(
-                                label: agent.status.name,
+                                label: agent.status,
                                 variant: _agentBadgeVariant(agent.status),
                               ),
                             ],
@@ -301,7 +304,7 @@ class _RunAgentSidebar extends StatelessWidget {
     );
   }
 
-  Color _statusColor(AgentState status) {
+  Color _statusColor(String status) {
     return switch (status) {
       AgentState.generating => AppColors.success,
       AgentState.completed => AppColors.primary,
@@ -313,7 +316,7 @@ class _RunAgentSidebar extends StatelessWidget {
     };
   }
 
-  BadgeVariant _agentBadgeVariant(AgentState status) {
+  BadgeVariant _agentBadgeVariant(String status) {
     return switch (status) {
       AgentState.generating => BadgeVariant.success,
       AgentState.completed => BadgeVariant.primary,
@@ -463,7 +466,7 @@ class _AgentSummaryTab extends StatelessWidget {
                 ),
               ),
               DspatchBadge(
-                label: agent.status.name,
+                label: agent.status,
                 variant: _badgeVariant(agent.status),
               ),
             ],
@@ -473,7 +476,7 @@ class _AgentSummaryTab extends StatelessWidget {
     );
   }
 
-  BadgeVariant _badgeVariant(AgentState status) {
+  BadgeVariant _badgeVariant(String status) {
     return switch (status) {
       AgentState.generating => BadgeVariant.success,
       AgentState.completed => BadgeVariant.primary,

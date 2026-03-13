@@ -1,7 +1,9 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'dart:convert';
 
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import 'package:dspatch_sdk/dspatch_sdk.dart' show HubTagRef;
+
+import '../../database/engine_database.dart' show AgentProvider;
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,8 +27,8 @@ const _hubCategories = [
 /// Dialog form for submitting an agent template to the community hub.
 ///
 /// Pre-fills name, description, and entry point from the local [template].
-/// For [SourceType.local] templates, the user must provide a public git repo URL.
-/// For [SourceType.git] templates, the existing [gitUrl] is pre-filled.
+/// For ['local'] templates, the user must provide a public git repo URL.
+/// For ['git'] templates, the existing [gitUrl] is pre-filled.
 class HubSubmitAgentDialog extends ConsumerStatefulWidget {
   const HubSubmitAgentDialog({
     super.key,
@@ -74,7 +76,7 @@ class _HubSubmitAgentDialogState
         TextEditingController(text: t.description ?? '');
     _repoUrlController = TextEditingController(
       text: widget.detectedRemoteUrl ??
-          (t.sourceType == SourceType.git ? (t.gitUrl ?? '') : ''),
+          (t.sourceType == 'git' ? (t.gitUrl ?? '') : ''),
     );
     _branchController = TextEditingController(
       text: widget.detectedBranch ?? t.gitBranch ?? '',
@@ -111,7 +113,7 @@ class _HubSubmitAgentDialogState
     });
 
     try {
-      final sdk = ref.read(sdkProvider);
+      final client = ref.read(engineClientProvider);
       final allTags = [..._generalTags, ..._modelTags, ..._frameworkTags]
           .map((t) => {'slug': t.slug, 'category': t.category})
           .toList();
@@ -119,16 +121,15 @@ class _HubSubmitAgentDialogState
       final description = _descriptionController.text.trim();
       final entryPoint = _entryPointController.text.trim();
 
-      await sdk.hubSubmitAgent(
-        name: name,
-        repoUrl: repoUrl,
-        branch: branch.isEmpty ? null : branch,
-        description: description.isEmpty ? null : description,
-        category: _selectedCategory,
-        tagsJson: allTags.isEmpty ? null : jsonEncode(allTags),
-        entryPoint: entryPoint.isEmpty ? null : entryPoint,
-        sdkVersion: null,
-      );
+      await client.hubSubmitAgent(request: {
+        'name': name,
+        'repo_url': repoUrl,
+        if (branch.isNotEmpty) 'branch': branch,
+        if (description.isNotEmpty) 'description': description,
+        if (_selectedCategory != null) 'category': _selectedCategory,
+        if (allTags.isNotEmpty) 'tags_json': jsonEncode(allTags),
+        if (entryPoint.isNotEmpty) 'entry_point': entryPoint,
+      });
 
       if (mounted) {
         toast('Submitted -- pending review', type: ToastType.success);
@@ -146,7 +147,7 @@ class _HubSubmitAgentDialogState
 
   @override
   Widget build(BuildContext context) {
-    final isLocal = widget.template.sourceType == SourceType.local;
+    final isLocal = widget.template.sourceType == 'local';
 
     return SingleChildScrollView(
       child: Column(

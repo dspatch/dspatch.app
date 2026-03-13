@@ -1,4 +1,10 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
+
+/// Parses an ISO 8601 date string to [DateTime], returning [DateTime.now] on failure.
+DateTime parseDate(String isoString) {
+  return DateTime.tryParse(isoString) ?? DateTime.now();
+}
+
 /// Convenience extensions on [DateTime] for display formatting.
 extension DateTimeExt on DateTime {
   /// Returns a human-readable relative time string (e.g. '5m ago', '3d ago').

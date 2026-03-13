@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'dart:convert';
 
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import 'package:dspatch_sdk/dspatch_sdk.dart' show HubTagRef;
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -83,19 +83,19 @@ class _HubSubmitWorkspaceDialogState
     });
 
     try {
-      final sdk = ref.read(sdkProvider);
+      final client = ref.read(engineClientProvider);
       final allTags = [..._generalTags, ..._modelTags, ..._frameworkTags]
           .map((t) => {'slug': t.slug, 'category': t.category})
           .toList();
       final description = _descriptionController.text.trim();
 
-      await sdk.hubSubmitWorkspace(
-        name: name,
-        configJson: jsonEncode(widget.configYaml),
-        description: description.isEmpty ? null : description,
-        category: _selectedCategory,
-        tagsJson: allTags.isEmpty ? null : jsonEncode(allTags),
-      );
+      await client.hubSubmitWorkspace(request: {
+        'name': name,
+        'config_json': jsonEncode(widget.configYaml),
+        if (description.isNotEmpty) 'description': description,
+        if (_selectedCategory != null) 'category': _selectedCategory,
+        if (allTags.isNotEmpty) 'tags_json': jsonEncode(allTags),
+      });
 
       if (mounted) {
         toast('Submitted -- pending review', type: ToastType.success);

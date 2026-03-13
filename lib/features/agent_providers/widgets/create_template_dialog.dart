@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../database/engine_database.dart' show AgentProvider;
 import '../../../di/providers.dart';
 
 class CreateTemplateDialog extends ConsumerStatefulWidget {
@@ -142,14 +142,14 @@ class _CreateTemplateDialogState extends ConsumerState<CreateTemplateDialog> {
       }
 
       final sourceUri = 'dspatch://agent/$author/$slug';
-      final sdk = ref.read(sdkProvider);
-      final template = await sdk.createAgentTemplate(
-        name: _nameController.text.trim(),
-        sourceUri: sourceUri,
-      );
+      final client = ref.read(engineClientProvider);
+      final result = await client.createAgentTemplate(request: {
+        'name': _nameController.text.trim(),
+        'source_uri': sourceUri,
+      });
       if (mounted) {
         Navigator.of(context).pop();
-        toast('Template created', description: template.filePath);
+        toast('Template created', description: result['file_path'] as String? ?? '');
       }
     } catch (e) {
       toast('Failed to create template: $e', type: ToastType.error);

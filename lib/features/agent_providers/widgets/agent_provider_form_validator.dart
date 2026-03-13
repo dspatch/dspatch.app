@@ -1,5 +1,4 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import 'dart:io';
 
 
@@ -60,7 +59,7 @@ class AgentProviderFormValidator {
   static Map<String, String?> validateAll({
     required String name,
     required String entryPoint,
-    required SourceType sourceType,
+    required String sourceType,
     required String sourcePath,
     required String gitUrl,
     required List<String> requiredEnv,
@@ -69,10 +68,10 @@ class AgentProviderFormValidator {
     errors['name'] = validateName(name);
     errors['entryPoint'] = validateEntryPoint(entryPoint);
 
-    if (sourceType == SourceType.local) {
+    if (sourceType == 'local') {
       errors['sourcePath'] = validateSourcePath(sourcePath);
     }
-    if (sourceType == SourceType.git) {
+    if (sourceType == 'git') {
       errors['gitUrl'] = validateGitUrl(gitUrl);
     }
 

@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import 'package:dspatch_sdk/dspatch_sdk.dart' show HubAgentSummary, HubCategoryCount, HubTagRef;
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,7 +40,7 @@ class _HubAgentBrowserDialogState
   Future<void> _addAgent(HubAgentSummary agent) async {
     setState(() => _addingSlug = agent.slug);
     try {
-      final sdk = ref.read(sdkProvider);
+      final client = ref.read(engineClientProvider);
 
       if (agent.agentType == 'template') {
         // Template flow: create a local AgentTemplate with a dspatch:// URI.
@@ -48,10 +48,10 @@ class _HubAgentBrowserDialogState
         final author = agent.author ?? 'unknown';
         final sourceUri = 'dspatch://agent/$author/$sourceSlug';
 
-        await sdk.createAgentTemplate(
-          name: agent.name,
-          sourceUri: sourceUri,
-        );
+        await client.createAgentTemplate(request: {
+          'name': agent.name,
+          'source_uri': sourceUri,
+        });
 
         if (mounted) {
           toast('Template "${agent.name}" added', type: ToastType.success);
@@ -60,28 +60,26 @@ class _HubAgentBrowserDialogState
         // Provider flow: resolve full metadata then create a local provider.
         final author = agent.author ?? 'unknown';
         final resolved =
-            await sdk.hubResolveAgent(slug: '$author/${agent.slug}');
+            await client.hubResolveAgent(slug: '$author/${agent.slug}');
 
-        await sdk.createAgentProvider(
-          request: CreateAgentProviderRequest(
-            name: agent.name,
-            sourceType: SourceType.hub,
-            hubSlug: agent.slug,
-            hubAuthor: agent.author,
-            hubCategory: agent.category,
-            hubTags: agent.tags.map((t) => t.displayName).toList(),
-            hubVersion: resolved.version,
-            hubRepoUrl: resolved.repoUrl,
-            hubCommitHash: resolved.commitHash,
-            entryPoint: resolved.entryPoint ?? '',
-            gitUrl: resolved.repoUrl,
-            gitBranch: resolved.branch,
-            description: agent.description,
-            requiredEnv: const [],
-            requiredMounts: const [],
-            fields: const {},
-          ),
-        );
+        await client.createAgentProvider(request: {
+          'name': agent.name,
+          'source_type': 'hub',
+          'hub_slug': agent.slug,
+          'hub_author': agent.author,
+          'hub_category': agent.category,
+          'hub_tags': agent.tags.map((t) => t.displayName).toList(),
+          'hub_version': resolved['version'],
+          'hub_repo_url': resolved['repo_url'],
+          'hub_commit_hash': resolved['commit_hash'],
+          'entry_point': resolved['entry_point'] ?? '',
+          'git_url': resolved['repo_url'],
+          'git_branch': resolved['branch'],
+          'description': agent.description,
+          'required_env': const [],
+          'required_mounts': const [],
+          'fields': const {},
+        });
 
         if (mounted) {
           toast('Added "${agent.name}" to templates', type: ToastType.success);
@@ -100,20 +98,23 @@ class _HubAgentBrowserDialogState
     if (_nextCursor == null || _loadingMore) return;
     setState(() => _loadingMore = true);
     try {
-      final sdk = ref.read(sdkProvider);
+      final client = ref.read(engineClientProvider);
       final search = ref.read(hubAgentSearchProvider);
       final category = ref.read(hubAgentCategoryProvider);
-      final (agents, pagination) = await sdk.hubBrowseAgents(
+      final result = await client.hubBrowseAgents(
         search: search.isEmpty ? null : search,
         category: category,
         cursor: _nextCursor,
         perPage: 20,
       );
+      final agentsList = (result['agents'] as List<dynamic>?) ?? [];
+      final paginationMap = (result['pagination'] as Map<String, dynamic>?) ?? {};
+      final agents = agentsList.map((a) => _hubAgentFromMap(a as Map<String, dynamic>)).toList();
       if (mounted) {
         setState(() {
           _allAgents.addAll(agents);
-          _nextCursor = pagination.nextCursor;
-          _hasMore = pagination.hasMore;
+          _nextCursor = paginationMap['next_cursor'] as String?;
+          _hasMore = paginationMap['has_more'] as bool? ?? false;
           _loadingMore = false;
         });
       }
@@ -280,6 +281,38 @@ class _HubAgentBrowserDialogState
         ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Map → FRB type helpers
+// ---------------------------------------------------------------------------
+
+HubAgentSummary _hubAgentFromMap(Map<String, dynamic> m) {
+  final tagsRaw = (m['tags'] as List<dynamic>?) ?? [];
+  return HubAgentSummary(
+    slug: m['slug'] as String? ?? '',
+    name: m['name'] as String? ?? '',
+    description: m['description'] as String?,
+    author: m['author'] as String?,
+    category: m['category'] as String?,
+    tags: tagsRaw
+        .map((t) {
+          final tm = t as Map<String, dynamic>;
+          return HubTagRef(
+            slug: tm['slug'] as String? ?? '',
+            displayName: tm['display_name'] as String? ?? '',
+            category: tm['category'] as String? ?? '',
+          );
+        })
+        .toList(),
+    stars: m['stars'] as int? ?? 0,
+    downloads: m['downloads'] as int? ?? 0,
+    verified: m['verified'] as bool? ?? false,
+    version: m['version'] as int? ?? 0,
+    userLiked: m['user_liked'] as bool? ?? false,
+    agentType: m['agent_type'] as String? ?? 'provider',
+    sourceSlug: m['source_slug'] as String?,
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -1,16 +1,17 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/extensions/agent_state_ext.dart';
+import '../../../database/engine_database.dart';
 import '../../../di/providers.dart';
 import 'status_colors.dart';
 
 
 /// Sidebar showing the agent hierarchy tree with live status dots.
 ///
-/// Uses [WorkspaceConfig] for the tree structure and [WorkspaceAgent] rows
+/// Uses a config map for the tree structure and [WorkspaceAgent] rows
 /// for live status. Clicking an instance selects it in the content area;
 /// clicking the workspace header deselects back to workspace-level view.
 class AgentHierarchySidebar extends ConsumerWidget {
@@ -31,7 +32,7 @@ class AgentHierarchySidebar extends ConsumerWidget {
 
   final String workspaceId;
   final Workspace workspace;
-  final WorkspaceConfig? config;
+  final Map<String, dynamic>? config;
   final List<WorkspaceAgent> agents;
   final String? runId;
   final bool isRunning;
@@ -44,6 +45,11 @@ class AgentHierarchySidebar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedInstance = ref.watch(selectedInstanceProvider(workspaceId));
+
+    final agentsMap = config?['agents'] as Map<String, dynamic>? ?? {};
+    final agentOrder = (config?['agent_order'] as List<dynamic>?)
+            ?.cast<String>() ??
+        [];
 
     return SizedBox(
       width: 240,
@@ -67,7 +73,7 @@ class AgentHierarchySidebar extends ConsumerWidget {
 
           // ── Agent tree ──
           Expanded(
-            child: config == null || config!.agents.isEmpty
+            child: agentsMap.isEmpty
                 ? const Center(
                     child: Padding(
                       padding: EdgeInsets.all(Spacing.md),
@@ -86,15 +92,17 @@ class AgentHierarchySidebar extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: _orderedAgentEntries(
-                        config!.agents,
-                        config!.agentOrder,
+                        agentsMap,
+                        agentOrder,
                       ).map((entry) {
+                        final agentConfig =
+                            entry.value as Map<String, dynamic>;
                         return _AgentTreeNode(
                           workspaceId: workspaceId,
                           runId: runId,
                           isRunning: isRunning,
                           agentKey: entry.key,
-                          agentConfig: entry.value,
+                          agentConfig: agentConfig,
                           agents: agents,
                           selectedInstance: selectedInstance,
                           depth: 0,
@@ -112,8 +120,8 @@ class AgentHierarchySidebar extends ConsumerWidget {
 
 /// Returns agent entries in declaration order using [order], falling back
 /// to the map's native iteration order when [order] is empty.
-Iterable<MapEntry<String, AgentConfig>> _orderedAgentEntries(
-  Map<String, AgentConfig> agents,
+Iterable<MapEntry<String, dynamic>> _orderedAgentEntries(
+  Map<String, dynamic> agents,
   List<String> order,
 ) {
   if (order.isEmpty) return agents.entries;
@@ -246,14 +254,19 @@ class _AgentTreeNode extends ConsumerWidget {
   final String? runId;
   final bool isRunning;
   final String agentKey;
-  final AgentConfig agentConfig;
+  final Map<String, dynamic> agentConfig;
   final List<WorkspaceAgent> agents;
   final String? selectedInstance; // instanceId or null
   final int depth;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hasSubAgents = agentConfig.subAgents.isNotEmpty;
+    final subAgents =
+        agentConfig['sub_agents'] as Map<String, dynamic>? ?? {};
+    final subAgentOrder =
+        (agentConfig['sub_agent_order'] as List<dynamic>?)?.cast<String>() ??
+            [];
+    final hasSubAgents = subAgents.isNotEmpty;
     final isSubAgent = depth > 0;
 
     // Show ALL instances for this agent (including disconnected).
@@ -268,15 +281,17 @@ class _AgentTreeNode extends ConsumerWidget {
 
     // Shared callback for adding an instance.
     Future<void> addInstance() async {
+      if (runId == null) return;
       try {
         if (isSubAgent) {
-          await ref.read(sdkProvider).startSubInstance(
-                workspaceId: workspaceId,
+          await ref.read(engineClientProvider).startSubInstance(
+                runId: runId!,
+                parentInstanceId: '', // TODO: resolve parent instance ID
                 agentKey: agentKey,
               );
         } else {
-          await ref.read(sdkProvider).startRootInstance(
-                workspaceId: workspaceId,
+          await ref.read(engineClientProvider).startRootInstance(
+                runId: runId!,
                 agentKey: agentKey,
               );
         }
@@ -330,16 +345,15 @@ class _AgentTreeNode extends ConsumerWidget {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (isRunning && isAlive)
+                  if (isRunning && isAlive && runId != null)
                     _ActionIconButton(
                       icon: LucideIcons.square,
                       color: AppColors.destructive,
                       tooltip: 'Stop instance',
                       onPressed: () async {
                         try {
-                          await ref.read(sdkProvider).stopInstance(
-                                workspaceId: workspaceId,
-                                agentKey: agentKey,
+                          await ref.read(engineClientProvider).stopInstance(
+                                runId: runId!,
                                 instanceId: a.instanceId,
                               );
                         } catch (e) {
@@ -377,10 +391,10 @@ class _AgentTreeNode extends ConsumerWidget {
                     onCleanupAll: allInstances.any((a) =>
                             a.status == AgentState.disconnected)
                         ? () async {
+                            if (runId == null) return;
                             try {
-                              await ref.read(sdkProvider).cleanupStaleInstances(
-                                    workspaceId: workspaceId,
-                                    agentKey: agentKey,
+                              await ref.read(engineClientProvider).cleanupStaleInstances(
+                                    runId: runId!,
                                   );
                             } catch (e) {
                               debugPrint('[cleanup] Failed: $e');
@@ -408,16 +422,15 @@ class _AgentTreeNode extends ConsumerWidget {
                         onTap: () => ref
                                 .read(selectedInstanceProvider(workspaceId).notifier)
                                 .state = a.instanceId,
-                        trailing: isRunning && isAlive
+                        trailing: isRunning && isAlive && runId != null
                             ? _ActionIconButton(
                                 icon: LucideIcons.square,
                                 color: AppColors.destructive,
                                 tooltip: 'Stop instance',
                                 onPressed: () async {
                                   try {
-                                    await ref.read(sdkProvider).stopInstance(
-                                          workspaceId: workspaceId,
-                                          agentKey: agentKey,
+                                    await ref.read(engineClientProvider).stopInstance(
+                                          runId: runId!,
                                           instanceId: a.instanceId,
                                         );
                                   } catch (e) {
@@ -437,15 +450,16 @@ class _AgentTreeNode extends ConsumerWidget {
         // Sub-agents (recursive, in declaration order)
         if (hasSubAgents)
           ..._orderedAgentEntries(
-            agentConfig.subAgents,
-            agentConfig.subAgentOrder,
+            subAgents,
+            subAgentOrder,
           ).map((entry) {
+            final subConfig = entry.value as Map<String, dynamic>;
             return _AgentTreeNode(
               workspaceId: workspaceId,
               runId: runId,
               isRunning: isRunning,
               agentKey: entry.key,
-              agentConfig: entry.value,
+              agentConfig: subConfig,
               agents: agents,
               selectedInstance: selectedInstance,
               depth: depth + 1,
@@ -476,7 +490,7 @@ class _AgentRow extends StatelessWidget {
   final String agentKey;
   final String? instanceId;
   final String displayLabel;
-  final AgentState? status;
+  final String? status;
   final bool isSelected;
   final int depth;
   final VoidCallback? onTap;
@@ -664,7 +678,7 @@ class _AgentGroupRow extends StatelessWidget {
   }
 
   /// Pick the most urgent status among instances.
-  static AgentState? _aggregateStatus(List<WorkspaceAgent> instances) {
+  static String? _aggregateStatus(List<WorkspaceAgent> instances) {
     if (instances.isEmpty) return null;
     const priority = [
       AgentState.generating,
@@ -722,7 +736,7 @@ class _StatusDot extends StatefulWidget {
   const _StatusDot({required this.color, this.status});
 
   final Color color;
-  final AgentState? status;
+  final String? status;
 
   @override
   State<_StatusDot> createState() => _StatusDotState();

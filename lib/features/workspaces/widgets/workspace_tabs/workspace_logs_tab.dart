@@ -1,10 +1,27 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/utils/datetime_ext.dart';
+import '../../../../database/engine_database.dart';
 import '../../../../di/providers.dart';
+
+/// Log level string constants matching the engine's values.
+abstract final class LogLevel {
+  static const debug = 'debug';
+  static const info = 'info';
+  static const warn = 'warn';
+  static const error = 'error';
+  static const all = [debug, info, warn, error];
+}
+
+/// Log source string constants matching the engine's values.
+abstract final class LogSource {
+  static const engine = 'engine';
+  static const agent = 'agent';
+  static const all = [engine, agent];
+}
 
 /// Terminal-style log viewer for workspace-level logs.
 ///
@@ -30,8 +47,8 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
   int _previousCount = 0;
 
   // Filter state
-  Set<LogLevel> _levelFilters = LogLevel.values.toSet();
-  Set<LogSource> _sourceFilters = LogSource.values.toSet();
+  Set<String> _levelFilters = LogLevel.all.toSet();
+  Set<String> _sourceFilters = LogSource.all.toSet();
   String? _agentFilter;
 
   @override
@@ -70,22 +87,24 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
     return '$h:$m:$s.$ms';
   }
 
-  static String _levelTag(LogLevel level) => switch (level) {
+  static String _levelTag(String level) => switch (level) {
         LogLevel.debug => 'DBG',
         LogLevel.info => 'INF',
         LogLevel.warn => 'WRN',
         LogLevel.error => 'ERR',
+        _ => level.toUpperCase().substring(0, 3),
       };
 
-  static String _sourceTag(LogSource source) => switch (source) {
+  static String _sourceTag(String source) => switch (source) {
         LogSource.engine => 'ENG',
         LogSource.agent => 'AGT',
+        _ => source.toUpperCase().substring(0, 3),
       };
 
   static String _formatLogLine(AgentLog log) {
     final agent =
         log.agentKey == '_system' ? '' : '  [${log.agentKey}]';
-    return '${_formatTime(log.timestamp)}  '
+    return '${_formatTime(parseDate(log.timestamp))}  '
         '${_sourceTag(log.source)}  '
         '${_levelTag(log.level)}'
         '$agent  '
@@ -127,7 +146,7 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
                   final entries = filtered
                       .map((log) => LogEntry(
                             _formatLogLine(log),
-                            level: log.level.name,
+                            level: log.level,
                           ))
                       .toList();
                   final copyText =
@@ -186,12 +205,9 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
             style: ToggleGroupStyle.grouped,
             iconMode: false,
             variant: ToggleVariant.outline,
-            value: _levelFilters.map((l) => l.name).toSet(),
+            value: _levelFilters,
             onChanged: (values) {
-              setState(() {
-                _levelFilters =
-                    values.map((v) => LogLevel.values.byName(v)).toSet();
-              });
+              setState(() => _levelFilters = values);
             },
             children: const [
               ToggleGroupItem(value: 'debug', child: Text('Debug')),
@@ -207,12 +223,9 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
             style: ToggleGroupStyle.grouped,
             iconMode: false,
             variant: ToggleVariant.outline,
-            value: _sourceFilters.map((s) => s.name).toSet(),
+            value: _sourceFilters,
             onChanged: (values) {
-              setState(() {
-                _sourceFilters =
-                    values.map((v) => LogSource.values.byName(v)).toSet();
-              });
+              setState(() => _sourceFilters = values);
             },
             children: const [
               ToggleGroupItem(value: 'engine', child: Text('Engine')),

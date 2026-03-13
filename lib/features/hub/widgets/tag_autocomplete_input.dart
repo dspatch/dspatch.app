@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'dart:async';
 
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import 'package:dspatch_sdk/dspatch_sdk.dart' show HubTagRef;
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -106,19 +106,20 @@ class _TagAutocompleteInputState extends ConsumerState<TagAutocompleteInput> {
   Future<void> _loadPopular() async {
     setState(() => _loading = true);
     try {
-      final sdk = ref.read(sdkProvider);
-      final tags = await sdk.hubPopularTags(
-        category: widget.category,
-        limit: 20,
-      );
+      final client = ref.read(engineClientProvider);
+      final result = await client.hubPopularTags(tagType: widget.category);
+      final tagsList = (result['tags'] as List<dynamic>?) ?? [];
       if (!mounted) return;
       setState(() {
-        _suggestions = tags
-            .map((t) => HubTagRef(
-                  slug: t.slug,
-                  displayName: t.displayName,
-                  category: t.category,
-                ))
+        _suggestions = tagsList
+            .map((t) {
+              final m = t as Map<String, dynamic>;
+              return HubTagRef(
+                slug: m['slug'] as String? ?? '',
+                displayName: m['display_name'] as String? ?? '',
+                category: m['category'] as String? ?? widget.category,
+              );
+            })
             .toList();
         _showDropdown = true;
         _loading = false;
@@ -143,20 +144,23 @@ class _TagAutocompleteInputState extends ConsumerState<TagAutocompleteInput> {
       if (!mounted) return;
       setState(() => _loading = true);
       try {
-        final sdk = ref.read(sdkProvider);
-        final tags = await sdk.hubSearchTags(
+        final client = ref.read(engineClientProvider);
+        final result = await client.hubSearchTags(
           query: value.trim(),
-          category: widget.category,
-          limit: 20,
+          tagType: widget.category,
         );
+        final tagsList = (result['tags'] as List<dynamic>?) ?? [];
         if (!mounted) return;
         setState(() {
-          _suggestions = tags
-              .map((t) => HubTagRef(
-                    slug: t.slug,
-                    displayName: t.displayName,
-                    category: t.category,
-                  ))
+          _suggestions = tagsList
+              .map((t) {
+                final m = t as Map<String, dynamic>;
+                return HubTagRef(
+                  slug: m['slug'] as String? ?? '',
+                  displayName: m['display_name'] as String? ?? '',
+                  category: m['category'] as String? ?? widget.category,
+                );
+              })
               .toList();
           _showDropdown = true;
           _loading = false;

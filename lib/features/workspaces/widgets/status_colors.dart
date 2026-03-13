@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_sdk/dspatch_sdk.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/extensions/agent_state_ext.dart';
 import '../../../core/utils/workspace_status.dart';
 
 
@@ -11,7 +11,7 @@ import '../../../core/utils/workspace_status.dart';
 /// Extracted from [AgentHierarchySidebar] and [WorkspaceViewScreen] to
 /// eliminate duplication.
 
-Color agentStatusColor(AgentState? status) {
+Color agentStatusColor(String? status) {
   return switch (status) {
     null => AppColors.muted,
     AgentState.disconnected => AppColors.mutedForeground,
@@ -22,6 +22,7 @@ Color agentStatusColor(AgentState? status) {
     AgentState.completed => AppColors.info,
     AgentState.failed => AppColors.destructive,
     AgentState.crashed => AppColors.destructive,
+    _ => AppColors.muted,
   };
 }
 
