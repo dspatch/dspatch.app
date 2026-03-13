@@ -18,6 +18,7 @@ pub mod message;
 pub mod peer_connection;
 pub mod signaling;
 pub mod sync_engine;
+pub mod outbox_hook;
 pub mod table_class;
 
 pub use message::{CommandResult, RemoteCommand, SyncChange, SyncMessage, SyncOp};
