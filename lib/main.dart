@@ -11,6 +11,7 @@ import 'database/engine_database.dart';
 import 'database/invalidation_bridge.dart';
 import 'di/providers.dart';
 import 'engine_client/engine_client_lib.dart';
+import 'engine_client/native_engine.dart';
 import 'shared/widgets/error_boundary.dart';
 
 /// Human-readable application name shown in the title bar and about dialog.
@@ -27,6 +28,16 @@ Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await _configureWindow();
+
+  // On mobile, start the engine in-process via FFI before connecting.
+  if (Platform.isAndroid || Platform.isIOS) {
+    final dbDir = p.join(
+      Platform.environment['HOME'] ?? '.',
+      '.dspatch',
+      'data',
+    );
+    NativeEngine.start(clientApiPort: kEnginePort, dbDir: dbDir);
+  }
 
   // Step 1: Bootstrap the engine (spawn if needed, authenticate, connect WS).
   final config = EngineBootstrapConfig(port: kEnginePort);
