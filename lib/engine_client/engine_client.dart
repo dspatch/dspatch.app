@@ -78,16 +78,14 @@ class EngineClient {
 
   // ── Workspace Commands ────────────────────────────────────────────────
 
-  /// Creates a new workspace and returns its ID.
+  /// Creates a new workspace from a config YAML string.
   Future<Map<String, dynamic>> createWorkspace({
-    required String name,
     required String projectPath,
-    String? templateId,
+    required String configYaml,
   }) {
     return sendCommand('create_workspace', {
-      'name': name,
       'project_path': projectPath,
-      'template_id': ?templateId,
+      'config_yaml': configYaml,
     });
   }
 
@@ -111,13 +109,13 @@ class EngineClient {
   /// Sends user input to a running agent instance.
   Future<Map<String, dynamic>> sendUserInputToAgent({
     required String runId,
-    required String agentKey,
-    required String content,
+    required String instanceId,
+    required String text,
   }) {
     return sendCommand('send_user_input_to_agent', {
       'run_id': runId,
-      'agent_key': agentKey,
-      'content': content,
+      'instance_id': instanceId,
+      'text': text,
     });
   }
 

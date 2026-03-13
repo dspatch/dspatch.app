@@ -11,6 +11,8 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex as TokioMutex;
 
+use crate::crypto::AesGcmCrypto;
+use crate::crypto::KeyringSecretStore;
 use crate::db::Database;
 use crate::db::dao::agent_provider_dao::AgentProviderDao;
 use crate::db::dao::agent_template_dao::AgentTemplateDao;
@@ -18,9 +20,10 @@ use crate::db::dao::api_key_dao::ApiKeyDao;
 use crate::db::dao::preference_dao::PreferenceDao;
 use crate::db::dao::workspace_dao::WorkspaceDao;
 use crate::db::dao::workspace_template_dao::WorkspaceTemplateDao;
+use crate::docker::DockerClient;
 use crate::services::{
     LocalAgentDataService, LocalAgentProviderService, LocalAgentTemplateService,
-    LocalApiKeyService, LocalInquiryService, LocalPreferenceService,
+    LocalApiKeyService, LocalFileBrowserService, LocalInquiryService, LocalPreferenceService,
     LocalWorkspaceService, LocalWorkspaceTemplateService,
 };
 
@@ -37,6 +40,9 @@ pub struct ServiceRegistry {
     preferences: Arc<LocalPreferenceService>,
     inquiries: Arc<LocalInquiryService>,
     agent_data: Arc<LocalAgentDataService>,
+    crypto: Arc<AesGcmCrypto>,
+    file_browser: Arc<LocalFileBrowserService>,
+    docker: Arc<DockerClient>,
 }
 
 impl ServiceRegistry {
@@ -58,6 +64,19 @@ impl ServiceRegistry {
         // the bridge (launch, stop) will fail gracefully until then.
         let bridge = Arc::new(TokioMutex::new(None));
 
+        // Crypto: uses the platform keyring for master key storage.
+        let secret_store: Arc<dyn crate::db::key_manager::SecretStore> =
+            Arc::new(KeyringSecretStore::new("dspatch"));
+        let crypto = Arc::new(AesGcmCrypto::new(secret_store));
+
+        // File browser: default root is the data_dir (overridden per-workspace at usage site).
+        let file_browser = Arc::new(LocalFileBrowserService::new(
+            data_dir.to_string_lossy().to_string(),
+        ));
+
+        // Docker: uses the default platform Docker CLI.
+        let docker = Arc::new(DockerClient::for_platform());
+
         Self {
             workspaces: Arc::new(LocalWorkspaceService::new(
                 workspace_dao.clone(),
@@ -75,6 +94,9 @@ impl ServiceRegistry {
             preferences: Arc::new(LocalPreferenceService::new(preference_dao)),
             inquiries: Arc::new(LocalInquiryService::new(workspace_dao.clone())),
             agent_data: Arc::new(LocalAgentDataService::new(workspace_dao)),
+            crypto,
+            file_browser,
+            docker,
         }
     }
 
@@ -108,5 +130,17 @@ impl ServiceRegistry {
 
     pub fn agent_data(&self) -> &Arc<LocalAgentDataService> {
         &self.agent_data
+    }
+
+    pub fn crypto(&self) -> &Arc<AesGcmCrypto> {
+        &self.crypto
+    }
+
+    pub fn file_browser(&self) -> &Arc<LocalFileBrowserService> {
+        &self.file_browser
+    }
+
+    pub fn docker(&self) -> &Arc<DockerClient> {
+        &self.docker
     }
 }

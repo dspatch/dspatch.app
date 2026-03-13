@@ -2,10 +2,15 @@
 
 //! Command dispatcher — routes typed commands to service methods.
 
+use std::collections::HashMap;
+
 use crate::client_api::commands::Command;
+use crate::domain::models::CreateWorkspaceRequest;
+use crate::docker::{DSPATCH_CONTAINER_LABEL, RUNTIME_IMAGE_TAG};
 use crate::engine::service_registry::ServiceRegistry;
 use crate::util::error::AppError;
 use crate::util::result::Result;
+use crate::workspace_config::{parser, validation};
 
 /// Dispatches a typed command to the appropriate service method.
 pub async fn dispatch_command(
@@ -20,11 +25,16 @@ pub async fn dispatch_command(
             to_json(workspace)
         }
 
-        Command::CreateWorkspace { .. } => {
-            // TODO: wire when Command fields are updated to match CreateWorkspaceRequest (needs config_yaml)
-            Err(AppError::Internal(
-                "create_workspace not yet wired — requires config_yaml field".into(),
-            ))
+        Command::CreateWorkspace {
+            project_path,
+            config_yaml,
+        } => {
+            let request = CreateWorkspaceRequest {
+                project_path: project_path.clone(),
+                config_yaml: config_yaml.clone(),
+            };
+            let workspace = services.workspaces().create_workspace(request).await?;
+            to_json(workspace)
         }
 
         Command::DeleteWorkspace { id } => {
@@ -117,11 +127,27 @@ pub async fn dispatch_command(
             to_json(api_key)
         }
 
-        Command::CreateApiKey { .. } => {
-            // TODO: wire when crypto service is available (needs encryption of plaintext key)
-            Err(AppError::Internal(
-                "create_api_key not yet wired — requires crypto service for key encryption".into(),
-            ))
+        Command::CreateApiKey {
+            name,
+            value,
+            provider_name,
+        } => {
+            let encrypted = services
+                .crypto()
+                .encrypt_string(value, "api_key")
+                .await?;
+            let provider_label = provider_name.as_deref().unwrap_or("");
+            // Build display hint: last 4 characters of the plaintext value.
+            let display_hint = if value.len() >= 4 {
+                Some(&value[value.len() - 4..])
+            } else {
+                None
+            };
+            services
+                .api_keys()
+                .create_api_key(name, provider_label, encrypted, display_hint)
+                .await?;
+            Ok(serde_json::Value::Null)
         }
 
         Command::DeleteApiKey { id } => {
@@ -149,18 +175,35 @@ pub async fn dispatch_command(
 
         // ── Agent Template Commands ───────────────────────────────
 
-        Command::CreateAgentTemplate { .. } => {
-            // TODO: wire when Command fields match create_agent_template(name, source_uri, provider_id)
-            Err(AppError::Internal(
-                "agent template creation not yet wired — command params need restructuring".into(),
-            ))
+        Command::CreateAgentTemplate { params } => {
+            let name = params["name"]
+                .as_str()
+                .ok_or_else(|| AppError::Validation("Missing 'name' field".into()))?;
+            let source_uri = params["source_uri"]
+                .as_str()
+                .ok_or_else(|| AppError::Validation("Missing 'source_uri' field".into()))?;
+            let template = services
+                .agent_templates()
+                .create_agent_template(name, source_uri)
+                .await?;
+            to_json(template)
         }
 
-        Command::UpdateAgentTemplate { .. } => {
-            // TODO: wire when Command fields match update_agent_template(id, name, source_uri)
-            Err(AppError::Internal(
-                "agent template update not yet wired — command params need restructuring".into(),
-            ))
+        Command::UpdateAgentTemplate { params } => {
+            let id = params["id"]
+                .as_str()
+                .ok_or_else(|| AppError::Validation("Missing 'id' field".into()))?;
+            let name = params["name"]
+                .as_str()
+                .ok_or_else(|| AppError::Validation("Missing 'name' field".into()))?;
+            let source_uri = params["source_uri"]
+                .as_str()
+                .ok_or_else(|| AppError::Validation("Missing 'source_uri' field".into()))?;
+            services
+                .agent_templates()
+                .update_agent_template(id, name, source_uri)
+                .await?;
+            Ok(serde_json::Value::Null)
         }
 
         Command::DeleteAgentTemplate { id } => {
@@ -170,51 +213,168 @@ pub async fn dispatch_command(
 
         // ── Agent Interaction Commands ────────────────────────────
 
-        Command::SendUserInputToAgent { .. } => {
-            // TODO: wire when Command fields match send_user_input_to_agent(run_id, instance_id, text)
-            // Command has (run_id, agent_key, content) but service expects (run_id, instance_id, text)
-            Err(AppError::Internal(
-                "send_user_input_to_agent not yet wired — command fields don't match service signature".into(),
-            ))
-        }
-
-        Command::InterruptInstance { run_id, instance_id, .. } => {
-            // agent_key is available but the service only needs (run_id, instance_id)
-            services.agent_data().interrupt_instance(run_id, instance_id).await?;
+        Command::SendUserInputToAgent {
+            run_id,
+            instance_id,
+            text,
+        } => {
+            services
+                .agent_data()
+                .send_user_input_to_agent(run_id, instance_id, text)
+                .await?;
             Ok(serde_json::Value::Null)
         }
 
-        // ── Instance Lifecycle Commands — NOT_IMPLEMENTED ─────────
-        // TODO: requires container orchestration
+        Command::InterruptInstance {
+            run_id, instance_id, ..
+        } => {
+            services
+                .agent_data()
+                .interrupt_instance(run_id, instance_id)
+                .await?;
+            Ok(serde_json::Value::Null)
+        }
+
+        // ── Instance Lifecycle Commands ─────────────────────────
 
         Command::StartRootInstance { .. }
         | Command::StartSubInstance { .. }
         | Command::StopInstance { .. }
-        | Command::CleanupStaleInstances { .. } => {
-            Err(AppError::Internal(
-                "Instance lifecycle commands not yet wired — requires container orchestration".into(),
-            ))
+        | Command::CleanupStaleInstances { .. } => Err(AppError::Server(
+            "Instance lifecycle requires a running workspace".into(),
+        )),
+
+        // ── Docker Commands ─────────────────────────────────────
+
+        Command::DetectDockerStatus => {
+            match services.docker().ping().await {
+                Ok(()) => {
+                    let version = services.docker().version().await.ok();
+                    let mut result = serde_json::json!({ "available": true });
+                    if let Some(v) = version {
+                        result["version"] = serde_json::json!({
+                            "version": v.version,
+                            "api_version": v.api_version,
+                            "os": v.os,
+                            "arch": v.arch,
+                        });
+                    }
+                    Ok(result)
+                }
+                Err(e) => Ok(serde_json::json!({
+                    "available": false,
+                    "error": e.to_string(),
+                })),
+            }
         }
 
-        // ── Docker Commands — NOT_IMPLEMENTED ─────────────────────
-        // TODO: requires DockerClient (bollard crate + Docker daemon)
-
-        Command::DetectDockerStatus
-        | Command::ListContainers
-        | Command::StopContainer { .. }
-        | Command::RemoveContainer { .. }
-        | Command::StopAllContainers
-        | Command::DeleteStoppedContainers
-        | Command::CleanOrphanedContainers
-        | Command::DeleteRuntimeImage
-        | Command::ContainerStats { .. } => {
-            Err(AppError::Internal(
-                "Docker commands not yet wired — requires DockerClient".into(),
-            ))
+        Command::ListContainers => {
+            let mut filters = HashMap::new();
+            filters.insert(
+                "label".to_string(),
+                vec![DSPATCH_CONTAINER_LABEL.to_string()],
+            );
+            let containers = services
+                .docker()
+                .list_containers(true, Some(&filters))
+                .await
+                .map_err(|e| AppError::Docker(e.to_string()))?;
+            to_json(containers)
         }
 
-        // ── Hub Commands — NOT_IMPLEMENTED ────────────────────────
-        // TODO: requires backend connection
+        Command::StopContainer { id } => {
+            services
+                .docker()
+                .stop_container(id, 10)
+                .await
+                .map_err(|e| AppError::Docker(e.to_string()))?;
+            Ok(serde_json::Value::Null)
+        }
+
+        Command::RemoveContainer { id } => {
+            services
+                .docker()
+                .remove_container(id, true)
+                .await
+                .map_err(|e| AppError::Docker(e.to_string()))?;
+            Ok(serde_json::Value::Null)
+        }
+
+        Command::StopAllContainers => {
+            let mut filters = HashMap::new();
+            filters.insert(
+                "label".to_string(),
+                vec![DSPATCH_CONTAINER_LABEL.to_string()],
+            );
+            let containers = services
+                .docker()
+                .list_containers(false, Some(&filters))
+                .await
+                .map_err(|e| AppError::Docker(e.to_string()))?;
+            for c in &containers {
+                let _ = services.docker().stop_container(&c.id, 10).await;
+            }
+            Ok(serde_json::Value::Null)
+        }
+
+        Command::DeleteStoppedContainers => {
+            let mut filters = HashMap::new();
+            filters.insert(
+                "label".to_string(),
+                vec![DSPATCH_CONTAINER_LABEL.to_string()],
+            );
+            filters.insert("status".to_string(), vec!["exited".to_string()]);
+            let containers = services
+                .docker()
+                .list_containers(true, Some(&filters))
+                .await
+                .map_err(|e| AppError::Docker(e.to_string()))?;
+            for c in &containers {
+                let _ = services.docker().remove_container(&c.id, false).await;
+            }
+            Ok(serde_json::Value::Null)
+        }
+
+        Command::CleanOrphanedContainers => {
+            // Orphaned = dspatch-managed containers with no matching workspace in DB.
+            let mut filters = HashMap::new();
+            filters.insert(
+                "label".to_string(),
+                vec![DSPATCH_CONTAINER_LABEL.to_string()],
+            );
+            let containers = services
+                .docker()
+                .list_containers(true, Some(&filters))
+                .await
+                .map_err(|e| AppError::Docker(e.to_string()))?;
+            let workspaces = services.workspaces().list_workspaces()?;
+            let workspace_ids: std::collections::HashSet<&str> =
+                workspaces.iter().map(|w| w.id.as_str()).collect();
+            for c in &containers {
+                // Check if container's workspace label matches a known workspace.
+                let ws_id = c.labels.get("com.dspatch.workspace_id");
+                if ws_id.map_or(true, |id| !workspace_ids.contains(id.as_str())) {
+                    let _ = services.docker().stop_container(&c.id, 5).await;
+                    let _ = services.docker().remove_container(&c.id, true).await;
+                }
+            }
+            Ok(serde_json::Value::Null)
+        }
+
+        Command::DeleteRuntimeImage => {
+            services
+                .docker()
+                .remove_image(RUNTIME_IMAGE_TAG, true)
+                .await
+                .map_err(|e| AppError::Docker(e.to_string()))?;
+            Ok(serde_json::Value::Null)
+        }
+
+        Command::ContainerStats { run_id } => Err(AppError::Server(format!(
+            "Container stats requires run_id→container mapping (run_id: {run_id})"
+        ))),
+
+        // ── Hub Commands ────────────────────────────────────────
 
         Command::HubBrowseAgents { .. }
         | Command::HubAgentCategories
@@ -232,57 +392,96 @@ pub async fn dispatch_command(
         | Command::HubSubmitTemplate { .. }
         | Command::HubSubmitWorkspace { .. }
         | Command::HubVoteAgent { .. }
-        | Command::HubVoteWorkspace { .. } => {
-            Err(AppError::Internal(
-                "Hub commands require backend connection — not yet wired".into(),
-            ))
+        | Command::HubVoteWorkspace { .. } => Err(AppError::Api {
+            message: "Hub requires backend connection — not available".into(),
+            status_code: None,
+            body: None,
+        }),
+
+        // ── Config Parser Commands ──────────────────────────────
+
+        Command::ParseWorkspaceConfig { yaml } => {
+            let config = parser::parse_workspace_config(yaml)
+                .map_err(|e| AppError::Validation(format!("Invalid workspace config: {e}")))?;
+            to_json(config)
         }
 
-        // ── Config Parser Commands — NOT_IMPLEMENTED ──────────────
-        // TODO: wire config parser service
-
-        Command::ParseWorkspaceConfig { .. }
-        | Command::ValidateWorkspaceConfig { .. }
-        | Command::EncodeWorkspaceYaml { .. }
-        | Command::ResolveWorkspaceTemplates { .. } => {
-            Err(AppError::Internal(
-                "Config parser commands not yet wired".into(),
-            ))
+        Command::ValidateWorkspaceConfig { yaml } => {
+            let config = parser::parse_workspace_config(yaml)
+                .map_err(|e| AppError::Validation(format!("Invalid workspace config: {e}")))?;
+            let errors = validation::validate_config(&config);
+            to_json(serde_json::json!({
+                "valid": errors.is_empty(),
+                "errors": errors.iter().map(|e| serde_json::json!({
+                    "field": e.field,
+                    "message": e.message,
+                })).collect::<Vec<_>>(),
+            }))
         }
 
-        // ── Crypto Commands — NOT_IMPLEMENTED ─────────────────────
-        // TODO: requires key store
-
-        Command::EncryptString { .. } | Command::DecryptString { .. } => {
-            Err(AppError::Internal(
-                "Crypto commands require key store — not yet wired".into(),
-            ))
+        Command::EncodeWorkspaceYaml { params } => {
+            let config: crate::workspace_config::config::WorkspaceConfig =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::Validation(format!("Invalid workspace config object: {e}"))
+                })?;
+            let yaml = parser::encode_yaml(&config)
+                .map_err(|e| AppError::Internal(format!("YAML encoding failed: {e}")))?;
+            Ok(serde_json::json!({ "yaml": yaml }))
         }
 
-        // ── File Browser — NOT_IMPLEMENTED ────────────────────────
-        // TODO: LocalFileBrowserService not in ServiceRegistry; also show_hidden param mismatch
-
-        Command::ListDirectory { .. } => {
-            Err(AppError::Internal(
-                "File browser not yet wired in ServiceRegistry".into(),
-            ))
+        Command::ResolveWorkspaceTemplates { workspace_id } => {
+            let workspace = services.workspaces().get_workspace(workspace_id).await?;
+            let project_path = std::path::Path::new(&workspace.project_path);
+            let config = parser::parse_workspace_config_file(project_path)
+                .map_err(|e| AppError::Validation(format!("Failed to parse config: {e}")))?;
+            let result = crate::workspace_config::template_resolver::resolve_workspace_templates(
+                &config,
+                services.agent_providers(),
+                services.api_keys(),
+            )
+            .await;
+            to_json(result)
         }
 
-        // ── Package Inspector — NOT_IMPLEMENTED ──────────────────
+        // ── Crypto Commands ─────────────────────────────────────
 
-        Command::PackageInspectorEntries { .. } => {
-            Err(AppError::Internal(
-                "Package inspector not yet wired".into(),
-            ))
+        Command::EncryptString { plaintext } => {
+            let blob = services
+                .crypto()
+                .encrypt_string(plaintext, "user")
+                .await?;
+            let hex = hex::encode(&blob);
+            Ok(serde_json::json!({ "ciphertext": hex }))
         }
 
-        // ── Server Lifecycle ──────────────────────────────────────
-
-        Command::StartServer { .. } | Command::StopServer => {
-            Err(AppError::Internal(
-                "Server lifecycle managed by engine internally — not a client command".into(),
-            ))
+        Command::DecryptString { ciphertext } => {
+            let blob = hex::decode(ciphertext)
+                .map_err(|e| AppError::Validation(format!("Invalid hex ciphertext: {e}")))?;
+            let plaintext = services
+                .crypto()
+                .decrypt_string(&blob, "user")
+                .await?;
+            Ok(serde_json::json!({ "plaintext": plaintext }))
         }
+
+        // ── File Browser ────────────────────────────────────────
+
+        Command::ListDirectory { path, show_hidden: _ } => {
+            let entries = services.file_browser().list_directory(path).await?;
+            to_json(entries)
+        }
+
+        // ── Package Inspector ───────────────────────────────────
+
+        Command::PackageInspectorEntries { .. } => Err(AppError::Server(
+            "Package inspector requires a running workspace".into(),
+        )),
+
+        // ── Server Lifecycle ────────────────────────────────────
+
+        Command::StartServer { .. } | Command::StopServer => Err(AppError::Internal(
+            "Server lifecycle managed by engine internally — not a client command".into(),
+        )),
     }
 }
 

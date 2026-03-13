@@ -784,12 +784,12 @@ fn command_deserialize_get_workspace() {
 fn command_deserialize_create_workspace() {
     use dspatch_engine::client_api::commands::Command;
 
-    let json = r#"{"method": "create_workspace", "name": "test", "project_path": "/home/user/project"}"#;
+    let json = r#"{"method": "create_workspace", "project_path": "/home/user/project", "config_yaml": "name: test\nagents: {}"}"#;
     let cmd: Command = serde_json::from_str(json).unwrap();
     match cmd {
-        Command::CreateWorkspace { name, project_path, .. } => {
-            assert_eq!(name, "test");
+        Command::CreateWorkspace { project_path, config_yaml } => {
             assert_eq!(project_path, "/home/user/project");
+            assert!(config_yaml.contains("name: test"));
         }
         _ => panic!("expected CreateWorkspace"),
     }
@@ -943,11 +943,11 @@ async fn dispatch_unimplemented_command_returns_error() {
     let db = Arc::new(dspatch_engine::engine::startup::open_database(&db_path).unwrap());
     let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
 
-    // Docker command is not yet wired.
-    let cmd = Command::DetectDockerStatus;
+    // Hub command requires backend connection — returns Api error.
+    let cmd = Command::HubAgentCategories;
     let result = dispatch_command(&cmd, &registry).await;
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), dspatch_engine::util::error::AppError::Internal(_)));
+    assert!(matches!(result.unwrap_err(), dspatch_engine::util::error::AppError::Api { .. }));
 }
 
 #[tokio::test]

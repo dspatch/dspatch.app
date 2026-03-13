@@ -34,10 +34,8 @@ pub enum Command {
 
     #[serde(rename = "create_workspace")]
     CreateWorkspace {
-        name: String,
         project_path: String,
-        #[serde(default)]
-        template_id: Option<String>,
+        config_yaml: String,
     },
 
     #[serde(rename = "delete_workspace")]
@@ -134,8 +132,8 @@ pub enum Command {
     #[serde(rename = "send_user_input_to_agent")]
     SendUserInputToAgent {
         run_id: String,
-        agent_key: String,
-        content: String,
+        instance_id: String,
+        text: String,
     },
 
     #[serde(rename = "interrupt_instance")]

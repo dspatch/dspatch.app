@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Result of template resolution across a workspace config.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TemplateResolutionResult {
     pub unresolved_templates: Vec<UnresolvedTemplate>,
     pub missing_api_keys: Vec<MissingApiKey>,

@@ -83,8 +83,8 @@ class _HubWorkspaceBrowserDialogState
           await client.parseWorkspaceConfig(yaml: configYamlString);
       final projectPath = parsedConfig['workspace_dir'] as String? ?? '';
       await client.createWorkspace(
-        name: parsedConfig['name'] as String? ?? workspace.name,
         projectPath: projectPath,
+        configYaml: configYamlString,
       );
 
       if (mounted) {

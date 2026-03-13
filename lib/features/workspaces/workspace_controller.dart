@@ -124,7 +124,7 @@ class WorkspaceController extends _$WorkspaceController {
   ) async {
     try {
       await _client.sendUserInputToAgent(
-          runId: runId, agentKey: instanceId, content: text);
+          runId: runId, instanceId: instanceId, text: text);
       return true;
     } catch (e) {
       toast('Failed to send message: $e', type: ToastType.error);
