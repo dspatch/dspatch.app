@@ -29,4 +29,5 @@ export 'engine_client.dart';
 export 'engine_connection.dart';
 export 'engine_health.dart';
 export 'engine_process_manager.dart';
+export 'models/auth_state.dart';
 export 'protocol/protocol.dart';

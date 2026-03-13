@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
-import 'package:dspatch_sdk/dspatch_sdk.dart';
+import '../../../database/engine_database.dart';
 
 /// Whether the item is a provider or a template.
 enum AgentItemKind { provider, template }
@@ -11,7 +11,7 @@ class AgentListItem {
   final String id;
   final String name;
   final String? description;
-  final DateTime updatedAt;
+  final String updatedAt;
 
   // Provider-only fields (null for templates)
   final AgentProvider? provider;

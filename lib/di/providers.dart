@@ -1,24 +1,15 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'dart:io';
 
+import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:dspatch_sdk/dspatch_sdk.dart';
-
-import '../database/engine_database.dart' show EngineDatabase;
+import '../database/engine_database.dart';
 import '../engine_client/engine_client.dart';
+import '../engine_client/models/auth_state.dart';
+import '../engine_client/protocol/protocol.dart';
 import '../features/agent_providers/models/agent_list_item.dart';
-
-// ---------------------------------------------------------------------------
-// SDK Instance
-// ---------------------------------------------------------------------------
-
-/// The RustSdk facade. Must be overridden in main.dart via
-/// `sdkProvider.overrideWithValue(sdk)`.
-final sdkProvider = Provider<RustSdk>(
-  (_) => throw UnimplementedError('Override sdkProvider in main.dart'),
-);
 
 // ---------------------------------------------------------------------------
 // Engine Database (read-only Drift)
@@ -54,40 +45,46 @@ final engineClientProvider = Provider<EngineClient>(
 // Auth
 // ---------------------------------------------------------------------------
 
-/// Reactive stream of the full auth state (mode, token scope, user info).
+/// Auth state comes from the engine over WebSocket events, not from the DB.
 final authStateProvider = StreamProvider<AuthState>((ref) {
-  return ref.watch(sdkProvider).watchFullAuthState();
+  final client = ref.watch(engineClientProvider);
+  return client.events
+      .where((e) => e.name == 'auth_state_changed')
+      .map((e) => AuthState.fromJson(e.data));
 });
 
 /// Current auth mode for UI decisions (anonymous vs connected).
-final authModeProvider = Provider<AuthMode>((ref) {
+final authModeProvider = Provider<String>((ref) {
   return ref.watch(authStateProvider).valueOrNull?.mode ??
       AuthMode.undetermined;
 });
 
 // ---------------------------------------------------------------------------
-// SDK Events
+// Engine Events
 // ---------------------------------------------------------------------------
 
-/// Real-time SDK lifecycle events (agent connected, inquiry created, etc.).
-///
-/// Consumers filter on their side — the stream contains all event types.
-final sdkEventsProvider = StreamProvider<SdkEvent>((ref) {
-  return ref.watch(sdkProvider).watchSdkEvents();
+/// Real-time engine ephemeral events (replaces sdkEventsProvider).
+final engineEventsProvider = StreamProvider<EventFrame>((ref) {
+  return ref.watch(engineClientProvider).events;
 });
 
 // ---------------------------------------------------------------------------
-// Agent Providers
+// Agent Providers (the entity, not Riverpod providers)
 // ---------------------------------------------------------------------------
 
 final agentProvidersProvider =
     StreamProvider.autoDispose<List<AgentProvider>>((ref) {
-  return ref.watch(sdkProvider).watchAgentProviders();
+  final db = ref.watch(engineDatabaseProvider);
+  return (db.select(db.agentProviders)
+        ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+      .watch();
 });
 
 final agentProviderProvider = StreamProvider.autoDispose
     .family<AgentProvider?, String>((ref, id) {
-  return ref.watch(sdkProvider).watchAgentProvider(id: id);
+  final db = ref.watch(engineDatabaseProvider);
+  return (db.select(db.agentProviders)..where((t) => t.id.equals(id)))
+      .watchSingleOrNull();
 });
 
 // ---------------------------------------------------------------------------
@@ -96,12 +93,17 @@ final agentProviderProvider = StreamProvider.autoDispose
 
 final agentTemplatesProvider =
     StreamProvider.autoDispose<List<AgentTemplate>>((ref) {
-  return ref.watch(sdkProvider).watchAgentTemplates();
+  final db = ref.watch(engineDatabaseProvider);
+  return (db.select(db.agentTemplates)
+        ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+      .watch();
 });
 
 final agentTemplateProvider = StreamProvider.autoDispose
     .family<AgentTemplate?, String>((ref, id) {
-  return ref.watch(sdkProvider).watchAgentTemplate(id: id);
+  final db = ref.watch(engineDatabaseProvider);
+  return (db.select(db.agentTemplates)..where((t) => t.id.equals(id)))
+      .watchSingleOrNull();
 });
 
 // ---------------------------------------------------------------------------
@@ -120,7 +122,7 @@ final agentListItemsProvider =
       loading: () => const AsyncValue.loading(),
       error: (e, st) => AsyncValue.error(e, st),
       data: (templates) {
-        final items = [
+        final items = <AgentListItem>[
           ...providers.map(AgentListItem.fromProvider),
           ...templates.map(AgentListItem.fromTemplate),
         ]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -136,23 +138,29 @@ final agentListItemsProvider =
 
 final workspacesProvider =
     StreamProvider.autoDispose<List<Workspace>>((ref) {
-  return ref.watch(sdkProvider).watchWorkspaces();
+  final db = ref.watch(engineDatabaseProvider);
+  return (db.select(db.workspaces)
+        ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+      .watch();
 });
 
 final workspaceProvider = StreamProvider.autoDispose
     .family<Workspace?, String>((ref, id) {
-  return ref.watch(sdkProvider).watchWorkspace(id: id);
+  final db = ref.watch(engineDatabaseProvider);
+  return (db.select(db.workspaces)..where((t) => t.id.equals(id)))
+      .watchSingleOrNull();
 });
 
 /// Reads and parses dspatch.workspace.yml from a workspace's project directory.
 /// Returns null if the file is missing or invalid.
 final workspaceConfigProvider = FutureProvider.autoDispose
-    .family<WorkspaceConfig?, String>((ref, projectPath) async {
+    .family<Map<String, dynamic>?, String>((ref, projectPath) async {
   try {
-    final sdk = ref.watch(sdkProvider);
     final file = await _readFileAsString('$projectPath/dspatch.workspace.yml');
     if (file == null) return null;
-    return await sdk.parseWorkspaceConfig(yaml: file);
+    final result = await ref.read(engineClientProvider)
+        .parseWorkspaceConfig(yaml: file);
+    return result;
   } catch (_) {
     return null;
   }
@@ -165,7 +173,11 @@ final workspaceConfigProvider = FutureProvider.autoDispose
 /// Watches all runs for a workspace, ordered by startedAt DESC.
 final workspaceRunsProvider = StreamProvider.autoDispose
     .family<List<WorkspaceRun>, String>((ref, workspaceId) {
-  return ref.watch(sdkProvider).watchWorkspaceRuns(workspaceId: workspaceId);
+  final db = ref.watch(engineDatabaseProvider);
+  return (db.select(db.workspaceRuns)
+        ..where((t) => t.workspaceId.equals(workspaceId))
+        ..orderBy([(t) => OrderingTerm.desc(t.startedAt)]))
+      .watch();
 });
 
 /// Derives the active run (status == 'starting' or 'running') from the runs stream.
@@ -185,7 +197,10 @@ final activeRunProvider = Provider.autoDispose
 /// Reactive stream of workspace agents for a given run.
 final workspaceAgentsProvider = StreamProvider.autoDispose
     .family<List<WorkspaceAgent>, String>((ref, runId) {
-  return ref.watch(sdkProvider).watchWorkspaceAgents(runId: runId);
+  final db = ref.watch(engineDatabaseProvider);
+  return (db.select(db.workspaceAgents)
+        ..where((t) => t.runId.equals(runId)))
+      .watch();
 });
 
 // ---------------------------------------------------------------------------
@@ -208,36 +223,60 @@ final selectedInstanceProvider = StateProvider.autoDispose
 final agentMessagesProvider = StreamProvider.autoDispose.family<
     List<AgentMessage>,
     ({String runId, String instanceId})>(
-  (ref, p) => ref
-      .watch(sdkProvider)
-      .watchAgentMessages(runId: p.runId, instanceId: p.instanceId),
+  (ref, p) {
+    final db = ref.watch(engineDatabaseProvider);
+    return (db.select(db.agentMessages)
+          ..where((t) =>
+              t.runId.equals(p.runId) & t.instanceId.equals(p.instanceId))
+          ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
+        .watch();
+  },
 );
 
 /// Watches activity events for a specific agent instance.
 final agentActivityProvider = StreamProvider.autoDispose.family<
-    List<AgentActivity>,
+    List<AgentActivityEvent>,
     ({String runId, String instanceId})>(
-  (ref, p) => ref
-      .watch(sdkProvider)
-      .watchAgentActivity(runId: p.runId, instanceId: p.instanceId),
+  (ref, p) {
+    final db = ref.watch(engineDatabaseProvider);
+    return (db.select(db.agentActivityEvents)
+          ..where((t) =>
+              t.runId.equals(p.runId) & t.instanceId.equals(p.instanceId))
+          ..orderBy([(t) => OrderingTerm.asc(t.timestamp)]))
+        .watch();
+  },
 );
 
 /// Watches logs for a run, optionally filtered by instanceId.
 final workspaceLogsProvider = StreamProvider.autoDispose.family<
     List<AgentLog>,
     ({String runId, String? instanceId})>(
-  (ref, p) => ref.watch(sdkProvider).watchAgentLogs(
-      runId: p.runId,
-      instanceId: p.instanceId),
+  (ref, p) {
+    final db = ref.watch(engineDatabaseProvider);
+    var query = db.select(db.agentLogs)
+      ..where((t) => t.runId.equals(p.runId))
+      ..orderBy([(t) => OrderingTerm.asc(t.timestamp)]);
+    if (p.instanceId != null) {
+      query = query..where((t) => t.instanceId.equals(p.instanceId!));
+    }
+    return query.watch();
+  },
 );
 
 /// Watches usage for a run, optionally filtered by instanceId.
 final workspaceUsageProvider = StreamProvider.autoDispose.family<
-    List<AgentUsage>,
+    List<AgentUsageRecord>,
     ({String runId, String? instanceId})>(
-  (ref, p) => ref.watch(sdkProvider).watchAgentUsage(
-      runId: p.runId,
-      instanceId: p.instanceId),
+  (ref, p) {
+    final db = ref.watch(engineDatabaseProvider);
+    var query = db.select(db.agentUsageRecords)
+      ..where((t) => t.runId.equals(p.runId))
+      ..orderBy([(t) => OrderingTerm.asc(t.timestamp)]);
+    if (p.instanceId != null) {
+      query = query..where((t) => t.instanceId.equals(p.instanceId!));
+    }
+    return query.watch();
+  },
 );
 
 // ---------------------------------------------------------------------------
@@ -247,39 +286,81 @@ final workspaceUsageProvider = StreamProvider.autoDispose.family<
 /// Watches all inquiries for a workspace run.
 final workspaceInquiriesProvider = StreamProvider.autoDispose
     .family<List<WorkspaceInquiry>, String>(
-  (ref, runId) => ref
-      .watch(sdkProvider)
-      .watchWorkspaceInquiries(runId: runId),
+  (ref, runId) {
+    final db = ref.watch(engineDatabaseProvider);
+    return (db.select(db.workspaceInquiries)
+          ..where((t) => t.runId.equals(runId))
+          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+        .watch();
+  },
 );
 
 /// Watches a single workspace inquiry by ID.
-/// Emits `null` when the inquiry doesn't exist (e.g. workspace was deleted).
 final workspaceInquiryProvider = StreamProvider.autoDispose
     .family<WorkspaceInquiry?, String>(
-  (ref, id) =>
-      ref.watch(sdkProvider).watchWorkspaceInquiry(id: id),
+  (ref, id) {
+    final db = ref.watch(engineDatabaseProvider);
+    return (db.select(db.workspaceInquiries)
+          ..where((t) => t.id.equals(id)))
+        .watchSingleOrNull();
+  },
 );
 
 /// Watches pending workspace inquiry count for badges.
 final pendingWorkspaceInquiryCountProvider =
     StreamProvider.autoDispose.family<int, String>(
-  (ref, runId) => ref
-      .watch(sdkProvider)
-      .watchWorkspaceInquiries(runId: runId)
-      .map((list) =>
-          list.where((i) => i.status == InquiryStatus.pending).length),
+  (ref, runId) {
+    final db = ref.watch(engineDatabaseProvider);
+    return (db.select(db.workspaceInquiries)
+          ..where(
+              (t) => t.runId.equals(runId) & t.status.equals('pending')))
+        .watch()
+        .map((list) => list.length);
+  },
 );
 
 /// Watches inquiries from the latest run of each workspace (for global inquiry list).
 final allInquiriesProvider =
-    StreamProvider.autoDispose<List<InquiryWithWorkspace>>((ref) {
-  return ref.watch(sdkProvider).watchAllInquiries();
+    StreamProvider.autoDispose<List<WorkspaceInquiry>>((ref) {
+  final db = ref.watch(engineDatabaseProvider);
+  return db.customSelect(
+    '''
+    SELECT wi.* FROM workspace_inquiries wi
+    INNER JOIN (
+      SELECT wr.id as run_id FROM workspace_runs wr
+      INNER JOIN (
+        SELECT workspace_id, MAX(started_at) as max_started
+        FROM workspace_runs GROUP BY workspace_id
+      ) latest ON wr.workspace_id = latest.workspace_id
+        AND wr.started_at = latest.max_started
+    ) lr ON wi.run_id = lr.run_id
+    ORDER BY wi.created_at DESC
+    ''',
+    readsFrom: {db.workspaceInquiries, db.workspaceRuns},
+  ).watch().map((rows) => rows.map((row) {
+        return db.workspaceInquiries.map(row.data);
+      }).toList());
 });
 
 /// Global pending inquiry count across all workspaces (for sidebar badge).
 final globalPendingInquiryCountProvider =
     StreamProvider.autoDispose<int>((ref) {
-  return ref.watch(sdkProvider).watchPendingInquiryCount();
+  final db = ref.watch(engineDatabaseProvider);
+  return db.customSelect(
+    '''
+    SELECT COUNT(*) as c FROM workspace_inquiries wi
+    INNER JOIN (
+      SELECT wr.id as run_id FROM workspace_runs wr
+      INNER JOIN (
+        SELECT workspace_id, MAX(started_at) as max_started
+        FROM workspace_runs GROUP BY workspace_id
+      ) latest ON wr.workspace_id = latest.workspace_id
+        AND wr.started_at = latest.max_started
+    ) lr ON wi.run_id = lr.run_id
+    WHERE wi.status = 'pending'
+    ''',
+    readsFrom: {db.workspaceInquiries, db.workspaceRuns},
+  ).watchSingle().map((row) => row.read<int>('c'));
 });
 
 // ---------------------------------------------------------------------------
@@ -288,18 +369,18 @@ final globalPendingInquiryCountProvider =
 
 /// Docker daemon status. Auto-disposed when Engine screen is not active.
 /// Refresh via `ref.invalidate(dockerStatusProvider)`.
-final dockerStatusProvider = FutureProvider.autoDispose<DockerStatus>((ref) {
-  return ref.watch(sdkProvider).detectDockerStatus();
+final dockerStatusProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) {
+  return ref.watch(engineClientProvider).detectDockerStatus();
 });
 
 /// Polls d:spatch containers every 3 seconds. Auto-disposed when the
 /// Engine screen unmounts — no polling overhead when not viewing containers.
 final containerListProvider =
-    StreamProvider.autoDispose<List<ContainerSummary>>((ref) async* {
-  final sdk = ref.watch(sdkProvider);
+    StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) async* {
+  final client = ref.watch(engineClientProvider);
   while (true) {
     try {
-      yield await sdk.listContainers();
+      yield await client.listContainers();
     } catch (e) {
       debugPrint('[docker] Container poll failed: $e');
       rethrow;
@@ -315,7 +396,8 @@ final containerListProvider =
 /// Reactive stream of all API keys. Auto-disposes when no listeners remain.
 final apiKeysProvider =
     StreamProvider.autoDispose<List<ApiKey>>((ref) {
-  return ref.watch(sdkProvider).watchApiKeys();
+  final db = ref.watch(engineDatabaseProvider);
+  return db.select(db.apiKeys).watch();
 });
 
 // ---------------------------------------------------------------------------
@@ -324,14 +406,14 @@ final apiKeysProvider =
 
 /// Checks for agent template updates from the hub (triggered on demand).
 final hubAgentUpdatesProvider =
-    FutureProvider.autoDispose<List<String>>((ref) async {
-  return ref.watch(sdkProvider).checkForAgentUpdates();
+    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  return ref.watch(engineClientProvider).sendCommand('check_for_agent_updates');
 });
 
 /// Checks for workspace template updates from the hub (triggered on demand).
 final hubWorkspaceUpdatesProvider =
-    FutureProvider.autoDispose<List<String>>((ref) async {
-  return ref.watch(sdkProvider).checkForWorkspaceUpdates();
+    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  return ref.watch(engineClientProvider).sendCommand('check_for_workspace_updates');
 });
 
 // ---------------------------------------------------------------------------
@@ -371,11 +453,12 @@ final pendingBackupCodesProvider = StateProvider<List<String>?>((_) => null);
 // Database State
 // ---------------------------------------------------------------------------
 
-/// Watches the Rust SDK's database state (Ready / Closed / MigrationPending).
-/// Used by the router to refresh when the DB becomes ready after setup,
-/// and by the setup screen to detect pending migrations.
-final databaseStateStreamProvider = StreamProvider<DatabaseReadyState>((ref) {
-  return ref.watch(sdkProvider).watchDatabaseState();
+/// Database state is managed by the engine. Listens to engine events.
+final databaseStateStreamProvider = StreamProvider<String>((ref) {
+  final client = ref.watch(engineClientProvider);
+  return client.events
+      .where((e) => e.name == 'database_state_changed')
+      .map((e) => e.data['state'] as String);
 });
 
 // ---------------------------------------------------------------------------
