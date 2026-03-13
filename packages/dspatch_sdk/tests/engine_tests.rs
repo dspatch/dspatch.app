@@ -167,3 +167,87 @@ fn session_store_connected_mode_has_username() {
     assert_eq!(session.auth_mode, AuthMode::Connected);
     assert_eq!(session.username.as_deref(), Some("bob"));
 }
+
+#[tokio::test]
+async fn auth_anonymous_returns_session_token() {
+    use std::sync::Arc;
+    use axum::body::Body;
+    use http::Request;
+    use tower::ServiceExt;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::client_api::server::build_router;
+
+    let runtime = Arc::new(EngineRuntime::new(EngineConfig::default()));
+    let app = build_router(runtime);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/auth/anonymous")
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), http::StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    let token = json["session_token"].as_str().unwrap();
+    assert_eq!(token.len(), 64);
+    assert_eq!(json["auth_mode"].as_str().unwrap(), "anonymous");
+}
+
+#[tokio::test]
+async fn auth_login_without_backend_returns_error() {
+    use std::sync::Arc;
+    use axum::body::Body;
+    use http::Request;
+    use tower::ServiceExt;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::client_api::server::build_router;
+
+    let runtime = Arc::new(EngineRuntime::new(EngineConfig::default()));
+    let app = build_router(runtime);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/auth/login")
+        .header("Content-Type", "application/json")
+        .body(Body::from(r#"{"username":"alice","password":"secret"}"#))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), http::StatusCode::SERVICE_UNAVAILABLE);
+
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["error"].as_str().is_some());
+}
+
+#[tokio::test]
+async fn auth_register_without_backend_returns_error() {
+    use std::sync::Arc;
+    use axum::body::Body;
+    use http::Request;
+    use tower::ServiceExt;
+    use dspatch_sdk::engine::config::EngineConfig;
+    use dspatch_sdk::engine::startup::EngineRuntime;
+    use dspatch_sdk::client_api::server::build_router;
+
+    let runtime = Arc::new(EngineRuntime::new(EngineConfig::default()));
+    let app = build_router(runtime);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/auth/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            r#"{"username":"alice","email":"alice@example.com","password":"secret123"}"#,
+        ))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), http::StatusCode::SERVICE_UNAVAILABLE);
+}

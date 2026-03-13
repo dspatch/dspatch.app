@@ -8,12 +8,14 @@ use tokio::sync::broadcast;
 use tracing_subscriber::EnvFilter;
 
 use super::config::EngineConfig;
+use crate::client_api::session::SessionStore;
 
 /// Core runtime state for the engine daemon.
 pub struct EngineRuntime {
     config: EngineConfig,
     started_at: Instant,
     shutdown_tx: broadcast::Sender<()>,
+    session_store: SessionStore,
 }
 
 impl EngineRuntime {
@@ -23,11 +25,16 @@ impl EngineRuntime {
             config,
             started_at: Instant::now(),
             shutdown_tx,
+            session_store: SessionStore::new(),
         }
     }
 
     pub fn config(&self) -> &EngineConfig {
         &self.config
+    }
+
+    pub fn session_store(&self) -> &SessionStore {
+        &self.session_store
     }
 
     pub fn uptime_seconds(&self) -> u64 {
