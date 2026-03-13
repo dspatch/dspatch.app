@@ -2,7 +2,7 @@
 
 /// Workspace configuration types for the visual editor and YAML parsing.
 ///
-/// These replace the FRB-generated types from dspatch_sdk.
+/// These replace the FRB-generated types from the old dspatch_sdk package.
 library;
 
 

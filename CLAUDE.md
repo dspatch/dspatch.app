@@ -72,6 +72,7 @@ The Rust engine crate lives at `packages/dspatch_engine/`. Key modules:
 - **`shared/schema/`** — 28 `.sql` files (one per table), shared between Rust and Dart
 
 **Test runner:** `cargo test --lib --tests` (from crate root)
+**Binary:** `cargo run --bin dspatch-daemon` (desktop engine daemon)
 
 ### Engine interaction
 
