@@ -16,7 +16,6 @@ pub mod services;
 pub mod signal;
 
 pub mod api;
-pub mod cli;
 pub mod client_api;
 pub mod docker;
 pub mod hub;

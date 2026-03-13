@@ -10,10 +10,6 @@ name = "dspatch_sdk"
 crate-type = ["lib"]
 
 [[bin]]
-name = "dspatch-cli"
-path = "src/bin/dspatch.rs"
-
-[[bin]]
 name = "dspatch-engine"
 path = "src/bin/dspatch_engine.rs"
 
@@ -52,11 +48,6 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 # Not published to crates.io; must use git dependency.
 # Requires cmake + C compiler for BoringSSL (boring crate).
 libsignal-protocol = { git = "https://github.com/signalapp/libsignal", branch = "main" }
-
-# CLI
-clap = { version = "4", features = ["derive"] }
-comfy-table = "7"
-rpassword = "5"
 
 # Identifiers & time
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
