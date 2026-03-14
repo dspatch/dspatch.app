@@ -40,6 +40,7 @@ class DockerErrorBanner extends ConsumerWidget {
       ),
       data: (s) {
         if (s.isRunning) return const SizedBox.shrink();
+        // isInstalled means Docker is present but not running.
         if (s.isInstalled) {
           return Padding(
             padding: const EdgeInsets.only(bottom: Spacing.sm),

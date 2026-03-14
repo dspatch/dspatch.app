@@ -10,6 +10,8 @@ import '../engine_client/engine_client.dart';
 import '../engine_client/models/auth_state.dart';
 import '../engine_client/protocol/protocol.dart';
 import '../features/agent_providers/models/agent_list_item.dart';
+import '../models/commands/commands.dart';
+import '../models/docker_types.dart';
 
 // ---------------------------------------------------------------------------
 // Engine Database (read-only Drift)
@@ -369,18 +371,19 @@ final globalPendingInquiryCountProvider =
 
 /// Docker daemon status. Auto-disposed when Engine screen is not active.
 /// Refresh via `ref.invalidate(dockerStatusProvider)`.
-final dockerStatusProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) {
-  return ref.watch(engineClientProvider).detectDockerStatus();
+final dockerStatusProvider = FutureProvider.autoDispose<DockerStatus>((ref) {
+  return ref.watch(engineClientProvider).send(DetectDockerStatus());
 });
 
 /// Polls d:spatch containers every 3 seconds. Auto-disposed when the
 /// Engine screen unmounts — no polling overhead when not viewing containers.
 final containerListProvider =
-    StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) async* {
+    StreamProvider.autoDispose<List<ContainerSummary>>((ref) async* {
   final client = ref.watch(engineClientProvider);
   while (true) {
     try {
-      yield await client.listContainers();
+      final response = await client.send(ListContainers());
+      yield response.containers;
     } catch (e) {
       debugPrint('[docker] Container poll failed: $e');
       rethrow;
@@ -406,14 +409,14 @@ final apiKeysProvider =
 
 /// Checks for agent template updates from the hub (triggered on demand).
 final hubAgentUpdatesProvider =
-    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
-  return ref.watch(engineClientProvider).sendCommand('check_for_agent_updates');
+    FutureProvider.autoDispose<VoidResponse>((ref) async {
+  return ref.watch(engineClientProvider).send(CheckForAgentUpdates());
 });
 
 /// Checks for workspace template updates from the hub (triggered on demand).
 final hubWorkspaceUpdatesProvider =
-    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
-  return ref.watch(engineClientProvider).sendCommand('check_for_workspace_updates');
+    FutureProvider.autoDispose<VoidResponse>((ref) async {
+  return ref.watch(engineClientProvider).send(CheckForWorkspaceUpdates());
 });
 
 // ---------------------------------------------------------------------------

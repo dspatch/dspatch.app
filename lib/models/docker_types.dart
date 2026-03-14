@@ -7,32 +7,32 @@ import 'commands/command.dart';
 
 class DockerStatus extends EngineResponse {
   const DockerStatus({
-    required this.available,
-    this.version,
-    this.apiVersion,
-    this.os,
-    this.arch,
-    this.containers,
-    this.images,
+    required this.isInstalled,
+    required this.isRunning,
+    required this.hasSysbox,
+    required this.hasNvidiaRuntime,
+    required this.hasRuntimeImage,
+    this.runtimeImageSize,
+    this.dockerVersion,
   });
 
-  final bool available;
-  final String? version;
-  final String? apiVersion;
-  final String? os;
-  final String? arch;
-  final int? containers;
-  final int? images;
+  final bool isInstalled;
+  final bool isRunning;
+  final bool hasSysbox;
+  final bool hasNvidiaRuntime;
+  final bool hasRuntimeImage;
+  final String? runtimeImageSize;
+  final String? dockerVersion;
 
   factory DockerStatus.fromJson(Map<String, dynamic> json) {
     return DockerStatus(
-      available: json['available'] as bool? ?? false,
-      version: json['version'] as String?,
-      apiVersion: json['api_version'] as String?,
-      os: json['os'] as String?,
-      arch: json['arch'] as String?,
-      containers: json['containers'] as int?,
-      images: json['images'] as int?,
+      isInstalled: json['isInstalled'] as bool? ?? false,
+      isRunning: json['isRunning'] as bool? ?? false,
+      hasSysbox: json['hasSysbox'] as bool? ?? false,
+      hasNvidiaRuntime: json['hasNvidiaRuntime'] as bool? ?? false,
+      hasRuntimeImage: json['hasRuntimeImage'] as bool? ?? false,
+      runtimeImageSize: json['runtimeImageSize'] as String?,
+      dockerVersion: json['dockerVersion'] as String?,
     );
   }
 }
@@ -43,43 +43,54 @@ class ListContainersResponse extends EngineResponse {
   final List<ContainerSummary> containers;
 
   factory ListContainersResponse.fromJson(Map<String, dynamic> json) {
+    // The engine returns Vec<ContainerSummary> directly. The Dart protocol
+    // layer wraps non-Map data as {'value': ...}, so check both keys.
+    final list = json['containers'] as List<dynamic>?
+        ?? json['value'] as List<dynamic>?
+        ?? [];
     return ListContainersResponse(
-      containers: (json['containers'] as List<dynamic>?)
-              ?.map((e) => ContainerSummary.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          [],
+      containers: list
+          .map((e) => ContainerSummary.fromJson(e as Map<String, dynamic>))
+          .toList(),
     );
   }
 }
 
+/// Matches Rust `ContainerSummary` in `domain/services/docker.rs`.
 class ContainerSummary {
   const ContainerSummary({
     required this.id,
-    required this.name,
+    required this.names,
     required this.image,
     required this.state,
     required this.status,
-    this.port,
     required this.created,
   });
 
   final String id;
-  final String name;
+  final List<String> names;
   final String image;
   final String state;
   final String status;
-  final int? port;
-  final String created;
+  /// Unix timestamp in seconds.
+  final int created;
+
+  /// Display name: first entry from `names`, stripped of leading '/'.
+  String get name => names.isNotEmpty
+      ? names.first.replaceFirst(RegExp(r'^/'), '')
+      : id;
 
   factory ContainerSummary.fromJson(Map<String, dynamic> json) {
     return ContainerSummary(
       id: json['id'] as String? ?? '',
-      name: json['name'] as String? ?? '',
+      names: (json['names'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
       image: json['image'] as String? ?? '',
       state: json['state'] as String? ?? '',
       status: json['status'] as String? ?? '',
-      port: json['port'] as int?,
-      created: json['created'] as String? ?? '',
+      created: json['created'] as int? ?? 0,
     );
   }
 }

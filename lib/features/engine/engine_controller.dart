@@ -132,7 +132,7 @@ class EngineController extends _$EngineController {
   /// through container stop/remove and image deletion first (with confirmation).
   Future<void> rebuildRuntimeImage(BuildContext context) async {
     final status = ref.read(dockerStatusProvider).valueOrNull;
-    if (status != null && status['has_runtime_image'] == true) {
+    if (status != null && status.hasRuntimeImage) {
       final deleted = await deleteRuntimeImageCascade(context);
       if (!deleted) return; // User cancelled.
     }
