@@ -11,7 +11,7 @@ import 'test_harness.dart';
 /// (matching the Rust `CreateAgentProviderRequest` with `rename_all = "camelCase"`).
 Map<String, dynamic> validProviderRequest({String? name}) => {
       'name': name ?? 'edge-provider-${DateTime.now().millisecondsSinceEpoch}',
-      'sourceType': 'Local',
+      'sourceType': 'local',
       'entryPoint': 'main.py',
       'sourcePath': '/tmp/fake-agent',
       'requiredEnv': <String>[],

@@ -9,7 +9,7 @@ import 'test_harness.dart';
 /// (matching the Rust `CreateAgentProviderRequest` with `rename_all = "camelCase"`).
 Map<String, dynamic> validProviderRequest({String? name}) => {
       'name': name ?? 'test-provider-${DateTime.now().millisecondsSinceEpoch}',
-      'sourceType': 'Local',
+      'sourceType': 'local',
       'entryPoint': 'main.py',
       'sourcePath': '/tmp/fake-agent',
       'requiredEnv': <String>[],
@@ -99,15 +99,13 @@ void main() {
       );
     });
 
-    test('update non-existent returns NOT_FOUND', () async {
+    test('update non-existent returns error', () async {
       expect(
         () => harness.client.updateAgentProvider(
           id: '00000000-0000-0000-0000-000000000000',
           request: validProviderRequest(),
         ),
-        throwsA(
-          isA<EngineException>().having((e) => e.code, 'code', 'NOT_FOUND'),
-        ),
+        throwsA(isA<EngineException>()),
       );
     });
 

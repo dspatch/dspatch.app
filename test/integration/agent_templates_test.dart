@@ -63,10 +63,13 @@ void main() {
       expect(result, isA<Map<String, dynamic>>());
     });
 
-    test('delete non-existent succeeds silently', () async {
-      // SQL DELETE on a non-existent row returns success (zero rows affected).
-      final result = await harness.client.deleteAgentTemplate('non-existent-id');
-      expect(result, isA<Map<String, dynamic>>());
+    test('delete non-existent returns NOT_FOUND', () async {
+      // delete_agent_template looks up the template first, which returns
+      // NOT_FOUND for a non-existent ID.
+      expect(
+        () => harness.client.deleteAgentTemplate('non-existent-id'),
+        throwsA(isA<EngineException>()),
+      );
     });
 
     test('create with missing name returns VALIDATION_ERROR', () async {

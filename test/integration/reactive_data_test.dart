@@ -69,7 +69,7 @@ void main() {
           request: {
             'name':
                 'reactive-test-${DateTime.now().millisecondsSinceEpoch}',
-            'sourceType': 'Local',
+            'sourceType': 'local',
             'entryPoint': 'main.py',
             'sourcePath': '/tmp/fake-agent',
             'requiredEnv': <String>[],
