@@ -1,7 +1,9 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart';
 import '../models/agent_list_item.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
+
+import '../../../core/extensions/drift_extensions.dart';
+import '../../../core/utils/datetime_ext.dart';
 import 'package:flutter/material.dart';
 
 
@@ -24,7 +26,7 @@ class AgentProviderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = item.provider;
-    final isHub = provider?.sourceType == SourceType.hub;
+    final isHub = provider != null && provider.isHub;
 
     return GestureDetector(
       onTap: onTap,
@@ -164,14 +166,16 @@ class AgentProviderCard extends StatelessWidget {
               else
                 DspatchBadge(
                   label: switch (provider!.sourceType) {
-                    SourceType.local => 'Local',
-                    SourceType.git => 'Git',
-                    SourceType.hub => 'Hub',
+                    'local' => 'Local',
+                    'git' => 'Git',
+                    'hub' => 'Hub',
+                    _ => provider.sourceType,
                   },
                   variant: switch (provider.sourceType) {
-                    SourceType.local => BadgeVariant.secondary,
-                    SourceType.git => BadgeVariant.outline,
-                    SourceType.hub => BadgeVariant.info,
+                    'local' => BadgeVariant.secondary,
+                    'git' => BadgeVariant.outline,
+                    'hub' => BadgeVariant.info,
+                    _ => BadgeVariant.secondary,
                   },
                 ),
               const SizedBox(width: Spacing.md),

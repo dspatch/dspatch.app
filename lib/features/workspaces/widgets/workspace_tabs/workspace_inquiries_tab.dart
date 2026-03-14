@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart';
+import '../../../../core/extensions/drift_extensions.dart';
 import '../../../../core/utils/datetime_ext.dart';
+import '../../../../database/engine_database.dart';
 import 'dart:convert';
 
 import 'package:dspatch_ui/dspatch_ui.dart';
@@ -36,12 +37,12 @@ class WorkspaceInquiriesTab extends ConsumerWidget {
 
         // Sort: pending first, then by date descending
         final sorted = [...inquiries]..sort((a, b) {
-            if (a.status == InquiryStatus.pending &&
-                b.status != InquiryStatus.pending) {
+            if (a.isPending &&
+                !b.isPending) {
               return -1;
             }
-            if (b.status == InquiryStatus.pending &&
-                a.status != InquiryStatus.pending) {
+            if (b.isPending &&
+                !a.isPending) {
               return 1;
             }
             return b.createdAt.compareTo(a.createdAt);
@@ -70,7 +71,7 @@ class _InquiryCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isPending = inquiry.status == InquiryStatus.pending;
+    final isPending = inquiry.isPending;
     final borderColor = isPending
         ? AppColors.warning.withValues(alpha: 0.4)
         : AppColors.success.withValues(alpha: 0.4);
@@ -111,7 +112,7 @@ class _InquiryCard extends ConsumerWidget {
                 ),
                 const SizedBox(width: Spacing.xs),
                 Text(
-                  inquiry.createdAt.timeAgo(),
+                  inquiry.createdAtDate.timeAgo(),
                   style: const TextStyle(
                     color: AppColors.mutedForeground,
                     fontSize: 10,

@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart';
+import '../../database/engine_database.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -391,7 +391,7 @@ class _WorkspaceDashboard extends ConsumerWidget {
         );
 
     final runningCount =
-        agents.where((a) => a.status.name == 'running').length;
+        agents.where((a) => a.status == 'running').length;
     final agentLabel =
         '${agents.isEmpty ? 0 : runningCount}/${agents.length} agents';
 

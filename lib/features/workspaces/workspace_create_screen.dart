@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart' show WorkspaceConfig, AgentConfig, DockerConfig, MountConfig;
+import '../../models/workspace_config.dart';
 import 'dart:io';
 
 import 'package:dspatch_ui/dspatch_ui.dart';

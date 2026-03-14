@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart';
+import '../../core/extensions/drift_extensions.dart';
 import '../../core/utils/datetime_ext.dart';
+import '../../database/engine_database.dart';
+import '../../models/enums.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -81,9 +83,9 @@ class InquiryListScreen extends ConsumerWidget {
                     ? items
                     : items
                         .where((i) =>
-                            i.inquiry.status == statusFilter ||
+                            i.inquiry.status == statusFilter.name ||
                             (statusFilter == InquiryStatus.responded &&
-                                i.inquiry.status == InquiryStatus.delivered))
+                                i.inquiry.isDelivered))
                         .toList();
 
                 if (filtered.isEmpty) {
@@ -262,8 +264,8 @@ class _InquiryListCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isPending = inquiry.status == InquiryStatus.pending;
-    final isExpired = inquiry.status == InquiryStatus.expired;
+    final isPending = inquiry.isPending;
+    final isExpired = inquiry.isExpired;
 
     return GestureDetector(
       onTap: onTap,
@@ -289,7 +291,7 @@ class _InquiryListCard extends StatelessWidget {
               const SizedBox(width: Spacing.sm),
 
               // Priority badge
-              if (inquiry.priority == InquiryPriority.high)
+              if (inquiry.isHighPriority)
                 Padding(
                   padding: const EdgeInsets.only(right: Spacing.sm),
                   child: DspatchBadge(
@@ -336,7 +338,7 @@ class _InquiryListCard extends StatelessWidget {
 
               // Time ago
               Text(
-                inquiry.createdAt.timeAgo(),
+                inquiry.createdAtDate.timeAgo(),
                 style: const TextStyle(
                   color: AppColors.mutedForeground,
                   fontSize: 11,

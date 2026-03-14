@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart';
+import '../../../core/extensions/drift_extensions.dart';
+import '../../../database/engine_database.dart';
 import '../../../core/utils/datetime_ext.dart';
 import '../../../core/utils/workspace_status.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
@@ -105,7 +106,7 @@ class WorkspaceCard extends ConsumerWidget {
               SizedBox(
                 width: 52,
                 child: Text(
-                  workspace.updatedAt.timeAgo(),
+                  workspace.updatedAtDate.timeAgo(),
                   style: const TextStyle(
                     color: AppColors.mutedForeground,
                     fontSize: 11,

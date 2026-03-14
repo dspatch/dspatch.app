@@ -1,5 +1,4 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart';
 import 'dart:async';
 
 import 'package:dspatch_ui/dspatch_ui.dart';
@@ -8,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../../core/utils/debouncer.dart';
 import '../../../../core/utils/local_file_browser_service.dart';
+import '../../../../models/file_entry.dart';
 
 
 /// The container mount point for the workspace directory.

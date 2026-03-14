@@ -1,10 +1,9 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-import '../../../core/extensions/config_copy_with.dart';
+import '../../../models/workspace_config.dart';
 
 
 /// List editor for additional bind mounts.

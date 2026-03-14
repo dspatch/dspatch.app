@@ -1,5 +1,7 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart';
+import '../../../core/extensions/drift_extensions.dart';
+import '../../../database/engine_database.dart';
+import '../../../models/enums.dart';
 import '../../../core/extensions/agent_state_ext.dart';
 import '../../../core/utils/datetime_ext.dart';
 import 'dart:convert';
@@ -28,7 +30,7 @@ class _MessageItem extends _TimelineItem {
   final AgentMessage message;
 
   @override
-  DateTime get timestamp => message.createdAt;
+  DateTime get timestamp => message.createdAtDate;
 }
 
 class _ActivityItem extends _TimelineItem {
@@ -36,7 +38,7 @@ class _ActivityItem extends _TimelineItem {
   final AgentActivity activity;
 
   @override
-  DateTime get timestamp => activity.timestamp;
+  DateTime get timestamp => activity.timestampDate;
 }
 
 // ── Activity helpers ──
@@ -233,7 +235,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
     return null;
   }
 
-  AgentState? get _agentStatus => _agent?.status;
+  String? get _agentStatus => _agent?.status;
   String get _agentKey => _agent?.agentKey ?? '';
   String get _displayName => _agent?.displayName ?? '';
 
@@ -502,7 +504,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
             Row(
               children: [
                 Text(
-                  msg.createdAt.timeAgo(),
+                  msg.createdAtDate.timeAgo(),
                   style: const TextStyle(
                     color: AppColors.mutedForeground,
                     fontSize: 10,
@@ -553,7 +555,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
                 CopyButton(textToCopy: msg.content, iconSize: 12),
                 const SizedBox(width: Spacing.sm),
                 Text(
-                  msg.createdAt.timeAgo(),
+                  msg.createdAtDate.timeAgo(),
                   style: const TextStyle(
                     color: AppColors.mutedForeground,
                     fontSize: 10,
@@ -577,7 +579,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
         id: 'recv_${message.id}',
         label: 'From ${message.senderName!}',
         message: messageText,
-        timestamp: message.createdAt,
+        timestamp: message.createdAtDate,
         isOutgoing: false,
         continueConversation: continueConv,
         alignment: CrossAxisAlignment.end,
@@ -887,7 +889,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
                       ),
                       const SizedBox(width: Spacing.md),
                       Text(
-                        act.timestamp.timeAgo(),
+                        act.timestampDate.timeAgo(),
                         style: const TextStyle(
                           color: AppColors.mutedForeground,
                           fontSize: 10,
@@ -1041,8 +1043,8 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
   Widget _buildInquiryCard(
       WorkspaceInquiry inquiry, bool isFirst, bool isLast,
       {bool forcePending = false}) {
-    final isPending = forcePending || inquiry.status == InquiryStatus.pending;
-    final isExpired = !forcePending && inquiry.status == InquiryStatus.expired;
+    final isPending = forcePending || inquiry.isPending;
+    final isExpired = !forcePending && inquiry.isExpired;
 
     final Color color;
     final String badgeLabel;
@@ -1080,11 +1082,11 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
           badgeLabel: badgeLabel,
           badgeVariant: badgeVariant,
           content: inquiry.contentMarkdown,
-          timestamp: inquiry.createdAt,
+          timestamp: inquiry.createdAtDate,
           borderColor: color.withValues(alpha: 0.4),
           bgColor: color.withValues(alpha: 0.05),
           responseText: isPending ? null : inquiry.responseText,
-          responseTimestamp: inquiry.respondedAt,
+          responseTimestamp: inquiry.respondedAtDate,
           onTap: () => context.go(
             '/workspaces/$workspaceId/inquiries/${inquiry.id}',
           ),
@@ -1277,7 +1279,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
                           ),
                           const Spacer(),
                           Text(
-                            act.timestamp.timeAgo(),
+                            act.timestampDate.timeAgo(),
                             style: const TextStyle(
                               color: AppColors.mutedForeground,
                               fontSize: 11,
@@ -1422,7 +1424,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
                     ),
                     const Spacer(),
                     Text(
-                      act.timestamp.timeAgo(),
+                      act.timestampDate.timeAgo(),
                       style: const TextStyle(
                         color: AppColors.mutedForeground,
                         fontSize: 11,
@@ -1586,7 +1588,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
                       ),
                       const SizedBox(width: Spacing.sm),
                       Text(
-                        act.timestamp.timeAgo(),
+                        act.timestampDate.timeAgo(),
                         style: const TextStyle(
                           color: AppColors.mutedForeground,
                           fontSize: 10,
@@ -1823,7 +1825,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
 
   // ── Input ──
 
-  Widget _buildInput(AgentState? status) {
+  Widget _buildInput(String? status) {
     final isWaiting = status == AgentState.idle;
     final isTerminal = status?.isTerminal ?? false;
     final isRunning = status == AgentState.generating;
@@ -1901,7 +1903,7 @@ class _AgentHeader extends StatelessWidget {
 
   final String agentKey;
   final String displayName;
-  final AgentState? status;
+  final String? status;
 
   @override
   Widget build(BuildContext context) {
@@ -1935,7 +1937,7 @@ class _AgentHeader extends StatelessWidget {
           const SizedBox(width: Spacing.sm),
           if (status != null)
             DspatchBadge(
-              label: status!.name,
+              label: status!,
               variant: _statusBadgeVariant(status!),
             ),
         ],
@@ -1943,7 +1945,7 @@ class _AgentHeader extends StatelessWidget {
     );
   }
 
-  BadgeVariant _statusBadgeVariant(AgentState s) {
+  BadgeVariant _statusBadgeVariant(String s) {
     return switch (s) {
       AgentState.disconnected => BadgeVariant.secondary,
       AgentState.idle => BadgeVariant.secondary,
@@ -1953,6 +1955,7 @@ class _AgentHeader extends StatelessWidget {
       AgentState.completed => BadgeVariant.primary,
       AgentState.failed => BadgeVariant.destructive,
       AgentState.crashed => BadgeVariant.destructive,
+      _ => BadgeVariant.secondary,
     };
   }
 }

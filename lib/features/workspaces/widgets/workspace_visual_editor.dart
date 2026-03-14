@@ -1,10 +1,10 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/extensions/config_copy_with.dart';
+import '../../../core/extensions/drift_extensions.dart';
+import '../../../models/workspace_config.dart';
 import '../../../core/utils/agent_map_helpers.dart';
 import '../../../core/utils/env_resolver.dart';
 import '../../../di/providers.dart';
@@ -142,7 +142,7 @@ class _WorkspaceVisualEditorState
     final templateRequiredEnv = <String, List<String>>{};
     for (final item in items) {
       if (item.provider != null) {
-        templateRequiredEnv[item.name] = item.provider!.requiredEnv;
+        templateRequiredEnv[item.name] = item.provider!.requiredEnv.cast<String>();
       }
     }
     return EnvResolver.collectAllRequiredKeys(

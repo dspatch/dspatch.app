@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart';
+import 'package:dspatch_engine/dspatch_engine.dart' show HubAgentSummary;
 import 'package:dspatch_ui/dspatch_ui.dart';
+
+import '../../core/extensions/drift_extensions.dart';
+import '../../database/engine_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -172,7 +175,7 @@ class _AgentProviderListScreenState
               onTap: () {
                 if (item.isTemplate) {
                   context.go('/agent-providers/templates/${item.id}/edit');
-                } else if (item.provider!.sourceType == SourceType.hub) {
+                } else if (item.provider!.isHub) {
                   _showHubDetail(context, item.provider!);
                 } else {
                   context.go('/agent-providers/${item.id}/edit');
@@ -224,7 +227,7 @@ class _AgentProviderListScreenState
 
         // Template cards
         ...displayItems.map((item) {
-          final isHub = !item.isTemplate && item.provider!.sourceType == SourceType.hub;
+          final isHub = !item.isTemplate && item.provider!.isHub;
           return Padding(
             padding: const EdgeInsets.only(bottom: Spacing.md),
             child: AgentProviderCard(
@@ -338,7 +341,7 @@ class _AgentProviderListScreenState
     if (!await requireAuth(context, ref)) return;
 
     // For local templates, run pre-flight git checks before opening dialog.
-    if (template.sourceType == SourceType.local) {
+    if (template.isLocal) {
       final sourcePath = template.sourcePath;
       if (sourcePath == null || sourcePath.isEmpty) {
         toast('No source path configured', type: ToastType.error);

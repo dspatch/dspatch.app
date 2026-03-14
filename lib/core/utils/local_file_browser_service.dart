@@ -2,8 +2,9 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dspatch_engine/dspatch_engine.dart';
 import 'package:path/path.dart' as p;
+
+import '../../models/file_entry.dart';
 import 'package:watcher/watcher.dart';
 
 /// Event fired when a file in the watched directory changes.

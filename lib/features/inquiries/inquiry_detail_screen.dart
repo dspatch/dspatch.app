@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart';
 import 'dart:convert';
+
+import '../../core/extensions/drift_extensions.dart';
 
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
@@ -60,8 +61,8 @@ class _InquiryDetailScreenState extends ConsumerState<InquiryDetailScreen> {
           );
         }
 
-        final isPending = inquiry.status == InquiryStatus.pending;
-        final isExpired = inquiry.status == InquiryStatus.expired;
+        final isPending = inquiry.isPending;
+        final isExpired = inquiry.isExpired;
         final suggestions = _parseSuggestions(inquiry.suggestionsJson);
         final filePaths = _parseFilePaths(inquiry.attachmentsJson);
 
@@ -90,7 +91,7 @@ class _InquiryDetailScreenState extends ConsumerState<InquiryDetailScreen> {
                       ),
                     ),
                   ),
-                  PriorityBadge(priority: inquiry.priority),
+                  PriorityBadge(inquiry: inquiry),
                   const SizedBox(width: Spacing.sm),
                   DspatchBadge(
                     label: isExpired

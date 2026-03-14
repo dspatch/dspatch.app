@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 
-import '../../../core/extensions/config_copy_with.dart';
+import '../../../core/extensions/drift_extensions.dart';
+import '../../../models/workspace_config.dart';
 import '../../../core/utils/agent_map_helpers.dart';
 import '../../agent_providers/models/agent_list_item.dart';
 import 'env_var_editor.dart';
@@ -74,7 +74,7 @@ class _AgentConfigEditorState extends State<AgentConfigEditor> {
         .where((t) => t.name == widget.agentConfig.template)
         .firstOrNull;
     if (selected == null) return [];
-    if (selected.provider != null) return selected.provider!.requiredEnv;
+    if (selected.provider != null) return selected.provider!.requiredEnv.cast<String>();
     return []; // templates store config in YAML, no direct requiredEnv
   }
 
