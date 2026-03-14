@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import 'engine_connection.dart';
 import 'protocol/protocol.dart';
+import '../models/commands/command.dart';
 
 /// Exception thrown when the engine returns an error response to a command.
 class EngineException implements Exception {
@@ -17,6 +18,15 @@ class EngineException implements Exception {
 
   @override
   String toString() => 'EngineException($code): $message';
+}
+
+/// Exception thrown when the engine connection fails.
+class EngineConnectionException implements Exception {
+  final String message;
+  const EngineConnectionException(this.message);
+
+  @override
+  String toString() => 'EngineConnectionException: $message';
 }
 
 /// High-level typed client for the dspatch engine.
@@ -74,6 +84,15 @@ class EngineClient {
         throw EngineException(code: code, message: message),
       _ => throw StateError('Unexpected response type: $response'),
     };
+  }
+
+  /// Sends a typed command and returns a typed response.
+  ///
+  /// Prefer this over [sendCommand] for type safety. Once all callers
+  /// are migrated, [sendCommand] can become private.
+  Future<R> send<R extends EngineResponse>(EngineCommand<R> command) async {
+    final result = await sendCommand(command.method, command.params ?? const {});
+    return command.parseResponse(result);
   }
 
   // ── Workspace Commands ────────────────────────────────────────────────
