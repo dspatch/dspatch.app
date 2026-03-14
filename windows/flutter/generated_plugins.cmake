@@ -4,12 +4,13 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   screen_retriever_windows
+  sqlite3_flutter_libs
   url_launcher_windows
   window_manager
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
-  dspatch_sdk
+  dspatch_engine
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)
