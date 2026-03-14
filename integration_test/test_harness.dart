@@ -8,6 +8,7 @@ import 'package:dspatch_app/engine_client/engine_connection.dart';
 import 'package:dspatch_app/engine_client/engine_health.dart';
 import 'package:dspatch_app/database/engine_database.dart';
 import 'package:drift/native.dart';
+import 'package:http/http.dart' as http;
 
 class TestHarness {
   final int port;
@@ -17,6 +18,7 @@ class TestHarness {
   late final EngineDatabase database;
 
   bool? _dockerAvailable;
+  bool? _backendAvailable;
 
   TestHarness({required this.port, required this.dbPath});
 
@@ -69,6 +71,20 @@ class TestHarness {
     health.dispose();
     _dockerAvailable = status?.dockerAvailable ?? false;
     return _dockerAvailable!;
+  }
+
+  /// Checks if the dev backend is reachable at localhost:3000.
+  Future<bool> isBackendAvailable() async {
+    if (_backendAvailable != null) return _backendAvailable!;
+    try {
+      final response = await http
+          .get(Uri.parse('http://localhost:3000/health/live'))
+          .timeout(const Duration(seconds: 3));
+      _backendAvailable = response.statusCode == 200;
+    } catch (_) {
+      _backendAvailable = false;
+    }
+    return _backendAvailable!;
   }
 
   Future<void> tearDown() async {
