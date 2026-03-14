@@ -25,6 +25,11 @@ pub struct EngineConfig {
 
     /// Debounce period (ms) for batching table invalidation events.
     pub invalidation_debounce_ms: u64,
+
+    /// Whether the engine is running in test mode (--test-db).
+    /// Exposes DB path via /test-info endpoint.
+    #[serde(default)]
+    pub test_mode: bool,
 }
 
 impl Default for EngineConfig {
@@ -38,6 +43,7 @@ impl Default for EngineConfig {
             log_level: "info".into(),
             agent_server_port: 0,
             invalidation_debounce_ms: 50,
+            test_mode: false,
         }
     }
 }

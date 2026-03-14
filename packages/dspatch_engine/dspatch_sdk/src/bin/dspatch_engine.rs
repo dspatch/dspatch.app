@@ -17,7 +17,21 @@ use dspatch_sdk::engine::startup::{
 
 #[tokio::main]
 async fn main() {
-    let config = EngineConfig::default();
+    let args: Vec<String> = std::env::args().collect();
+    let test_mode = args.iter().any(|a| a == "--test-db");
+
+    let config = if test_mode {
+        let test_dir = std::env::temp_dir()
+            .join(format!("dspatch-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&test_dir).expect("failed to create test db dir");
+        EngineConfig {
+            db_dir: test_dir,
+            test_mode: true,
+            ..EngineConfig::default()
+        }
+    } else {
+        EngineConfig::default()
+    };
 
     // 1. Initialize tracing/logging.
     init_tracing(&config.log_level);

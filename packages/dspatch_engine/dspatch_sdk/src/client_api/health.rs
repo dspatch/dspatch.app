@@ -35,6 +35,28 @@ pub async fn health_handler(
     })
 }
 
+/// JSON response for `GET /engine-info`.
+/// Returns engine configuration details needed by clients (DB path, test mode, etc.)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EngineInfoResponse {
+    pub db_path: String,
+    pub test_mode: bool,
+}
+
+/// Handler for `GET /engine-info`.
+/// Always available — clients use this to discover the DB path for Drift read-only access.
+pub async fn engine_info_handler(
+    State(runtime): State<Arc<EngineRuntime>>,
+) -> Json<EngineInfoResponse> {
+    let config = runtime.config();
+    let db_path = config.db_dir.join("engine.db");
+
+    Json(EngineInfoResponse {
+        db_path: db_path.to_string_lossy().into_owned(),
+        test_mode: config.test_mode,
+    })
+}
+
 async fn check_docker_available() -> bool {
     match tokio::process::Command::new("docker")
         .arg("info")
