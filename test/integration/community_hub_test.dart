@@ -5,6 +5,26 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
 
+/// Runs a hub API test, skipping if the backend or hub API is unavailable.
+Future<void> hubTest(
+  TestHarness harness,
+  Future<void> Function() body,
+) async {
+  if (!await harness.isBackendAvailable()) {
+    markTestSkipped('Backend not available at localhost:3000');
+    return;
+  }
+  try {
+    await body();
+  } on EngineException catch (e) {
+    if (e.code == 'API_ERROR') {
+      markTestSkipped('Hub API not available: ${e.message}');
+      return;
+    }
+    rethrow;
+  }
+}
+
 void main() {
   late TestHarness harness;
 
@@ -19,131 +39,171 @@ void main() {
 
   group('Community Hub browsing (requires localhost:3000)', () {
     test('browse agents returns paginated list', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
+      await hubTest(harness, () async {
+        final result = await harness.client.hubBrowseAgents(perPage: 5);
 
-      final result = await harness.client.sendCommand(
-        'hub_browse_agents',
-        {'per_page': 5},
-      );
-
-      expect(result, isA<Map<String, dynamic>>());
+        expect(result, contains('items'));
+        expect(result['items'], isA<List>());
+        if (result.containsKey('cursor')) {
+          expect(result['cursor'], anyOf(isNull, isA<String>()));
+        }
+      });
     });
 
-    test('browse agents with search', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
+    test('browse agents with search filter', () async {
+      await hubTest(harness, () async {
+        final result = await harness.client.hubBrowseAgents(
+          search: 'test',
+          perPage: 5,
+        );
 
-      final result = await harness.client.sendCommand(
-        'hub_browse_agents',
-        {'search': 'test', 'per_page': 5},
-      );
-
-      expect(result, isA<Map<String, dynamic>>());
+        expect(result, contains('items'));
+        expect(result['items'], isA<List>());
+      });
     });
 
-    test('browse workspaces returns list', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
+    test('browse agents with category filter', () async {
+      await hubTest(harness, () async {
+        // First get a valid category, then filter by it.
+        final categories = await harness.client.hubAgentCategories();
+        expect(categories, contains('categories'));
+        final categoryList = categories['categories'] as List;
 
-      final result = await harness.client.sendCommand(
-        'hub_browse_workspaces',
-        {'per_page': 5},
-      );
+        if (categoryList.isNotEmpty) {
+          final firstCategory = categoryList.first as Map<String, dynamic>;
+          final categorySlug = firstCategory['slug'] as String? ??
+              firstCategory['name'] as String;
 
-      expect(result, isA<Map<String, dynamic>>());
+          final result = await harness.client.hubBrowseAgents(
+            category: categorySlug,
+            perPage: 5,
+          );
+
+          expect(result, contains('items'));
+          expect(result['items'], isA<List>());
+        }
+      });
+    });
+
+    test('browse agents pagination workflow', () async {
+      await hubTest(harness, () async {
+        // Fetch page 1 with a small page size.
+        final page1 = await harness.client.hubBrowseAgents(perPage: 1);
+
+        expect(page1, contains('items'));
+        final items1 = page1['items'] as List;
+
+        // If there is a cursor, fetch page 2 and verify it returns results.
+        if (page1['cursor'] != null) {
+          final page2 = await harness.client.hubBrowseAgents(
+            perPage: 1,
+            cursor: page1['cursor'] as String,
+          );
+
+          expect(page2, contains('items'));
+          final items2 = page2['items'] as List;
+
+          // Page 2 should be different from page 1 (if items exist).
+          if (items1.isNotEmpty && items2.isNotEmpty) {
+            expect(items2.first, isNot(equals(items1.first)));
+          }
+        }
+      });
+    });
+
+    test('browse workspaces returns paginated list', () async {
+      await hubTest(harness, () async {
+        final result = await harness.client.hubBrowseWorkspaces(perPage: 5);
+
+        expect(result, contains('items'));
+        expect(result['items'], isA<List>());
+        if (result.containsKey('cursor')) {
+          expect(result['cursor'], anyOf(isNull, isA<String>()));
+        }
+      });
     });
 
     test('get agent categories', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
+      await hubTest(harness, () async {
+        final result = await harness.client.hubAgentCategories();
 
-      final result = await harness.client.sendCommand(
-        'hub_agent_categories',
-        {},
-      );
-
-      expect(result, isA<Map<String, dynamic>>());
+        expect(result, contains('categories'));
+        expect(result['categories'], isA<List>());
+      });
     });
 
     test('get workspace categories', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
+      await hubTest(harness, () async {
+        final result = await harness.client.hubWorkspaceCategories();
 
-      final result = await harness.client.sendCommand(
-        'hub_workspace_categories',
-        {},
-      );
-
-      expect(result, isA<Map<String, dynamic>>());
+        expect(result, contains('categories'));
+        expect(result['categories'], isA<List>());
+      });
     });
 
     test('resolve non-existent agent returns error', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
-
-      expect(
-        () => harness.client.sendCommand(
-          'hub_resolve_agent',
-          {'agent_id': 'nonexistent-agent-id-xyz'},
-        ),
-        throwsA(isA<EngineException>()),
-      );
+      await hubTest(harness, () async {
+        expect(
+          () => harness.client.hubResolveAgent(
+            slug: 'nonexistent/agent-slug-xyz',
+          ),
+          throwsA(
+            isA<EngineException>().having(
+              (e) => e.code,
+              'code',
+              isNotEmpty,
+            ),
+          ),
+        );
+      });
     });
 
     test('resolve non-existent workspace returns error', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
-
-      expect(
-        () => harness.client.sendCommand(
-          'hub_resolve_workspace',
-          {'workspace_id': 'nonexistent-workspace-id-xyz'},
-        ),
-        throwsA(isA<EngineException>()),
-      );
+      await hubTest(harness, () async {
+        expect(
+          () => harness.client.hubResolveWorkspaceDetails(
+            slug: 'nonexistent/workspace-slug-xyz',
+          ),
+          throwsA(
+            isA<EngineException>().having(
+              (e) => e.code,
+              'code',
+              isNotEmpty,
+            ),
+          ),
+        );
+      });
     });
 
-    test('hub_popular_tags returns result', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
+    test('popular tags returns tag list', () async {
+      await hubTest(harness, () async {
+        final result = await harness.client.hubPopularTags();
 
-      final result = await harness.client.sendCommand(
-        'hub_popular_tags',
-        {},
-      );
-
-      expect(result, isA<Map<String, dynamic>>());
+        expect(result, contains('tags'));
+        expect(result['tags'], isA<List>());
+      });
     });
 
-    test('hub_search_tags returns result', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
+    test('search tags returns results', () async {
+      await hubTest(harness, () async {
+        final result = await harness.client.hubSearchTags(query: 'test');
 
-      final result = await harness.client.sendCommand(
-        'hub_search_tags',
-        {'query': 'test'},
-      );
+        expect(result, contains('tags'));
+        expect(result['tags'], isA<List>());
+      });
+    });
 
-      expect(result, isA<Map<String, dynamic>>());
+    test('search with nonsense query returns empty items', () async {
+      await hubTest(harness, () async {
+        final result = await harness.client.hubBrowseAgents(
+          search: 'zzz-no-match-guaranteed-${DateTime.now().millisecondsSinceEpoch}',
+          perPage: 5,
+        );
+
+        expect(result, contains('items'));
+        expect(result['items'], isA<List>());
+        expect((result['items'] as List), isEmpty);
+      });
     });
   });
 }

@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
-import 'package:dspatch_app/engine_client/engine_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'community_hub_test.dart' show hubTest;
 import 'test_harness.dart';
 
 void main() {
@@ -17,77 +17,47 @@ void main() {
     await harness.tearDown();
   });
 
-  group('Agent template resolution (requires localhost:3000)', () {
-    test('resolve non-existent agent returns error', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
+  group('Template resolution (requires localhost:3000)', () {
+    // The resolve-non-existent error tests are covered in
+    // community_hub_test.dart. This file focuses on template-specific
+    // workflows: update checking and (when seeded data exists) happy-path
+    // resolution.
 
-      expect(
-        () => harness.client.sendCommand(
-          'hub_resolve_agent',
-          {'agent_id': 'nonexistent-agent-xyz'},
-        ),
-        throwsA(isA<EngineException>()),
-      );
-    });
-
-    test('resolve non-existent workspace returns error', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
-
-      expect(
-        () => harness.client.sendCommand(
-          'hub_resolve_workspace',
-          {'workspace_id': 'nonexistent-ws-xyz'},
-        ),
-        throwsA(isA<EngineException>()),
-      );
-    });
-
-    test('check_for_agent_updates with no agents', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
-
-      // check_for_agent_updates takes no parameters.
-      try {
+    test('check_for_agent_updates with no local agents succeeds', () async {
+      await hubTest(harness, () async {
         final result = await harness.client.sendCommand(
           'check_for_agent_updates',
           {},
         );
-        // If it succeeds, the result should be a valid map.
+
         expect(result, isA<Map<String, dynamic>>());
-      } on EngineException {
-        // An error response is also acceptable (e.g. API_ERROR when
-        // hub is unreachable).
-      }
+        // The response should indicate there are no updates when no agents
+        // are installed locally.
+        if (result.containsKey('updates')) {
+          expect(result['updates'], isA<List>());
+        }
+      });
     });
 
-    test('check_for_workspace_updates with no workspaces', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
-
-      // check_for_workspace_updates takes no parameters.
-      try {
+    test('check_for_workspace_updates with no local workspaces succeeds',
+        () async {
+      await hubTest(harness, () async {
         final result = await harness.client.sendCommand(
           'check_for_workspace_updates',
           {},
         );
+
         expect(result, isA<Map<String, dynamic>>());
-      } on EngineException {
-        // An error response is also acceptable (e.g. API_ERROR when
-        // hub is unreachable).
-      }
+        if (result.containsKey('updates')) {
+          expect(result['updates'], isA<List>());
+        }
+      });
     });
 
     // TODO: Add happy-path tests when the hub has seeded test agents
-    // (e.g. dspatch://agent/test/echo)
+    // (e.g. dspatch://agent/test/echo). These should:
+    // 1. Resolve a known agent by slug via hubResolveAgent
+    // 2. Verify response contains expected fields (name, source_uri, version)
+    // 3. Verify the resolved template is persisted in the database
   });
 }

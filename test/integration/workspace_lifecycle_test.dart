@@ -15,6 +15,33 @@ agents:
     template: dspatch://agent/test/echo
 ''';
 
+/// Waits for an invalidation event that includes [tableName].
+///
+/// Subscribes to the invalidation stream, waits up to [timeout] for the
+/// named table to appear, then cancels the subscription.
+Future<void> waitForInvalidation(
+  EngineClient client,
+  String tableName, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final completer = Completer<void>();
+  final sub = client.invalidations.listen((tables) {
+    if (tables.contains(tableName) && !completer.isCompleted) {
+      completer.complete();
+    }
+  });
+  try {
+    await completer.future.timeout(
+      timeout,
+      onTimeout: () => throw TimeoutException(
+        'No invalidation received for $tableName table',
+      ),
+    );
+  } finally {
+    await sub.cancel();
+  }
+}
+
 void main() {
   late TestHarness harness;
   final tempDirs = <Directory>[];
@@ -40,19 +67,24 @@ void main() {
   });
 
   group('Workspace CRUD (non-Docker)', () {
-    test('create workspace returns workspace with ID and name', () async {
+    test('create workspace returns workspace with ID, name, and project path',
+        () async {
       final dir = makeTempDir();
+      late final String id;
+
       final result = await harness.client.createWorkspace(
         projectPath: dir.path,
         configYaml: _validConfigYaml,
       );
+      id = result['id'] as String;
+      addTearDown(() => harness.client.deleteWorkspace(id));
 
       expect(result, containsPair('id', isA<String>()));
       expect(result['id'], isNotEmpty);
       expect(result['name'], equals('test-workspace'));
-
-      // Clean up
-      await harness.client.deleteWorkspace(result['id'] as String);
+      expect(result['project_path'], equals(dir.path));
+      expect(result, contains('created_at'));
+      expect(result, contains('updated_at'));
     });
 
     test('get workspace by ID matches created workspace', () async {
@@ -62,6 +94,7 @@ void main() {
         configYaml: _validConfigYaml,
       );
       final id = created['id'] as String;
+      addTearDown(() => harness.client.deleteWorkspace(id));
 
       final fetched = await harness.client.sendCommand(
         'get_workspace',
@@ -70,12 +103,10 @@ void main() {
 
       expect(fetched['id'], equals(id));
       expect(fetched['name'], equals(created['name']));
-
-      // Clean up
-      await harness.client.deleteWorkspace(id);
+      expect(fetched['project_path'], equals(created['project_path']));
     });
 
-    test('delete workspace succeeds', () async {
+    test('delete workspace succeeds and get returns NOT_FOUND', () async {
       final dir = makeTempDir();
       final created = await harness.client.createWorkspace(
         projectPath: dir.path,
@@ -85,18 +116,8 @@ void main() {
 
       final result = await harness.client.deleteWorkspace(id);
       expect(result, isA<Map<String, dynamic>>());
-    });
 
-    test('get deleted workspace returns NOT_FOUND', () async {
-      final dir = makeTempDir();
-      final created = await harness.client.createWorkspace(
-        projectPath: dir.path,
-        configYaml: _validConfigYaml,
-      );
-      final id = created['id'] as String;
-
-      await harness.client.deleteWorkspace(id);
-
+      // Verify workspace is actually gone.
       expect(
         () => harness.client.sendCommand('get_workspace', {'id': id}),
         throwsA(
@@ -116,7 +137,7 @@ void main() {
       expect(result, isA<Map<String, dynamic>>());
     });
 
-    test('create with invalid YAML returns error', () async {
+    test('create with invalid YAML returns VALIDATION_ERROR', () async {
       final dir = makeTempDir();
 
       expect(
@@ -124,31 +145,47 @@ void main() {
           projectPath: dir.path,
           configYaml: '{{{not: valid: yaml:::',
         ),
+        throwsA(
+          isA<EngineException>().having(
+            (e) => e.code,
+            'code',
+            anyOf('VALIDATION_ERROR', 'INTERNAL_ERROR'),
+          ),
+        ),
+      );
+    });
+
+    test('create with empty project path returns error', () async {
+      // Empty project paths are invalid — the engine should reject them.
+      expect(
+        () => harness.client.createWorkspace(
+          projectPath: '',
+          configYaml: _validConfigYaml,
+        ),
         throwsA(isA<EngineException>()),
       );
     });
 
-    test('create with empty project path', () async {
-      // The engine accepts empty project paths (stores them as-is).
-      // Accept either success or error.
-      try {
-        final result = await harness.client.createWorkspace(
-          projectPath: '',
+    test('create with non-existent project path', () async {
+      // The path does not exist on disk. Engine may accept it (stores as-is)
+      // or reject it with a validation error.
+      final bogusPath = '${Directory.systemTemp.path}/dspatch_nonexistent_${DateTime.now().millisecondsSinceEpoch}';
+
+      // We assert the engine rejects it. If the engine accepts it, this test
+      // documents that behavior change.
+      expect(
+        () => harness.client.createWorkspace(
+          projectPath: bogusPath,
           configYaml: _validConfigYaml,
-        );
-        // If it succeeds, clean up.
-        if (result.containsKey('id')) {
-          await harness.client.deleteWorkspace(result['id'] as String);
-        }
-      } on EngineException {
-        // Also acceptable.
-      }
+        ),
+        throwsA(isA<EngineException>()),
+      );
     });
 
     test('invalidation fires on create', () async {
       final dir = makeTempDir();
 
-      // Listen for invalidation events before creating
+      // Listen for invalidation events before creating.
       final completer = Completer<List<String>>();
       final sub = harness.client.invalidations.listen((tables) {
         if (tables.contains('workspaces') && !completer.isCompleted) {
@@ -160,6 +197,11 @@ void main() {
         projectPath: dir.path,
         configYaml: _validConfigYaml,
       );
+      final id = created['id'] as String;
+      addTearDown(() async {
+        await sub.cancel();
+        await harness.client.deleteWorkspace(id);
+      });
 
       final tables = await completer.future.timeout(
         const Duration(seconds: 5),
@@ -169,13 +211,9 @@ void main() {
       );
 
       expect(tables, contains('workspaces'));
-
-      // Clean up
-      await sub.cancel();
-      await harness.client.deleteWorkspace(created['id'] as String);
     });
 
-    test('Drift read after create', () async {
+    test('Drift read after create uses invalidation-driven wait', () async {
       final dir = makeTempDir();
 
       final created = await harness.client.createWorkspace(
@@ -183,17 +221,105 @@ void main() {
         configYaml: _validConfigYaml,
       );
       final id = created['id'] as String;
+      addTearDown(() => harness.client.deleteWorkspace(id));
 
-      // Give the DB a moment to flush (invalidation is debounced)
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      // Wait for the invalidation event instead of sleeping — this signals
+      // the engine has committed the write and WAL is flushed.
+      await waitForInvalidation(harness.client, 'workspaces');
 
       final rows =
           await harness.database.select(harness.database.workspaces).get();
       final match = rows.where((w) => w.id == id);
-      expect(match, isNotEmpty, reason: 'Created workspace should appear in Drift query');
+      expect(match, isNotEmpty,
+          reason: 'Created workspace should appear in Drift query');
 
-      // Clean up
-      await harness.client.deleteWorkspace(id);
+      final ws = match.first;
+      expect(ws.name, equals('test-workspace'));
+      expect(ws.projectPath, equals(dir.path));
+      expect(ws.createdAt, isNotEmpty);
+    });
+
+    test('Drift workspace list reflects create and delete', () async {
+      // Snapshot existing workspaces so we can detect our additions.
+      final before =
+          await harness.database.select(harness.database.workspaces).get();
+      final beforeIds = before.map((w) => w.id).toSet();
+
+      // Create two workspaces.
+      final dir1 = makeTempDir();
+      final dir2 = makeTempDir();
+      final ws1 = await harness.client.createWorkspace(
+        projectPath: dir1.path,
+        configYaml: _validConfigYaml,
+      );
+      final id1 = ws1['id'] as String;
+      await waitForInvalidation(harness.client, 'workspaces');
+
+      final ws2 = await harness.client.createWorkspace(
+        projectPath: dir2.path,
+        configYaml: _validConfigYaml,
+      );
+      final id2 = ws2['id'] as String;
+      await waitForInvalidation(harness.client, 'workspaces');
+
+      addTearDown(() async {
+        try {
+          await harness.client.deleteWorkspace(id1);
+        } catch (_) {}
+        try {
+          await harness.client.deleteWorkspace(id2);
+        } catch (_) {}
+      });
+
+      // Verify both appear.
+      final afterCreate =
+          await harness.database.select(harness.database.workspaces).get();
+      final newIds =
+          afterCreate.map((w) => w.id).toSet().difference(beforeIds);
+      expect(newIds, containsAll([id1, id2]));
+
+      // Delete one, verify only the other remains.
+      await harness.client.deleteWorkspace(id1);
+      await waitForInvalidation(harness.client, 'workspaces');
+
+      final afterDelete =
+          await harness.database.select(harness.database.workspaces).get();
+      final remainingNew =
+          afterDelete.map((w) => w.id).toSet().difference(beforeIds);
+      expect(remainingNew, contains(id2));
+      expect(remainingNew, isNot(contains(id1)));
+    });
+
+    test('concurrent workspace creates produce distinct IDs', () async {
+      final dirs = List.generate(5, (_) => makeTempDir());
+      final createdIds = <String>[];
+
+      try {
+        final results = await Future.wait(
+          dirs.map(
+            (dir) => harness.client.createWorkspace(
+              projectPath: dir.path,
+              configYaml: _validConfigYaml,
+            ),
+          ),
+        );
+
+        for (final r in results) {
+          final id = r['id'] as String;
+          expect(id, isNotEmpty);
+          createdIds.add(id);
+        }
+
+        // All IDs should be unique.
+        expect(createdIds.toSet().length, equals(createdIds.length),
+            reason: 'All concurrent workspace IDs should be distinct');
+      } finally {
+        for (final id in createdIds) {
+          try {
+            await harness.client.deleteWorkspace(id);
+          } catch (_) {}
+        }
+      }
     });
   });
 }

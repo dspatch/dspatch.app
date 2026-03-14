@@ -10,12 +10,12 @@ import 'test_harness.dart';
 void main() {
   late TestHarness harness;
 
-  setUp(() async {
+  setUpAll(() async {
     harness = TestHarness.fromEnv();
     await harness.setUp();
   });
 
-  tearDown(() async {
+  tearDownAll(() async {
     await harness.tearDown();
   });
 
@@ -59,9 +59,13 @@ void main() {
     });
 
     test('provider create triggers invalidation', () async {
+      final completer = Completer<List<String>>();
       final tables = <String>[];
       final subscription = harness.client.invalidations.listen((event) {
         tables.addAll(event);
+        if (tables.contains('agent_providers') && !completer.isCompleted) {
+          completer.complete(List.of(tables));
+        }
       });
 
       try {
@@ -79,8 +83,9 @@ void main() {
           },
         );
 
-        // Wait for invalidation events to arrive.
-        await Future<void>.delayed(const Duration(seconds: 2));
+        // Wait for the invalidation event with a timeout instead of
+        // a fixed delay -- eliminates the race condition.
+        await completer.future.timeout(const Duration(seconds: 5));
 
         expect(tables, contains('agent_providers'));
       } finally {
@@ -88,7 +93,8 @@ void main() {
       }
     });
 
-    test('batch invalidation: rapid writes produce Drift updates', () async {
+    test('batch invalidation: rapid writes produce Drift watch updates',
+        () async {
       final bridge = InvalidationBridge(
         invalidationStream: harness.client.invalidations,
         onInvalidation: harness.database.handleInvalidation,
@@ -99,25 +105,40 @@ void main() {
         final prefix =
             'batch_test_${DateTime.now().millisecondsSinceEpoch}';
 
-        for (var i = 0; i < 10; i++) {
-          await harness.client.setPreference('${prefix}_$i', 'value_$i');
-        }
+        // Subscribe a watch() query BEFORE writing so we actually test
+        // that Drift reactivity fires after invalidation.
+        final watchCompleter = Completer<void>();
+        var lastMatchCount = 0;
 
-        // Wait for all invalidation events to propagate.
-        await Future<void>.delayed(const Duration(seconds: 2));
-
-        final rows =
-            await harness.database.select(harness.database.preferences).get();
-
-        var matchCount = 0;
-        for (final row in rows) {
-          final key = row.key;
-          if (key.startsWith(prefix)) {
-            matchCount++;
+        final subscription = harness.database
+            .select(harness.database.preferences)
+            .watch()
+            .listen((rows) {
+          var count = 0;
+          for (final row in rows) {
+            if (row.key.startsWith(prefix)) {
+              count++;
+            }
           }
-        }
+          lastMatchCount = count;
+          // Complete once all 10 preferences are visible via the watch.
+          if (count >= 10 && !watchCompleter.isCompleted) {
+            watchCompleter.complete();
+          }
+        });
 
-        expect(matchCount, equals(10));
+        try {
+          for (var i = 0; i < 10; i++) {
+            await harness.client.setPreference('${prefix}_$i', 'value_$i');
+          }
+
+          // Wait for the watch query to reflect all 10 written values.
+          await watchCompleter.future.timeout(const Duration(seconds: 10));
+
+          expect(lastMatchCount, equals(10));
+        } finally {
+          await subscription.cancel();
+        }
       } finally {
         bridge.dispose();
       }

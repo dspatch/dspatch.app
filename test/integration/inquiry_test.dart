@@ -34,13 +34,29 @@ void main() {
       );
     });
 
-    test('respond with choice_index to non-existent returns NOT_FOUND',
+    test('empty response to non-existent inquiry returns NOT_FOUND', () async {
+      expect(
+        () => harness.client.respondToInquiry(
+          inquiryId: 'nonexistent-inquiry-id',
+          response: '',
+        ),
+        throwsA(
+          isA<EngineException>().having(
+            (e) => e.code,
+            'code',
+            contains('NOT_FOUND'),
+          ),
+        ),
+      );
+    });
+
+    test('negative choice index to non-existent inquiry returns NOT_FOUND',
         () async {
       expect(
         () => harness.client.respondToInquiry(
-          inquiryId: 'nonexistent',
-          response: '',
-          choiceIndex: 0,
+          inquiryId: 'nonexistent-inquiry-id',
+          response: 'pick',
+          choiceIndex: -1,
         ),
         throwsA(
           isA<EngineException>().having(
@@ -53,6 +69,11 @@ void main() {
     });
 
     // TODO: Add happy-path tests when we have a way to seed pending inquiries
-    // (requires Docker + running agent or a test-only seed command)
+    // (requires Docker + running agent or a test-only seed command).
+    // Scenarios to cover once seeding is available:
+    // - Respond to a pending inquiry -> verify it is marked resolved
+    // - Respond with a valid choiceIndex -> verify correct choice recorded
+    // - Respond to an already-resolved inquiry -> expect CONFLICT or similar
+    // - Respond with out-of-bounds choiceIndex -> expect validation error
   });
 }

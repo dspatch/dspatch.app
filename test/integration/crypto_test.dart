@@ -24,7 +24,6 @@ void main() {
         {'plaintext': 'hello world'},
       );
 
-      // Engine returns {"ciphertext": "<hex>"}.
       final ciphertext = result['ciphertext'] as String;
       expect(ciphertext, isNotEmpty);
       expect(ciphertext, isNot(equals('hello world')));
@@ -57,7 +56,7 @@ void main() {
     });
 
     test('round-trip with special characters', () async {
-      const original = 'hello world -- "quotes"';
+      const original = 'hello world -- "quotes" & <angle> \\ backslash';
 
       final encResult = await harness.client.sendCommand(
         'encrypt_string',
@@ -74,24 +73,83 @@ void main() {
       expect(decResult['plaintext'], equals(original));
     });
 
-    test('encrypt empty string', () async {
-      try {
-        final encResult = await harness.client.sendCommand(
-          'encrypt_string',
-          {'plaintext': ''},
-        );
+    test('encrypt empty string round-trips', () async {
+      final encResult = await harness.client.sendCommand(
+        'encrypt_string',
+        {'plaintext': ''},
+      );
 
-        final ciphertext = encResult['ciphertext'] as String;
+      final ciphertext = encResult['ciphertext'] as String;
+      expect(ciphertext, isNotEmpty);
 
-        final decResult = await harness.client.sendCommand(
+      final decResult = await harness.client.sendCommand(
+        'decrypt_string',
+        {'ciphertext': ciphertext},
+      );
+
+      expect(decResult['plaintext'], equals(''));
+    });
+
+    test('nonce uniqueness: same plaintext produces different ciphertexts',
+        () async {
+      const plaintext = 'identical input';
+
+      final enc1 = await harness.client.sendCommand(
+        'encrypt_string',
+        {'plaintext': plaintext},
+      );
+      final enc2 = await harness.client.sendCommand(
+        'encrypt_string',
+        {'plaintext': plaintext},
+      );
+
+      final ct1 = enc1['ciphertext'] as String;
+      final ct2 = enc2['ciphertext'] as String;
+
+      // AES-256-GCM uses a random nonce, so ciphertexts must differ.
+      expect(ct1, isNot(equals(ct2)));
+    });
+
+    test('tamper detection: modified ciphertext fails to decrypt', () async {
+      final encResult = await harness.client.sendCommand(
+        'encrypt_string',
+        {'plaintext': 'tamper test'},
+      );
+
+      final ciphertext = encResult['ciphertext'] as String;
+
+      // Flip the last character to simulate tampering.
+      final lastChar = ciphertext[ciphertext.length - 1];
+      final flipped = lastChar == '0' ? '1' : '0';
+      final tampered =
+          ciphertext.substring(0, ciphertext.length - 1) + flipped;
+
+      expect(
+        () => harness.client.sendCommand(
           'decrypt_string',
-          {'ciphertext': ciphertext},
-        );
+          {'ciphertext': tampered},
+        ),
+        throwsA(isA<EngineException>()),
+      );
+    });
 
-        expect(decResult['plaintext'], equals(''));
-      } on EngineException {
-        // Empty string encryption throwing is also acceptable behavior.
-      }
+    test('unicode round-trip: emoji and CJK characters', () async {
+      // Emoji, CJK, Arabic, accented Latin, newlines.
+      const original = 'Hello \u{1F600} \u4E16\u754C \u0645\u0631\u062D\u0628\u0627 caf\u00E9\nnewline';
+
+      final encResult = await harness.client.sendCommand(
+        'encrypt_string',
+        {'plaintext': original},
+      );
+
+      final ciphertext = encResult['ciphertext'] as String;
+
+      final decResult = await harness.client.sendCommand(
+        'decrypt_string',
+        {'ciphertext': ciphertext},
+      );
+
+      expect(decResult['plaintext'], equals(original));
     });
   });
 }

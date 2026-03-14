@@ -3,7 +3,6 @@
 import 'package:dspatch_app/engine_client/engine_auth.dart';
 import 'package:dspatch_app/engine_client/engine_connection.dart';
 import 'package:dspatch_app/engine_client/engine_health.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
@@ -21,14 +20,30 @@ void main() {
   });
 
   group('Health endpoint', () {
-    test('returns running status', () async {
+    test('returns running status with full response shape', () async {
       final health = EngineHealth(host: harness.host, port: harness.port);
       final status = await health.checkHealth();
       health.dispose();
 
       expect(status, isNotNull);
       expect(status!.isRunning, isTrue);
+      expect(status.status, equals('running'));
       expect(status.uptimeSeconds, greaterThanOrEqualTo(0));
+      // Validate all fields are present and have sane types.
+      expect(status.dockerAvailable, isA<bool>());
+      expect(status.authenticated, isA<bool>());
+      expect(status.connectedDevices, isA<int>());
+      expect(status.connectedDevices, greaterThanOrEqualTo(0));
+    });
+
+    test('returns null for unreachable engine', () async {
+      final health = EngineHealth(host: harness.host, port: 1);
+      final status = await health.checkHealth(
+        timeout: const Duration(seconds: 2),
+      );
+      health.dispose();
+
+      expect(status, isNull);
     });
   });
 
@@ -41,61 +56,147 @@ void main() {
       expect(result.sessionToken, isNotEmpty);
       expect(result.authMode, equals('anonymous'));
     });
+
+    test('multiple anonymous sessions return distinct tokens', () async {
+      final auth = EngineAuth(host: harness.host, port: harness.port);
+      final result1 = await auth.authenticateAnonymous();
+      final result2 = await auth.authenticateAnonymous();
+      auth.dispose();
+
+      expect(result1.sessionToken, isNotEmpty);
+      expect(result2.sessionToken, isNotEmpty);
+      expect(result1.sessionToken, isNot(equals(result2.sessionToken)));
+    });
   });
 
   group('WebSocket connection', () {
-    test('connects with valid token', () {
+    test('connects with valid token and can send commands', () async {
+      // The harness connection is already authenticated and connected.
       expect(harness.client.isConnected, isTrue);
+
+      // Prove the connection is functional by sending a real command.
+      // get_preference for a nonexistent key should return a result
+      // (possibly with a null value) rather than throwing.
+      final result = await harness.client.getPreference('_test_nonexistent');
+      expect(result, isA<Map<String, dynamic>>());
     });
 
-    test('rejects invalid token', () async {
+    test('rejects invalid token with specific exception', () async {
       final connection = EngineConnection(
         host: harness.host,
         port: harness.port,
         token: 'garbage-token',
       );
 
-      expect(() => connection.connect(), throwsA(anything));
-      connection.dispose();
+      try {
+        await expectLater(
+          () => connection.connect(),
+          throwsA(isA<Exception>()),
+        );
+      } finally {
+        connection.dispose();
+      }
     });
 
-    test('rejects empty token', () async {
+    test('rejects empty token with specific exception', () async {
       final connection = EngineConnection(
         host: harness.host,
         port: harness.port,
         token: '',
       );
 
-      expect(() => connection.connect(), throwsA(anything));
-      connection.dispose();
+      try {
+        await expectLater(
+          () => connection.connect(),
+          throwsA(isA<Exception>()),
+        );
+      } finally {
+        connection.dispose();
+      }
     });
   });
 
-  group('Auth endpoints', () {
-    test('login returns service unavailable', () async {
-      final uri = Uri.parse(
-        'http://${harness.host}:${harness.port}/auth/login',
-      );
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: '{"username":"test","password":"test"}',
-      );
+  group('Auth endpoints — backend-dependent behavior', () {
+    test('login returns 503 when backend is NOT available', () async {
+      if (await harness.isBackendAvailable()) {
+        markTestSkipped(
+          'Backend IS available — 503 tests only apply without backend',
+        );
+        return;
+      }
 
-      expect(response.statusCode, equals(503));
+      final auth = EngineAuth(host: harness.host, port: harness.port);
+      try {
+        expect(
+          () => auth.login(username: 'test', password: 'test'),
+          throwsA(
+            isA<AuthException>().having(
+              (e) => e.statusCode,
+              'statusCode',
+              equals(503),
+            ),
+          ),
+        );
+      } finally {
+        auth.dispose();
+      }
     });
 
-    test('register returns service unavailable', () async {
-      final uri = Uri.parse(
-        'http://${harness.host}:${harness.port}/auth/register',
-      );
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: '{"username":"test","email":"test@test.com","password":"test"}',
-      );
+    test('register returns 503 when backend is NOT available', () async {
+      if (await harness.isBackendAvailable()) {
+        markTestSkipped(
+          'Backend IS available — 503 tests only apply without backend',
+        );
+        return;
+      }
 
-      expect(response.statusCode, equals(503));
+      final auth = EngineAuth(host: harness.host, port: harness.port);
+      try {
+        expect(
+          () => auth.register(
+            username: 'test',
+            email: 'test@test.com',
+            password: 'TestPassword123!',
+          ),
+          throwsA(
+            isA<AuthException>().having(
+              (e) => e.statusCode,
+              'statusCode',
+              equals(503),
+            ),
+          ),
+        );
+      } finally {
+        auth.dispose();
+      }
+    });
+
+    test('login proxies to backend when available', () async {
+      if (!await harness.isBackendAvailable()) {
+        markTestSkipped('Backend not available at localhost:3000');
+        return;
+      }
+
+      // With the backend running, login with bad credentials should
+      // return a proper auth error, not 503.
+      final auth = EngineAuth(host: harness.host, port: harness.port);
+      try {
+        expect(
+          () => auth.login(
+            username: 'nonexistent_user',
+            password: 'wrong_password',
+          ),
+          throwsA(
+            isA<AuthException>().having(
+              (e) => e.statusCode,
+              'statusCode',
+              isNot(503),
+            ),
+          ),
+        );
+      } finally {
+        auth.dispose();
+      }
     });
   });
 }
