@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dspatch_app/engine_client/engine_auth.dart';
@@ -10,9 +11,20 @@ import 'package:dspatch_app/database/engine_database.dart';
 import 'package:drift/native.dart';
 import 'package:http/http.dart' as http;
 
+/// Integration test harness for the dspatch engine.
+///
+/// Connects to a running engine instance, authenticates as anonymous,
+/// and provides an [EngineClient] + read-only [EngineDatabase].
+///
+/// Usage:
+///   1. Start the engine: `cargo run --bin dspatch-daemon` (or with `--test-db`)
+///   2. Run tests: `dart test integration_test/`
+///
+/// The harness auto-discovers the DB path via `GET /engine-info`.
+/// Port defaults to 9847 (override with `DSPATCH_TEST_PORT` env var).
 class TestHarness {
   final int port;
-  final String dbPath;
+  late final String dbPath;
 
   late final EngineClient client;
   late final EngineDatabase database;
@@ -20,32 +32,37 @@ class TestHarness {
   bool? _dockerAvailable;
   bool? _backendAvailable;
 
-  TestHarness({required this.port, required this.dbPath});
+  TestHarness({required this.port});
 
+  /// Creates a harness using default port (9847) or `DSPATCH_TEST_PORT` env var.
   factory TestHarness.fromEnv() {
     final portStr = Platform.environment['DSPATCH_TEST_PORT'];
-    final dbPath = Platform.environment['DSPATCH_TEST_DB'];
-
-    if (portStr == null || dbPath == null) {
-      throw StateError(
-        'Missing env vars. Start engine with --test-db, then set:\n'
-        '  DSPATCH_TEST_PORT=<port>\n'
-        '  DSPATCH_TEST_DB=<db_dir>/engine.db',
-      );
-    }
-
-    return TestHarness(port: int.parse(portStr), dbPath: dbPath);
+    final port = portStr != null ? int.parse(portStr) : 9847;
+    return TestHarness(port: port);
   }
 
   String get host => '127.0.0.1';
 
   Future<void> setUp() async {
-    // 1. Authenticate as anonymous
+    // 1. Query engine-info to discover DB path.
+    final infoResponse = await http
+        .get(Uri.parse('http://$host:$port/engine-info'))
+        .timeout(const Duration(seconds: 5));
+    if (infoResponse.statusCode != 200) {
+      throw StateError(
+        'Engine not reachable at $host:$port. '
+        'Start it with: cargo run --bin dspatch-daemon -- --test-db',
+      );
+    }
+    final info = jsonDecode(infoResponse.body) as Map<String, dynamic>;
+    dbPath = info['db_path'] as String;
+
+    // 2. Authenticate as anonymous.
     final auth = EngineAuth(host: host, port: port);
     final authResult = await auth.authenticateAnonymous();
     auth.dispose();
 
-    // 2. Connect WebSocket
+    // 3. Connect WebSocket.
     final connection = EngineConnection(
       host: host,
       port: port,
@@ -53,10 +70,10 @@ class TestHarness {
     );
     await connection.connect();
 
-    // 3. Create engine client (owns the connection)
+    // 4. Create engine client (owns the connection).
     client = EngineClient(connection);
 
-    // 4. Open Drift database (read-only)
+    // 5. Open Drift database (read-only).
     database = EngineDatabase.forTesting(
       NativeDatabase(File(dbPath), setup: (db) {
         db.execute('PRAGMA query_only = ON');
