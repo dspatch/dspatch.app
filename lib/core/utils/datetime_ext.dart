@@ -33,3 +33,8 @@ extension DateTimeExt on DateTime {
   /// Returns the UTC ISO 8601 representation (e.g. '2024-01-15T09:30:00.000Z').
   String isoString() => toUtc().toIso8601String();
 }
+
+/// Convenience extension on [String] to parse an ISO date and get relative time.
+extension StringTimeAgoExt on String {
+  String timeAgo() => parseDate(this).timeAgo();
+}

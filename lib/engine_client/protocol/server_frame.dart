@@ -15,7 +15,9 @@ sealed class ServerFrame {
     return switch (type) {
       'result' => ResultFrame(
           id: json['id'] as String,
-          data: json['data'] as Map<String, dynamic>? ?? {},
+          data: json['data'] is Map<String, dynamic>
+              ? json['data'] as Map<String, dynamic>
+              : {'value': json['data']},
         ),
       'error' => ErrorFrame(
           id: json['id'] as String?,
