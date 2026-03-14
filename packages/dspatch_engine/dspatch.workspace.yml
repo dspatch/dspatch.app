@@ -1,0 +1,14 @@
+name: test-workspace
+env: {}
+agents:
+  main:
+    template: dspatch://agent/test/echo
+    env: {}
+    sub_agents: {}
+    peers: []
+mounts: []
+docker:
+  network_mode: host
+  ports: []
+  gpu: false
+  home_persistence: true
