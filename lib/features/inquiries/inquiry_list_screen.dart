@@ -83,9 +83,9 @@ class InquiryListScreen extends ConsumerWidget {
                     ? items
                     : items
                         .where((i) =>
-                            i.inquiry.status == statusFilter.name ||
+                            i.status == statusFilter.name ||
                             (statusFilter == InquiryStatus.responded &&
-                                i.inquiry.isDelivered))
+                                i.isDelivered))
                         .toList();
 
                 if (filtered.isEmpty) {
@@ -98,17 +98,17 @@ class InquiryListScreen extends ConsumerWidget {
                 }
 
                 // Already sorted by created_at DESC from the DAO.
-                // Group by workspaceId, preserving order of first appearance.
+                // Group by runId, preserving order of first appearance.
                 final groupOrder = <String>[];
                 final groupNames = <String, String>{};
                 final grouped = <String, List<WorkspaceInquiry>>{};
                 for (final item in filtered) {
-                  final wId = item.workspaceId;
+                  final wId = item.runId;
                   if (!grouped.containsKey(wId)) {
                     groupOrder.add(wId);
-                    groupNames[wId] = item.workspaceName;
+                    groupNames[wId] = item.agentKey;
                   }
-                  grouped.putIfAbsent(wId, () => []).add(item.inquiry);
+                  grouped.putIfAbsent(wId, () => []).add(item);
                 }
 
                 return ListView.separated(

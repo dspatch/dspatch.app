@@ -1,4 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
+import 'dart:convert';
+
 import 'package:dspatch_ui/dspatch_ui.dart';
 
 import '../../database/engine_database.dart';
@@ -157,7 +159,7 @@ class _ApiKeyCard extends ConsumerWidget {
 
   Future<void> _copyKey(WidgetRef ref) async {
     final controller = ref.read(apiKeyControllerProvider.notifier);
-    final plaintext = await controller.decryptApiKey(apiKey.encryptedKey);
+    final plaintext = await controller.decryptApiKey(base64Encode(apiKey.encryptedKey));
     if (plaintext != null) {
       await Clipboard.setData(ClipboardData(text: plaintext));
       toast('API key copied to clipboard', type: ToastType.success);

@@ -1,5 +1,4 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart' show HubAgentSummary;
 import 'dart:io';
 
 import 'package:dspatch_ui/dspatch_ui.dart';
@@ -8,10 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:yaml/yaml.dart';
 
+import '../../core/extensions/drift_extensions.dart';
 import '../../core/extensions/string_ext.dart';
 import '../../core/utils/agent_source_scanner.dart';
 import '../../core/utils/debouncer.dart';
 import '../../di/providers.dart';
+import '../../models/hub_types.dart';
 import '../hub/hub_agent_browser.dart';
 import 'agent_provider_controller.dart';
 import 'widgets/agent_provider_form_validator.dart';
@@ -70,6 +71,19 @@ class _AgentProviderFormScreenState
   bool _fieldsAutoDetected = false;
   bool _importingFromGit = false;
   bool _gitImported = false;
+
+  /// Converts a JSON list of {key, value} maps (from fieldsJson) to Map<String, String>.
+  static Map<String, String> _parseFieldsList(List<dynamic> fields) {
+    final result = <String, String>{};
+    for (final entry in fields) {
+      if (entry is Map) {
+        final key = entry['key']?.toString() ?? '';
+        final value = entry['value']?.toString() ?? '';
+        if (key.isNotEmpty) result[key] = value;
+      }
+    }
+    return result;
+  }
 
   @override
   void dispose() {
@@ -391,10 +405,10 @@ class _AgentProviderFormScreenState
     _sourcePathController.text = template.sourcePath ?? '';
     _gitUrlController.text = template.gitUrl ?? '';
     _gitBranchController.text = template.gitBranch ?? '';
-    _requiredEnv = List.of(template.requiredEnv);
-    _requiredMounts = List.of(template.requiredMounts);
+    _requiredEnv = template.requiredEnv.cast<String>();
+    _requiredMounts = template.requiredMounts.cast<String>();
     _readme = template.readme;
-    _fields = Map.of(template.fields);
+    _fields = _parseFieldsList(template.fields);
   }
 
   void _populateFromTemplateData() {
