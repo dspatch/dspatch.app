@@ -181,10 +181,21 @@ async fn handle_client_message(socket: &mut WebSocket, text: &str, runtime: &Arc
     match frame {
         ClientFrame::Command {
             id,
-            method: _,
+            method,
             params,
         } => {
-            let command: Command = match serde_json::from_value(params.clone()) {
+            // Inject `method` into `params` so serde can deserialize the
+            // tagged Command enum (which uses `#[serde(tag = "method")]`).
+            let mut command_value = match params {
+                serde_json::Value::Object(map) => serde_json::Value::Object(map),
+                _ => serde_json::Value::Object(serde_json::Map::new()),
+            };
+            command_value
+                .as_object_mut()
+                .unwrap()
+                .insert("method".into(), serde_json::Value::String(method));
+
+            let command: Command = match serde_json::from_value(command_value) {
                 Ok(c) => c,
                 Err(e) => {
                     let err = ServerFrame::Error {

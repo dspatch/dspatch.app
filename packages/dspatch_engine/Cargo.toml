@@ -87,6 +87,9 @@ keyring = { version = "3", features = ["apple-native"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["linux-native"] }
 
+[features]
+flutter = []
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3"

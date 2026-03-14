@@ -25,6 +25,16 @@ pub struct EngineConfig {
 
     /// Debounce period (ms) for batching table invalidation events.
     pub invalidation_debounce_ms: u64,
+
+    /// Whether the engine is running in test mode (--test-db).
+    /// Exposes DB path via /engine-info endpoint.
+    #[serde(default)]
+    pub test_mode: bool,
+
+    /// Optional backend API URL. Defaults to `http://localhost:3000` in debug
+    /// builds and `https://backend.dspatch.dev` in release builds.
+    #[serde(default)]
+    pub backend_url: Option<String>,
 }
 
 impl Default for EngineConfig {
@@ -38,6 +48,8 @@ impl Default for EngineConfig {
             log_level: "info".into(),
             agent_server_port: 0,
             invalidation_debounce_ms: 50,
+            test_mode: false,
+            backend_url: None,
         }
     }
 }

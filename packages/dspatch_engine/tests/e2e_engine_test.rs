@@ -46,7 +46,7 @@ async fn start_engine_on_port(
     let broadcaster = InvalidationBroadcaster::new(db.tracker().clone(), 10);
     let invalidation_handle = broadcaster.start();
 
-    let registry = Arc::new(ServiceRegistry::new(db, config.db_dir.clone()));
+    let registry = Arc::new(ServiceRegistry::new(db, config.db_dir.clone(), None));
     let runtime = Arc::new(EngineRuntime::with_services_and_invalidation(
         config,
         registry,

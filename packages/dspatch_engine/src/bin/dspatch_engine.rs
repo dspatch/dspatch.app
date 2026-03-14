@@ -16,6 +16,7 @@ use dspatch_engine::engine::service_registry::ServiceRegistry;
 use dspatch_engine::engine::startup::{
     init_tracing, open_database, wait_for_shutdown_signal, EngineRuntime,
 };
+use dspatch_engine::hub::HubApiClient;
 use dspatch_engine::util::id::new_id;
 
 /// dspatch engine daemon.
@@ -38,7 +39,7 @@ async fn main() {
         let dir = std::env::temp_dir().join(format!("dspatch-test-{}", new_id()));
         std::fs::create_dir_all(&dir).expect("failed to create test db directory");
         config.db_dir = dir.clone();
-        config.client_api_port = 0;
+        config.test_mode = true;
         Some(dir)
     } else {
         None
@@ -73,13 +74,28 @@ async fn main() {
     );
     let invalidation_handle = broadcaster.start();
 
-    // 4. Create the service registry and engine runtime.
-    let registry = Arc::new(ServiceRegistry::new(db, config.db_dir.clone()));
+    // 4. Create hub client for backend API communication.
+    let backend_url = config.backend_url.clone().unwrap_or_else(|| {
+        if cfg!(debug_assertions) {
+            "http://localhost:3000".to_string()
+        } else {
+            "https://backend.dspatch.dev".to_string()
+        }
+    });
+    let hub_client = Arc::new(HubApiClient::new(&backend_url, None));
+    tracing::info!(backend_url = %backend_url, "hub client configured");
+
+    // 5. Create the service registry and engine runtime.
+    let registry = Arc::new(ServiceRegistry::new(
+        db,
+        config.db_dir.clone(),
+        Some(hub_client),
+    ));
     let runtime = Arc::new(EngineRuntime::with_services_and_invalidation(
         config, registry, invalidation_handle,
     ));
 
-    // 5. Start the client API server in a background task.
+    // 6. Start the client API server in a background task.
     let api_runtime = runtime.clone();
     let shutdown_rx = runtime.subscribe_shutdown();
 
@@ -120,14 +136,14 @@ async fn main() {
         }
     }
 
-    // 6. Wait for shutdown signal (Ctrl+C / SIGTERM).
+    // 7. Wait for shutdown signal (Ctrl+C / SIGTERM).
     wait_for_shutdown_signal().await;
 
-    // 7. Trigger graceful shutdown.
+    // 8. Trigger graceful shutdown.
     tracing::info!("shutting down...");
     runtime.trigger_shutdown();
 
-    // 8. Wait for the server to finish.
+    // 9. Wait for the server to finish.
     let _ = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         api_handle,
@@ -136,7 +152,7 @@ async fn main() {
 
     tracing::info!("dspatch engine stopped");
 
-    // 9. Clean up test directory on shutdown.
+    // 10. Clean up test directory on shutdown.
     if let Some(dir) = test_dir {
         if let Err(e) = std::fs::remove_dir_all(&dir) {
             tracing::warn!(error = %e, "failed to clean up test directory");

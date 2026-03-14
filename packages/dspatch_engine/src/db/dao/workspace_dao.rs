@@ -1149,6 +1149,8 @@ impl WorkspaceDao {
     }
 
     /// Updates a workspace inquiry response.
+    ///
+    /// Returns `NotFound` if no inquiry with the given `id` exists.
     pub fn update_workspace_inquiry_response(
         &self,
         id: &str,
@@ -1158,7 +1160,7 @@ impl WorkspaceDao {
     ) -> Result<()> {
         let status_str = inquiry_status_to_db(status);
         let now = format_datetime(&chrono::Utc::now().naive_utc());
-        self.db.execute(
+        let rows_affected = self.db.execute(
             "UPDATE workspace_inquiries SET response_text = ?1, response_suggestion_index = ?2, status = ?3, responded_at = ?4 WHERE id = ?5",
             &[
                 &response_text as &dyn rusqlite::types::ToSql,
@@ -1168,6 +1170,9 @@ impl WorkspaceDao {
                 &id,
             ],
         )?;
+        if rows_affected == 0 {
+            return Err(AppError::NotFound(format!("Inquiry not found: {id}")));
+        }
         Ok(())
     }
 

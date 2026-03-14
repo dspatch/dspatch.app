@@ -21,10 +21,14 @@ use crate::db::dao::preference_dao::PreferenceDao;
 use crate::db::dao::workspace_dao::WorkspaceDao;
 use crate::db::dao::workspace_template_dao::WorkspaceTemplateDao;
 use crate::docker::DockerClient;
+use crate::domain::services::{AgentProviderService, ApiKeyService, DockerService};
+use crate::hub::HubApiClient;
+use crate::server::agent_server::EmbeddedAgentServer;
+use crate::server::workspace_bridge::WorkspaceBridge;
 use crate::services::{
     LocalAgentDataService, LocalAgentProviderService, LocalAgentTemplateService,
-    LocalApiKeyService, LocalFileBrowserService, LocalInquiryService, LocalPreferenceService,
-    LocalWorkspaceService, LocalWorkspaceTemplateService,
+    LocalApiKeyService, LocalDockerService, LocalFileBrowserService, LocalInquiryService,
+    LocalPreferenceService, LocalWorkspaceService, LocalWorkspaceTemplateService,
 };
 
 /// Holds `Arc`-wrapped instances of all local services.
@@ -43,26 +47,26 @@ pub struct ServiceRegistry {
     crypto: Arc<AesGcmCrypto>,
     file_browser: Arc<LocalFileBrowserService>,
     docker: Arc<DockerClient>,
+    hub_client: Option<Arc<HubApiClient>>,
 }
 
 impl ServiceRegistry {
-    /// Creates all services from the given database.
+    /// Creates all services from the given database, wiring the workspace
+    /// bridge immediately so that launch/stop commands work from startup.
     ///
-    /// DAOs are constructed internally — callers only need the `Database`
-    /// and a `data_dir` path (used by `LocalAgentTemplateService` to
-    /// locate template files on disk).
-    pub fn new(db: Arc<Database>, data_dir: PathBuf) -> Self {
+    /// `hub_client` is optional — when provided, hub commands are dispatched
+    /// to the backend API; otherwise they return `API_ERROR`.
+    pub fn new(
+        db: Arc<Database>,
+        data_dir: PathBuf,
+        hub_client: Option<Arc<HubApiClient>>,
+    ) -> Self {
         let workspace_dao = Arc::new(WorkspaceDao::new(db.clone()));
         let agent_provider_dao = Arc::new(AgentProviderDao::new(db.clone()));
         let agent_template_dao = Arc::new(AgentTemplateDao::new(db.clone()));
         let workspace_template_dao = Arc::new(WorkspaceTemplateDao::new(db.clone()));
         let api_key_dao = Arc::new(ApiKeyDao::new(db.clone()));
         let preference_dao = Arc::new(PreferenceDao::new(db.clone()));
-
-        // WorkspaceBridge is None — the engine wires it separately when
-        // the agent-facing server starts (post-auth). Commands that need
-        // the bridge (launch, stop) will fail gracefully until then.
-        let bridge = Arc::new(TokioMutex::new(None));
 
         // Crypto: uses the platform keyring for master key storage.
         let secret_store: Arc<dyn crate::db::key_manager::SecretStore> =
@@ -77,12 +81,40 @@ impl ServiceRegistry {
         // Docker: uses the default platform Docker CLI.
         let docker = Arc::new(DockerClient::for_platform());
 
+        // Agent-facing server (created but not started — the bridge starts it on demand).
+        let agent_server = Arc::new(TokioMutex::new(EmbeddedAgentServer::new(
+            Arc::clone(&workspace_dao),
+            Arc::clone(&docker),
+        )));
+
+        // Docker service for status detection (assets_dir only needed for image builds).
+        let docker_service: Arc<dyn DockerService> = Arc::new(LocalDockerService::new(
+            DockerClient::for_platform(),
+            data_dir.to_string_lossy().to_string(),
+        ));
+
+        // Wire the workspace bridge so launch/stop commands work immediately.
+        let agent_providers = Arc::new(LocalAgentProviderService::new(agent_provider_dao));
+        let api_keys = Arc::new(LocalApiKeyService::new(api_key_dao));
+
+        let ws_bridge = WorkspaceBridge::new(
+            agent_server,
+            Arc::clone(&workspace_dao),
+            Arc::clone(&agent_providers) as Arc<dyn AgentProviderService>,
+            Arc::clone(&api_keys) as Arc<dyn ApiKeyService>,
+            Arc::clone(&crypto),
+            Arc::clone(&docker),
+            docker_service,
+            Arc::clone(&preference_dao),
+        );
+        let bridge = Arc::new(TokioMutex::new(Some(ws_bridge)));
+
         Self {
             workspaces: Arc::new(LocalWorkspaceService::new(
                 workspace_dao.clone(),
                 bridge,
             )),
-            agent_providers: Arc::new(LocalAgentProviderService::new(agent_provider_dao)),
+            agent_providers,
             agent_templates: Arc::new(LocalAgentTemplateService::new(
                 agent_template_dao,
                 data_dir,
@@ -90,13 +122,14 @@ impl ServiceRegistry {
             workspace_templates: Arc::new(LocalWorkspaceTemplateService::new(
                 workspace_template_dao,
             )),
-            api_keys: Arc::new(LocalApiKeyService::new(api_key_dao)),
+            api_keys,
             preferences: Arc::new(LocalPreferenceService::new(preference_dao)),
             inquiries: Arc::new(LocalInquiryService::new(workspace_dao.clone())),
             agent_data: Arc::new(LocalAgentDataService::new(workspace_dao)),
             crypto,
             file_browser,
             docker,
+            hub_client,
         }
     }
 
@@ -142,5 +175,9 @@ impl ServiceRegistry {
 
     pub fn docker(&self) -> &Arc<DockerClient> {
         &self.docker
+    }
+
+    pub fn hub_client(&self) -> Option<&Arc<HubApiClient>> {
+        self.hub_client.as_ref()
     }
 }

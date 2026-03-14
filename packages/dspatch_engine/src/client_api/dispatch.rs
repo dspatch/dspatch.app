@@ -8,6 +8,7 @@ use crate::client_api::commands::Command;
 use crate::domain::models::CreateWorkspaceRequest;
 use crate::docker::{DSPATCH_CONTAINER_LABEL, RUNTIME_IMAGE_TAG};
 use crate::engine::service_registry::ServiceRegistry;
+use crate::hub::HubApiClient;
 use crate::util::error::AppError;
 use crate::util::result::Result;
 use crate::workspace_config::{parser, validation};
@@ -104,10 +105,7 @@ pub async fn dispatch_command(
 
         Command::GetPreference { key } => {
             let value = services.preferences().get_preference(key).await?;
-            match value {
-                Some(v) => Ok(serde_json::Value::String(v)),
-                None => Ok(serde_json::Value::Null),
-            }
+            Ok(serde_json::json!({ "value": value }))
         }
 
         Command::SetPreference { key, value } => {
@@ -373,27 +371,161 @@ pub async fn dispatch_command(
 
         // ── Hub Commands ────────────────────────────────────────
 
-        Command::HubBrowseAgents { .. }
-        | Command::HubAgentCategories
-        | Command::HubBrowseWorkspaces { .. }
-        | Command::HubWorkspaceCategories
-        | Command::HubResolveAgent { .. }
-        | Command::HubResolveWorkspace { .. }
-        | Command::HubResolveWorkspaceDetails { .. }
-        | Command::HubMyVotes { .. }
-        | Command::HubPopularTags { .. }
-        | Command::HubSearchTags { .. }
-        | Command::CheckForAgentUpdates
-        | Command::CheckForWorkspaceUpdates
-        | Command::HubSubmitAgent { .. }
-        | Command::HubSubmitTemplate { .. }
-        | Command::HubSubmitWorkspace { .. }
-        | Command::HubVoteAgent { .. }
-        | Command::HubVoteWorkspace { .. } => Err(AppError::Api {
-            message: "Hub requires backend connection — not available".into(),
-            status_code: None,
-            body: None,
-        }),
+        Command::HubBrowseAgents { params } => {
+            let hub = require_hub(services)?;
+            let cursor = params.get("cursor").and_then(|v| v.as_str());
+            let category = params.get("category").and_then(|v| v.as_str());
+            let search = params.get("search").and_then(|v| v.as_str());
+            let per_page = params.get("per_page").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
+            let (agents, pagination) = hub
+                .browse_agents(cursor, category, search, per_page)
+                .await
+                .map_err(hub_err)?;
+            Ok(serde_json::json!({ "data": agents, "pagination": pagination }))
+        }
+
+        Command::HubAgentCategories => {
+            let hub = require_hub(services)?;
+            let categories = hub.agent_categories().await.map_err(hub_err)?;
+            Ok(serde_json::json!({ "data": categories }))
+        }
+
+        Command::HubBrowseWorkspaces { params } => {
+            let hub = require_hub(services)?;
+            let cursor = params.get("cursor").and_then(|v| v.as_str());
+            let category = params.get("category").and_then(|v| v.as_str());
+            let search = params.get("search").and_then(|v| v.as_str());
+            let per_page = params.get("per_page").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
+            let (workspaces, pagination) = hub
+                .browse_workspaces(cursor, category, search, per_page)
+                .await
+                .map_err(hub_err)?;
+            Ok(serde_json::json!({ "data": workspaces, "pagination": pagination }))
+        }
+
+        Command::HubWorkspaceCategories => {
+            let hub = require_hub(services)?;
+            let categories = hub.workspace_categories().await.map_err(hub_err)?;
+            Ok(serde_json::json!({ "data": categories }))
+        }
+
+        Command::HubResolveAgent { agent_id } => {
+            let hub = require_hub(services)?;
+            let resolved = hub.resolve_agent(agent_id).await.map_err(hub_err)?;
+            to_json(resolved)
+        }
+
+        Command::HubResolveWorkspace { workspace_id } => {
+            let hub = require_hub(services)?;
+            let resolved = hub.resolve_workspace(workspace_id).await.map_err(hub_err)?;
+            to_json(resolved)
+        }
+
+        Command::HubResolveWorkspaceDetails { params } => {
+            let hub = require_hub(services)?;
+            let slug = params["workspace_id"]
+                .as_str()
+                .ok_or_else(|| AppError::Validation("Missing 'workspace_id' field".into()))?;
+            let resolved = hub.resolve_workspace(slug).await.map_err(hub_err)?;
+            to_json(resolved)
+        }
+
+        Command::HubMyVotes { item_type } => {
+            let hub = require_hub(services)?;
+            let slugs = hub.my_votes(item_type).await.map_err(hub_err)?;
+            Ok(serde_json::json!({ "slugs": slugs }))
+        }
+
+        Command::HubPopularTags { params } => {
+            let hub = require_hub(services)?;
+            let category = params.get("category").and_then(|v| v.as_str());
+            let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
+            let tags = hub.popular_tags(category, limit).await.map_err(hub_err)?;
+            Ok(serde_json::json!({ "data": tags }))
+        }
+
+        Command::HubSearchTags { params } => {
+            let hub = require_hub(services)?;
+            let query = params.get("query").and_then(|v| v.as_str());
+            let category = params.get("category").and_then(|v| v.as_str());
+            let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
+            let tags = hub.search_tags(query, category, limit).await.map_err(hub_err)?;
+            Ok(serde_json::json!({ "data": tags }))
+        }
+
+        Command::CheckForAgentUpdates => {
+            // TODO: Implement version checking against installed agent templates.
+            Ok(serde_json::json!({ "updates": [] }))
+        }
+
+        Command::CheckForWorkspaceUpdates => {
+            // TODO: Implement version checking against installed workspace templates.
+            Ok(serde_json::json!({ "updates": [] }))
+        }
+
+        Command::HubSubmitAgent { params } => {
+            let hub = require_hub(services)?;
+            let name = params["name"].as_str()
+                .ok_or_else(|| AppError::Validation("Missing 'name' field".into()))?;
+            let repo_url = params["repo_url"].as_str()
+                .ok_or_else(|| AppError::Validation("Missing 'repo_url' field".into()))?;
+            let branch = params.get("branch").and_then(|v| v.as_str());
+            let description = params.get("description").and_then(|v| v.as_str());
+            let category = params.get("category").and_then(|v| v.as_str());
+            let tags = params.get("tags").and_then(|v| v.as_array());
+            let entry_point = params.get("entry_point").and_then(|v| v.as_str());
+            let sdk_version = params.get("sdk_version").and_then(|v| v.as_str());
+            hub.submit_agent(name, repo_url, branch, description, category,
+                tags.map(|t| t.as_slice()), entry_point, sdk_version)
+                .await
+                .map_err(hub_err)?;
+            Ok(serde_json::Value::Null)
+        }
+
+        Command::HubSubmitTemplate { params } => {
+            let hub = require_hub(services)?;
+            let name = params["name"].as_str()
+                .ok_or_else(|| AppError::Validation("Missing 'name' field".into()))?;
+            let config_yaml = params["config_yaml"].as_str()
+                .ok_or_else(|| AppError::Validation("Missing 'config_yaml' field".into()))?;
+            let source_uri = params["source_uri"].as_str()
+                .ok_or_else(|| AppError::Validation("Missing 'source_uri' field".into()))?;
+            let description = params.get("description").and_then(|v| v.as_str());
+            let category = params.get("category").and_then(|v| v.as_str());
+            let tags = params.get("tags").and_then(|v| v.as_array());
+            hub.submit_template(name, config_yaml, source_uri, description, category,
+                tags.map(|t| t.as_slice()))
+                .await
+                .map_err(hub_err)?;
+            Ok(serde_json::Value::Null)
+        }
+
+        Command::HubSubmitWorkspace { params } => {
+            let hub = require_hub(services)?;
+            let name = params["name"].as_str()
+                .ok_or_else(|| AppError::Validation("Missing 'name' field".into()))?;
+            let config_yaml = &params["config_json"];
+            let description = params.get("description").and_then(|v| v.as_str());
+            let category = params.get("category").and_then(|v| v.as_str());
+            let tags = params.get("tags").and_then(|v| v.as_array());
+            hub.submit_workspace(name, config_yaml, description, category,
+                tags.map(|t| t.as_slice()))
+                .await
+                .map_err(hub_err)?;
+            Ok(serde_json::Value::Null)
+        }
+
+        Command::HubVoteAgent { agent_id, .. } => {
+            let hub = require_hub(services)?;
+            let result = hub.vote_agent(agent_id).await.map_err(hub_err)?;
+            Ok(result)
+        }
+
+        Command::HubVoteWorkspace { workspace_id, .. } => {
+            let hub = require_hub(services)?;
+            let result = hub.vote_workspace(workspace_id).await.map_err(hub_err)?;
+            Ok(result)
+        }
 
         // ── Config Parser Commands ──────────────────────────────
 
@@ -485,4 +617,25 @@ pub async fn dispatch_command(
 fn to_json<T: serde::Serialize>(value: T) -> Result<serde_json::Value> {
     serde_json::to_value(value)
         .map_err(|e| AppError::Internal(format!("serialize error: {e}")))
+}
+
+/// Returns the hub client or an API error if not configured.
+fn require_hub(services: &ServiceRegistry) -> Result<&HubApiClient> {
+    services
+        .hub_client()
+        .map(|c| c.as_ref())
+        .ok_or_else(|| AppError::Api {
+            message: "Hub requires backend connection — not configured".into(),
+            status_code: None,
+            body: None,
+        })
+}
+
+/// Maps a `HubApiException` to `AppError::Api`.
+fn hub_err(e: crate::hub::HubApiException) -> AppError {
+    AppError::Api {
+        message: e.body.clone(),
+        status_code: Some(e.status_code),
+        body: Some(e.body),
+    }
 }

@@ -586,7 +586,7 @@ fn service_registry_provides_all_services() {
     let db = std::sync::Arc::new(db);
 
     let data_dir = tmp.path().join("data");
-    let registry = ServiceRegistry::new(db, data_dir);
+    let registry = ServiceRegistry::new(db, data_dir, None);
 
     // Verify all service accessors return valid references.
     let _ = registry.workspaces();
@@ -673,7 +673,7 @@ async fn dispatch_get_workspace_not_found() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("test.db");
     let db = Arc::new(dspatch_engine::engine::startup::open_database(&db_path).unwrap());
-    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
+    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf(), None));
 
     let cmd = Command::GetWorkspace { id: "nonexistent".into() };
     let result = dispatch_command(&cmd, &registry).await;
@@ -693,7 +693,7 @@ async fn dispatch_delete_workspace() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("test.db");
     let db = Arc::new(dspatch_engine::engine::startup::open_database(&db_path).unwrap());
-    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
+    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf(), None));
 
     // Delete non-existent workspace — just verify it doesn't panic.
     let cmd = Command::DeleteWorkspace { id: "nonexistent".into() };
@@ -711,7 +711,7 @@ async fn dispatch_preference_round_trip() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("test.db");
     let db = Arc::new(dspatch_engine::engine::startup::open_database(&db_path).unwrap());
-    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
+    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf(), None));
 
     // Set a preference.
     let cmd = Command::SetPreference {
@@ -739,7 +739,7 @@ async fn dispatch_agent_provider_round_trip() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("test.db");
     let db = Arc::new(dspatch_engine::engine::startup::open_database(&db_path).unwrap());
-    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
+    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf(), None));
 
     // Create an agent provider via JSON Value
     let cmd = Command::CreateAgentProvider {
@@ -869,7 +869,7 @@ async fn ws_command_dispatches_to_service() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("test.db");
     let db = Arc::new(dspatch_engine::engine::startup::open_database(&db_path).unwrap());
-    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
+    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf(), None));
 
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
@@ -941,7 +941,7 @@ async fn dispatch_unimplemented_command_returns_error() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("test.db");
     let db = Arc::new(dspatch_engine::engine::startup::open_database(&db_path).unwrap());
-    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf()));
+    let registry = Arc::new(ServiceRegistry::new(db, tmp.path().to_path_buf(), None));
 
     // Hub command requires backend connection — returns Api error.
     let cmd = Command::HubAgentCategories;
@@ -1087,7 +1087,7 @@ async fn ws_receives_invalidation_on_table_change() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("test.db");
     let db = Arc::new(dspatch_engine::engine::startup::open_database(&db_path).unwrap());
-    let registry = Arc::new(ServiceRegistry::new(db.clone(), tmp.path().to_path_buf()));
+    let registry = Arc::new(ServiceRegistry::new(db.clone(), tmp.path().to_path_buf(), None));
 
     // Set up the TableChangeTracker and InvalidationBroadcaster.
     let tracker = Arc::new(TableChangeTracker::new());
