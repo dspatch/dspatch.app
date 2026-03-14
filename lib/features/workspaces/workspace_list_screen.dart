@@ -2,7 +2,7 @@
 import 'dart:io';
 
 import '../../database/engine_database.dart';
-import 'package:dspatch_engine/dspatch_engine.dart' show HubWorkspaceSummary;
+import '../../models/hub_types.dart';
 
 import 'package:dspatch_ui/dspatch_ui.dart';
 

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'package:dspatch_engine/dspatch_engine.dart'
-    show HubAgentSummary, HubCategoryCount, HubPagination, HubTagRef, HubWorkspaceSummary;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../models/hub_types.dart';
 
 import '../../di/providers.dart';
 import '../../engine_client/models/auth_state.dart';
@@ -74,7 +74,6 @@ HubCategoryCount _hubCategoryFromMap(Map<String, dynamic> m) {
 
 HubPagination _hubPaginationFromMap(Map<String, dynamic> m) {
   return HubPagination(
-    perPage: m['per_page'] as int? ?? 20,
     nextCursor: m['next_cursor'] as String?,
     hasMore: m['has_more'] as bool? ?? false,
   );

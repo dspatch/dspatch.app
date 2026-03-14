@@ -1,9 +1,8 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'dart:convert';
 
-import 'package:dspatch_engine/dspatch_engine.dart' show HubTagRef;
-
 import '../../database/engine_database.dart' show AgentProvider;
+import '../../models/hub_types.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
