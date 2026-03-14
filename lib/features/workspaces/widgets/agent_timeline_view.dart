@@ -35,7 +35,7 @@ class _MessageItem extends _TimelineItem {
 
 class _ActivityItem extends _TimelineItem {
   _ActivityItem(this.activity);
-  final AgentActivity activity;
+  final AgentActivityEvent activity;
 
   @override
   DateTime get timestamp => activity.timestampDate;
@@ -43,7 +43,7 @@ class _ActivityItem extends _TimelineItem {
 
 // ── Activity helpers ──
 
-Map<String, dynamic>? _activityData(AgentActivity a) {
+Map<String, dynamic>? _activityData(AgentActivityEvent a) {
   if (a.dataJson == null) return null;
   try {
     return jsonDecode(a.dataJson!) as Map<String, dynamic>;
@@ -52,12 +52,12 @@ Map<String, dynamic>? _activityData(AgentActivity a) {
   }
 }
 
-String? _activityTool(AgentActivity a) => _activityData(a)?['tool'] as String?;
+String? _activityTool(AgentActivityEvent a) => _activityData(a)?['tool'] as String?;
 
-String? _activityInquiryId(AgentActivity a) =>
+String? _activityInquiryId(AgentActivityEvent a) =>
     _activityData(a)?['inquiry_id'] as String?;
 
-String _activityDescription(AgentActivity a) {
+String _activityDescription(AgentActivityEvent a) {
   final data = _activityData(a);
   final desc = data?['description'] as String?;
   if (desc != null && desc.isNotEmpty) return desc;
@@ -378,7 +378,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
     'talk_to_', 'continue_waiting_for_agent_response',
   ];
 
-  static bool _isDspatchToolCall(AgentActivity a) {
+  static bool _isDspatchToolCall(AgentActivityEvent a) {
     if (a.eventType != 'tool_call') return false;
     final tool = _activityTool(a);
     if (tool == null) return false;
@@ -387,7 +387,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
 
   List<_TimelineItem> _buildTimelineItems(
     List<AgentMessage> messages,
-    List<AgentActivity> activities,
+    List<AgentActivityEvent> activities,
   ) {
     final items = <_TimelineItem>[
       for (final m in messages) _MessageItem(m),
@@ -764,7 +764,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
   // ── Activity node (collapsible) ──
 
   Widget _buildActivityNode(
-      AgentActivity act, bool isFirst, bool isLast) {
+      AgentActivityEvent act, bool isFirst, bool isLast) {
     final tool = _activityTool(act);
     final eventType = act.eventType;
 
@@ -1098,7 +1098,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
   // ── Dspatch tool card builders ──
 
   Widget _buildTalkToActivityCard(
-      AgentActivity act, bool isFirst, bool isLast) {
+      AgentActivityEvent act, bool isFirst, bool isLast) {
     final data = _activityData(act) ?? {};
     final peer = data['target_agent'] as String? ?? 'unknown';
     final messageText = data['text'] as String? ?? '';
@@ -1125,7 +1125,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
         id: act.id,
         label: 'Sent to $peer',
         message: messageText,
-        timestamp: act.timestamp,
+        timestamp: act.timestampDate,
         isOutgoing: true,
         continueConversation: continueConv,
         onJump: targetInstanceId != null
@@ -1140,7 +1140,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
   }
 
   Widget _buildTalkToResponseCard(
-      AgentActivity act, bool isFirst, bool isLast) {
+      AgentActivityEvent act, bool isFirst, bool isLast) {
     final data = _activityData(act) ?? {};
     final peer = data['target_agent'] as String? ?? 'unknown';
     final responseText = data['response'] as String? ?? '';
@@ -1166,7 +1166,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
         id: act.id,
         label: 'Response from $peer',
         message: responseText,
-        timestamp: act.timestamp,
+        timestamp: act.timestampDate,
         isOutgoing: false,
         onJump: peerInstanceId != null
             ? () => ref
@@ -1211,7 +1211,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
   // ── Plan node (ExitPlanMode) ──
 
   Widget _buildPlanNode(
-      AgentActivity act, bool isFirst, bool isLast) {
+      AgentActivityEvent act, bool isFirst, bool isLast) {
     final data = _activityData(act);
     // Try structured parse first, then regex extract from Python repr,
     // then fall back to act.content.
@@ -1366,7 +1366,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
   // ── Todo node (TodoWrite) ──
 
   Widget _buildTodoNode(
-      AgentActivity act, bool isFirst, bool isLast) {
+      AgentActivityEvent act, bool isFirst, bool isLast) {
     final data = _activityData(act);
     // Try parsing from data.input first, then fall back to act.content.
     var input = data != null ? _parseInputField(data) : null;
@@ -1514,7 +1514,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
   }
 
   Widget _buildContinueWaitingNode(
-      AgentActivity act, bool isFirst, bool isLast) {
+      AgentActivityEvent act, bool isFirst, bool isLast) {
     return _timelineRow(
       marker: Padding(
         padding: const EdgeInsets.only(top: Spacing.xs),
@@ -1542,7 +1542,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
   }
 
   Widget _buildThinkingNode(
-      AgentActivity act, bool isFirst, bool isLast) {
+      AgentActivityEvent act, bool isFirst, bool isLast) {
     final thinking = act.content ?? '';
     final activityId = act.id;
     final isExpanded = _expandedActivities.contains(activityId);
@@ -1650,7 +1650,7 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
 
   static const _coloredTools = {'Read', 'Write', 'Edit', 'NotebookEdit', 'Bash', 'Glob', 'Grep'};
 
-  Widget _buildDescriptionText(AgentActivity act, String? tool, Color color) {
+  Widget _buildDescriptionText(AgentActivityEvent act, String? tool, Color color) {
     final desc = _activityDescription(act);
     // If the tool has a dedicated color, highlight the tool name prefix.
     if (tool != null && _coloredTools.contains(tool) && desc.startsWith(tool)) {

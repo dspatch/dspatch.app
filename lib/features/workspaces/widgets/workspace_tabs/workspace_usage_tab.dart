@@ -46,7 +46,7 @@ class WorkspaceUsageTab extends ConsumerWidget {
             records.fold<double>(0, (s, r) => s + r.costUsd);
 
         // Group by agent
-        final byAgent = <String, List<AgentUsage>>{};
+        final byAgent = <String, List<AgentUsageRecord>>{};
         for (final r in records) {
           byAgent.putIfAbsent(r.agentKey, () => []).add(r);
         }

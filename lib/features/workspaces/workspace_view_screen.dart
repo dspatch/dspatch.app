@@ -380,7 +380,7 @@ class _WorkspaceDashboard extends ConsumerWidget {
 
   // ── Metrics ─────────────────────────────────────────────────────
 
-  Widget _buildMetrics(AsyncValue<List<AgentUsage>>? usageAsync) {
+  Widget _buildMetrics(AsyncValue<List<AgentUsageRecord>>? usageAsync) {
     Widget badge(IconData icon, String label) => Padding(
           padding: const EdgeInsets.only(left: Spacing.xs),
           child: DspatchBadge(

@@ -81,7 +81,7 @@ class WorkspaceCard extends ConsumerWidget {
                     return configAsync.when(
                       data: (config) => _MetaChip(
                         icon: LucideIcons.user,
-                        value: config != null ? '${config.agents.length}' : '?',
+                        value: config != null ? '${(config['agents'] as Map?)?.length ?? 0}' : '?',
                       ),
                       loading: () =>
                           const Skeleton(width: 28, height: 14),
