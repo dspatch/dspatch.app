@@ -5,6 +5,8 @@
 /// These replace the FRB-generated types from the old dspatch_sdk package.
 library;
 
+// Sentinel to distinguish "not provided" from explicit null.
+const _sentinel = Object();
 
 class WorkspaceConfig {
   const WorkspaceConfig({
@@ -63,6 +65,28 @@ class WorkspaceConfig {
         'mounts': mounts.map((m) => m.toJson()).toList(),
         'docker': docker.toJson(),
       };
+
+  WorkspaceConfig copyWith({
+    String? name,
+    Map<String, String>? env,
+    Map<String, AgentConfig>? agents,
+    List<String>? agentOrder,
+    Object? workspaceDir = _sentinel,
+    List<MountConfig>? mounts,
+    DockerConfig? docker,
+  }) {
+    return WorkspaceConfig(
+      name: name ?? this.name,
+      env: env ?? this.env,
+      agents: agents ?? this.agents,
+      agentOrder: agentOrder ?? this.agentOrder,
+      workspaceDir: workspaceDir == _sentinel
+          ? this.workspaceDir
+          : workspaceDir as String?,
+      mounts: mounts ?? this.mounts,
+      docker: docker ?? this.docker,
+    );
+  }
 }
 
 class AgentConfig {
@@ -111,6 +135,25 @@ class AgentConfig {
         'peers': peers,
         if (autoStart != null) 'auto_start': autoStart,
       };
+
+  AgentConfig copyWith({
+    String? template,
+    Map<String, String>? env,
+    Map<String, AgentConfig>? subAgents,
+    List<String>? subAgentOrder,
+    List<String>? peers,
+    Object? autoStart = _sentinel,
+  }) {
+    return AgentConfig(
+      template: template ?? this.template,
+      env: env ?? this.env,
+      subAgents: subAgents ?? this.subAgents,
+      subAgentOrder: subAgentOrder ?? this.subAgentOrder,
+      peers: peers ?? this.peers,
+      autoStart:
+          autoStart == _sentinel ? this.autoStart : autoStart as bool?,
+    );
+  }
 }
 
 class DockerConfig {
@@ -156,6 +199,30 @@ class DockerConfig {
         'home_persistence': homePersistence,
         if (homeSize != null) 'home_size': homeSize,
       };
+
+  DockerConfig copyWith({
+    Object? memoryLimit = _sentinel,
+    Object? cpuLimit = _sentinel,
+    String? networkMode,
+    List<String>? ports,
+    bool? gpu,
+    bool? homePersistence,
+    Object? homeSize = _sentinel,
+  }) {
+    return DockerConfig(
+      memoryLimit: memoryLimit == _sentinel
+          ? this.memoryLimit
+          : memoryLimit as String?,
+      cpuLimit:
+          cpuLimit == _sentinel ? this.cpuLimit : cpuLimit as double?,
+      networkMode: networkMode ?? this.networkMode,
+      ports: ports ?? this.ports,
+      gpu: gpu ?? this.gpu,
+      homePersistence: homePersistence ?? this.homePersistence,
+      homeSize:
+          homeSize == _sentinel ? this.homeSize : homeSize as String?,
+    );
+  }
 }
 
 class MountConfig {
@@ -182,4 +249,16 @@ class MountConfig {
         'container_path': containerPath,
         'read_only': readOnly,
       };
+
+  MountConfig copyWith({
+    String? hostPath,
+    String? containerPath,
+    bool? readOnly,
+  }) {
+    return MountConfig(
+      hostPath: hostPath ?? this.hostPath,
+      containerPath: containerPath ?? this.containerPath,
+      readOnly: readOnly ?? this.readOnly,
+    );
+  }
 }
