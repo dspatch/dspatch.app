@@ -62,6 +62,9 @@ class EngineClient {
   ///
   /// Throws [EngineException] if the engine returns an error response.
   /// Throws [StateError] if not connected.
+  ///
+  // TODO: Migrate remaining callers (workspace_controller, setup_screen)
+  // to typed send() then make this private.
   Future<Map<String, dynamic>> sendCommand(
     String method, [
     Map<String, dynamic> params = const {},
