@@ -11,9 +11,7 @@ import '../engine_client/engine_auth.dart';
 import '../engine_client/engine_client.dart';
 import '../engine_client/engine_connection.dart';
 import '../engine_client/models/auth_phase.dart';
-import '../engine_client/models/auth_state.dart';
 import '../engine_client/models/auth_token.dart';
-import '../engine_client/models/backend_auth_state.dart';
 import '../engine_client/models/db_state.dart';
 import '../engine_client/secure_token_store.dart';
 import '../engine_client/protocol/protocol.dart';
@@ -52,20 +50,6 @@ final engineClientProvider = Provider<EngineClient>(
 // Auth
 // ---------------------------------------------------------------------------
 
-/// Auth state comes from the engine over WebSocket events, not from the DB.
-final authStateProvider = StreamProvider<AuthState>((ref) {
-  final client = ref.watch(engineClientProvider);
-  return client.events
-      .where((e) => e.name == 'auth_state_changed')
-      .map((e) => AuthState.fromJson(e.data));
-});
-
-/// Current auth mode for UI decisions (anonymous vs connected).
-final authModeProvider = Provider<String>((ref) {
-  return ref.watch(authStateProvider).valueOrNull?.mode ??
-      AuthMode.undetermined;
-});
-
 /// EngineAuth for connect/refresh calls to the engine.
 /// Overridden in main.dart with the instance from EngineBootstrap.
 final engineAuthProvider = Provider<EngineAuth>(
@@ -83,10 +67,6 @@ final engineConnectionProvider = Provider<EngineConnection>(
 final backendAuthProvider = Provider<BackendAuth>(
   (_) => throw UnimplementedError('Override backendAuthProvider in main.dart'),
 );
-
-/// Tracks the backend auth state during the multi-step login/register flow.
-/// Local to the app — not from the engine.
-final backendAuthStateProvider = StateProvider<BackendAuthState?>((_) => null);
 
 /// Secure token store for persisting auth credentials in the OS keyring.
 /// Overridden in main.dart.
@@ -502,27 +482,10 @@ final databaseReadyProvider = StateProvider<bool>((_) => false);
 /// Set in main.dart only when status is [repaired] or [reset].
 final dbHealthStatusProvider = StateProvider<String?>((_) => null);
 
-/// Set to true during logout to prevent the router from treating stale
-/// engine auth state (cached by StreamProvider) as a valid session.
-/// Cleared when the user logs in again or enters anonymous mode.
-final loggedOutProvider = StateProvider<bool>((_) => false);
-
 /// Ephemeral cache for backup codes returned by confirm2fa.
 /// Set by AuthController.confirm2fa, consumed by BackupCodesScreen,
 /// cleared after acknowledgement.
 final pendingBackupCodesProvider = StateProvider<List<String>?>((_) => null);
-
-// ---------------------------------------------------------------------------
-// Database State
-// ---------------------------------------------------------------------------
-
-/// Database state is managed by the engine. Listens to engine events.
-final databaseStateStreamProvider = StreamProvider<String>((ref) {
-  final client = ref.watch(engineClientProvider);
-  return client.events
-      .where((e) => e.name == 'database_state_changed')
-      .map((e) => e.data['state'] as String);
-});
 
 // ---------------------------------------------------------------------------
 // Helpers
