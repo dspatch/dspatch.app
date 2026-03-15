@@ -37,11 +37,15 @@ class EngineBootstrapResult {
   final EngineClient client;
   final HealthStatus healthStatus;
   final AuthResult authResult;
+  final EngineConnection connection;
+  final EngineAuth engineAuth;
 
   const EngineBootstrapResult({
     required this.client,
     required this.healthStatus,
     required this.authResult,
+    required this.connection,
+    required this.engineAuth,
   });
 }
 
@@ -110,6 +114,8 @@ class EngineBootstrap {
       client: client,
       healthStatus: healthStatus,
       authResult: authResult,
+      connection: connection,
+      engineAuth: auth,
     );
   }
 }

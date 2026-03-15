@@ -12,6 +12,7 @@ class HealthStatus {
   final bool dockerAvailable;
   final bool authenticated;
   final int connectedDevices;
+  final String? backendUrl;
 
   const HealthStatus({
     required this.status,
@@ -19,6 +20,7 @@ class HealthStatus {
     required this.dockerAvailable,
     required this.authenticated,
     required this.connectedDevices,
+    this.backendUrl,
   });
 
   factory HealthStatus.fromJson(Map<String, dynamic> json) {
@@ -28,6 +30,7 @@ class HealthStatus {
       dockerAvailable: json['docker_available'] as bool? ?? false,
       authenticated: json['authenticated'] as bool? ?? false,
       connectedDevices: json['connected_devices'] as int? ?? 0,
+      backendUrl: json['backend_url'] as String?,
     );
   }
 

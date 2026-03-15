@@ -13,8 +13,8 @@
 /// final result = await bootstrap.initialize();
 /// final client = result.client;
 ///
-/// // Send commands.
-/// await client.launchWorkspace('workspace-id');
+/// // Send typed commands.
+/// await client.send(LaunchWorkspace(id: 'workspace-id'));
 ///
 /// // Listen for table invalidations.
 /// client.invalidations.listen((tables) {
@@ -23,6 +23,7 @@
 /// ```
 library;
 
+export 'backend_auth.dart';
 export 'engine_auth.dart';
 export 'engine_bootstrap.dart';
 export 'engine_client.dart';
@@ -30,4 +31,5 @@ export 'engine_connection.dart';
 export 'engine_health.dart';
 export 'engine_process_manager.dart';
 export 'models/auth_state.dart';
+export 'models/backend_auth_state.dart';
 export 'protocol/protocol.dart';
