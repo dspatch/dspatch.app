@@ -46,14 +46,28 @@ pub struct EngineInfoResponse {
 
 /// Handler for `GET /engine-info`.
 /// Clients use this to discover the DB path for Drift read-only access.
+///
+/// The `db_path` reflects the currently open database (anonymous or per-user).
+/// Clients should call this after receiving `database_state_changed` → `ready`
+/// to open their read-only Drift connection at the correct path.
 pub async fn engine_info_handler(
     State(runtime): State<Arc<EngineRuntime>>,
 ) -> Json<EngineInfoResponse> {
     let config = runtime.config();
-    let db_path = config.db_dir.join("engine.db");
+
+    // Resolve the actual DB path from the SDK (reflects current auth state
+    // and any migration that occurred). Falls back to the anonymous DB path
+    // if the SDK isn't available or no database is currently open.
+    let db_path = if let Some(sdk) = runtime.sdk() {
+        sdk.database_path().await.unwrap_or_else(|| {
+            config.db_dir.join("dspatch").join("dspatch.db").to_string_lossy().into_owned()
+        })
+    } else {
+        config.db_dir.join("dspatch").join("dspatch.db").to_string_lossy().into_owned()
+    };
 
     Json(EngineInfoResponse {
-        db_path: db_path.to_string_lossy().into_owned(),
+        db_path,
         test_mode: config.test_mode,
     })
 }

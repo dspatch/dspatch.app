@@ -618,8 +618,9 @@ pub async fn dispatch_command(
 
         Command::GetDatabaseState
         | Command::PerformMigration
-        | Command::SkipMigration => Err(AppError::Internal(
-            "Database lifecycle commands are handled by the WebSocket layer".into(),
+        | Command::SkipMigration
+        | Command::Logout => Err(AppError::Internal(
+            "This command is handled by the WebSocket layer before dispatch".into(),
         )),
     }
 }

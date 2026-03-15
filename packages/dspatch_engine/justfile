@@ -1,0 +1,72 @@
+# ── dspatch engine dev shortcuts ──────────────────────────────────────
+#
+# Install just: cargo install just  |  brew install just  |  scoop install just
+# Run `just` to see all available commands.
+
+set windows-shell := ["cmd.exe", "/c"]
+
+# macOS codesigning identity — keeps Keychain "Always Allow" grants stable
+# across rebuilds. Set to "" to skip codesigning.
+codesign_identity := "Apple Development: oakisnotree@gmail.com (XS92JZBMPW)"
+
+# List available commands
+default:
+    @just --list
+
+# ── Setup ────────────────────────────────────────────────────────────
+
+# Install required cargo tools
+setup:
+    cargo install cargo-watch
+
+# ── Dev ───────────────────────────────────────────────────────────────
+
+# Build, codesign, and run the daemon — watches for changes
+dev:
+    cargo watch -c -s 'just _build-and-run'
+
+# Build and codesign the daemon (debug)
+build:
+    cargo build --bin dspatch-daemon
+    @just _codesign debug
+
+# Build and codesign the daemon (release)
+build-release:
+    cargo build --release --bin dspatch-daemon
+    @just _codesign release
+
+# Run tests
+test *args:
+    cargo test --lib --tests {{ args }}
+
+# Cargo check
+check:
+    cargo check
+
+# ── Internal ──────────────────────────────────────────────────────────
+
+[private]
+_build-and-run:
+    cargo build --bin dspatch-daemon
+    @just _codesign debug
+    cargo run --bin dspatch-daemon
+
+[private]
+[unix]
+_codesign profile="debug":
+    #!/usr/bin/env bash
+    if [[ -z "{{ codesign_identity }}" ]]; then
+        exit 0
+    fi
+    if [[ "{{ profile }}" == "release" ]]; then
+        binary="target/release/dspatch-daemon"
+    else
+        binary="target/debug/dspatch-daemon"
+    fi
+    codesign --force --sign "{{ codesign_identity }}" "$binary" 2>/dev/null && \
+        echo "codesigned: $binary" || true
+
+[private]
+[windows]
+_codesign profile="debug":
+    @echo "codesigning not needed on Windows"

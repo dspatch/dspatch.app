@@ -43,13 +43,15 @@ pub async fn ws_handler(
         "WebSocket connection accepted"
     );
 
-    ws.on_upgrade(move |socket| handle_ws_connection(socket, session, runtime))
+    let token = query.token.clone();
+    ws.on_upgrade(move |socket| handle_ws_connection(socket, session, token, runtime))
         .into_response()
 }
 
 async fn handle_ws_connection(
     mut socket: WebSocket,
     session: Session,
+    session_token: String,
     runtime: Arc<EngineRuntime>,
 ) {
     let welcome = ServerFrame::welcome();
@@ -160,7 +162,11 @@ async fn handle_ws_connection(
             msg = recv_message(&mut socket) => {
                 match msg {
                     Some(Ok(text)) => {
-                        handle_client_message(&mut socket, &text, &runtime).await;
+                        let should_close = handle_client_message(&mut socket, &text, &session_token, &runtime).await;
+                        if should_close {
+                            tracing::info!("WebSocket closing: client logged out");
+                            break;
+                        }
                     }
                     Some(Err(e)) => {
                         tracing::warn!(error = %e, "WebSocket receive error");
@@ -176,7 +182,13 @@ async fn handle_ws_connection(
     }
 }
 
-async fn handle_client_message(socket: &mut WebSocket, text: &str, runtime: &Arc<EngineRuntime>) {
+/// Returns `true` if the connection should be closed (e.g. logout).
+async fn handle_client_message(
+    socket: &mut WebSocket,
+    text: &str,
+    session_token: &str,
+    runtime: &Arc<EngineRuntime>,
+) -> bool {
     let frame: ClientFrame = match serde_json::from_str(text) {
         Ok(f) => f,
         Err(e) => {
@@ -187,7 +199,7 @@ async fn handle_client_message(socket: &mut WebSocket, text: &str, runtime: &Arc
                 message: format!("Failed to parse frame: {e}"),
             };
             let _ = send_frame(socket, &err).await;
-            return;
+            return false;
         }
     };
 
@@ -217,9 +229,21 @@ async fn handle_client_message(socket: &mut WebSocket, text: &str, runtime: &Arc
                         message: format!("Failed to deserialize command params: {e}"),
                     };
                     let _ = send_frame(socket, &err).await;
-                    return;
+                    return false;
                 }
             };
+
+            // Logout: invalidate session and signal connection close.
+            if matches!(command, Command::Logout) {
+                runtime.session_store().remove(session_token);
+                tracing::info!("Session invalidated via logout command");
+                let frame = ServerFrame::Result {
+                    id,
+                    data: serde_json::json!({}),
+                };
+                let _ = send_frame(socket, &frame).await;
+                return true;
+            }
 
             // Database lifecycle commands route to the SDK directly,
             // bypassing ServiceRegistry — they must work even when the DB
@@ -230,7 +254,7 @@ async fn handle_client_message(socket: &mut WebSocket, text: &str, runtime: &Arc
                     Err(e) => error_to_frame(&id, &e),
                 };
                 let _ = send_frame(socket, &frame).await;
-                return;
+                return false;
             }
 
             let services = match runtime.services() {
@@ -242,7 +266,7 @@ async fn handle_client_message(socket: &mut WebSocket, text: &str, runtime: &Arc
                         message: "Engine services are not yet initialized".into(),
                     };
                     let _ = send_frame(socket, &err).await;
-                    return;
+                    return false;
                 }
             };
 
@@ -251,6 +275,7 @@ async fn handle_client_message(socket: &mut WebSocket, text: &str, runtime: &Arc
                 Err(e) => error_to_frame(&id, &e),
             };
             let _ = send_frame(socket, &response).await;
+            false
         }
     }
 }

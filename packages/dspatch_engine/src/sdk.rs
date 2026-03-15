@@ -18,7 +18,7 @@
 //! # }
 //! ```
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::sync::{broadcast, Mutex as TokioMutex, RwLock};
@@ -128,6 +128,9 @@ pub struct DspatchSdk {
     database: Arc<RwLock<Option<Arc<Database>>>>,
     db_services: Arc<RwLock<Option<DbServices>>>,
 
+    // Current database file path (set when a database is installed, cleared on teardown).
+    current_db_path: Arc<RwLock<Option<String>>>,
+
     // Database state broadcast
     db_state_tx: broadcast::Sender<DatabaseReadyState>,
 
@@ -206,6 +209,7 @@ impl DspatchSdk {
             connectivity_service,
             database: Arc::new(RwLock::new(None)),
             db_services: Arc::new(RwLock::new(None)),
+            current_db_path: Arc::new(RwLock::new(None)),
             db_state_tx,
             pending_migration: Arc::new(RwLock::new(None)),
             server: Arc::new(RwLock::new(None)),
@@ -396,9 +400,9 @@ impl DspatchSdk {
         // Open the per-user DB.
         let username = &migration.username;
         match self.db_manager.open_database(Some(username))? {
-            DatabaseState::Ready { database: db, health_status } => {
+            DatabaseState::Ready { database: db, health_status, db_path } => {
                 tracing::info!(health = ?health_status, "Per-user database opened after migration");
-                self.install_database(Arc::new(db)).await;
+                self.install_database(Arc::new(db), &db_path).await;
             }
             other => {
                 tracing::error!(state = ?other, "Unexpected state after migration");
@@ -424,9 +428,9 @@ impl DspatchSdk {
         // Open a fresh per-user DB (bypasses migration check).
         let username = &migration.username;
         match self.db_manager.open_user_database(username)? {
-            DatabaseState::Ready { database: db, health_status } => {
+            DatabaseState::Ready { database: db, health_status, db_path } => {
                 tracing::info!(health = ?health_status, "Fresh per-user database opened (migration skipped)");
-                self.install_database(Arc::new(db)).await;
+                self.install_database(Arc::new(db), &db_path).await;
             }
             other => {
                 tracing::error!(state = ?other, "Unexpected state opening fresh user DB");
@@ -457,12 +461,14 @@ impl DspatchSdk {
             }
         }
 
-        // Clear db_services and database.
+        // Clear db_services, database, and path.
         {
             let mut db_guard = self.database.write().await;
             let mut svc_guard = self.db_services.write().await;
+            let mut path_guard = self.current_db_path.write().await;
             *svc_guard = None;
             *db_guard = None;
+            *path_guard = None;
         }
 
         // Notify database state listeners.
@@ -490,10 +496,12 @@ impl DspatchSdk {
             Ok(DatabaseState::Ready {
                 database: db,
                 health_status,
+                db_path,
             }) => {
                 tracing::info!(
                     health = ?health_status,
                     user = ?username,
+                    db_path = %db_path.display(),
                     "Database opened"
                 );
 
@@ -503,7 +511,7 @@ impl DspatchSdk {
                     self.teardown_database().await;
                 }
 
-                self.install_database(Arc::new(db)).await;
+                self.install_database(Arc::new(db), &db_path).await;
             }
             Ok(DatabaseState::MigrationAvailable { anonymous_db_path, user_db_path }) => {
                 tracing::info!(
@@ -541,12 +549,22 @@ impl DspatchSdk {
     }
 
     /// Installs a new database reference and broadcasts [`DatabaseReadyState::Ready`].
-    async fn install_database(&self, db: Arc<Database>) {
+    async fn install_database(&self, db: Arc<Database>, db_path: &Path) {
         {
             let mut db_guard = self.database.write().await;
             *db_guard = Some(db);
         }
+        {
+            let mut path_guard = self.current_db_path.write().await;
+            *path_guard = Some(db_path.to_string_lossy().into_owned());
+        }
         let _ = self.db_state_tx.send(DatabaseReadyState::Ready);
+    }
+
+    /// Returns the file path of the currently open database, or `None` if
+    /// no database is open.
+    pub async fn database_path(&self) -> Option<String> {
+        self.current_db_path.read().await.clone()
     }
 
     // ── Core service accessors ─────────────────────────────────────────

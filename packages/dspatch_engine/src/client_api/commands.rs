@@ -333,4 +333,9 @@ pub enum Command {
 
     #[serde(rename = "skip_migration")]
     SkipMigration,
+
+    // ── Session Commands ──────────────────────────────────────────────
+
+    #[serde(rename = "logout")]
+    Logout,
 }

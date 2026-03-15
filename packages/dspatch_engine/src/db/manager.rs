@@ -24,6 +24,7 @@ pub enum DatabaseState {
     Ready {
         database: Database,
         health_status: DbHealthStatus,
+        db_path: PathBuf,
     },
 
     /// An anonymous database exists and can be migrated to a per-user
@@ -38,9 +39,10 @@ impl std::fmt::Debug for DatabaseState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Loading => write!(f, "DatabaseState::Loading"),
-            Self::Ready { health_status, .. } => f
+            Self::Ready { health_status, db_path, .. } => f
                 .debug_struct("DatabaseState::Ready")
                 .field("health_status", health_status)
+                .field("db_path", db_path)
                 .finish(),
             Self::MigrationAvailable {
                 anonymous_db_path,
@@ -119,6 +121,7 @@ impl DatabaseManager {
             return Ok(DatabaseState::Ready {
                 database,
                 health_status: status,
+                db_path,
             });
         }
 
@@ -128,6 +131,7 @@ impl DatabaseManager {
         Ok(DatabaseState::Ready {
             database,
             health_status: status,
+            db_path,
         })
     }
 
@@ -151,6 +155,7 @@ impl DatabaseManager {
         Ok(DatabaseState::Ready {
             database,
             health_status: status,
+            db_path,
         })
     }
 }
