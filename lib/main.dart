@@ -11,6 +11,9 @@ import 'database/engine_database.dart';
 import 'database/invalidation_bridge.dart';
 import 'di/providers.dart';
 import 'engine_client/engine_client_lib.dart';
+import 'engine_client/models/auth_phase.dart';
+import 'engine_client/models/auth_token.dart';
+import 'engine_client/models/db_state.dart';
 import 'engine_client/native_engine.dart';
 import 'engine_client/secure_token_store.dart';
 import 'shared/widgets/error_boundary.dart';
@@ -84,7 +87,7 @@ Future<void> main(List<String> args) async {
   );
   final client = EngineClient(connection);
 
-  // Step 3: Load stored session so we can seed backendAuthStateProvider.
+  // Step 3: Load stored session so we can seed authPhaseProvider + authTokenProvider.
   final tokenStore = SecureTokenStore();
   final storedSession = await tokenStore.loadSession();
 
@@ -120,17 +123,39 @@ Future<void> main(List<String> args) async {
   );
   invalidationBridge.start();
 
-  // Seed backendAuthStateProvider so the router knows whether to show
-  // login or route to /setup for engine connection + DB readiness.
+  // Bridge engine events to StateProviders for race-condition-free access.
+  client.events.listen((event) {
+    if (event.name == 'database_state_changed') {
+      final state = event.data['state'] as String?;
+      final dbState = switch (state) {
+        'ready' => DbState.ready,
+        'migration_pending' => DbState.migrationPending,
+        _ => DbState.unknown,
+      };
+      container.read(dbStateProvider.notifier).state = dbState;
+    }
+  });
+
+  // Bridge connection state changes to engineSessionProvider.
+  connection.connectionState.listen((connected) {
+    container.read(engineSessionProvider.notifier).state = connected;
+  });
+
+  // Seed auth state from stored session.
+  // Only full-scope tokens are restored. Partial registration tokens
+  // are discarded on cold start — user restarts the registration flow.
   if (storedSession != null && storedSession.isFullyAuthenticated) {
-    container.read(backendAuthStateProvider.notifier).state = BackendAuthState(
+    container.read(authTokenProvider.notifier).state = BackendToken(
       token: storedSession.backendToken,
       expiresAt: storedSession.expiresAt,
       scope: storedSession.scope,
       username: storedSession.username,
       email: storedSession.email,
     );
+    container.read(authPhaseProvider.notifier).state = AuthPhase.authenticated;
   }
+  // If no valid session: both providers stay at defaults
+  // (unauthenticated + null token), router shows login.
 
   debugPrint('[BOOT] Providers initialized, running app...');
   runApp(
