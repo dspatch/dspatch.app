@@ -52,6 +52,11 @@ impl EphemeralEventEmitter {
     pub fn subscribe(&self) -> broadcast::Receiver<EphemeralEvent> {
         self.tx.subscribe()
     }
+
+    /// Returns a clone of this emitter (shares the underlying broadcast channel).
+    pub fn clone_sender(&self) -> Self {
+        Self { tx: self.tx.clone() }
+    }
 }
 
 impl Default for EphemeralEventEmitter {
