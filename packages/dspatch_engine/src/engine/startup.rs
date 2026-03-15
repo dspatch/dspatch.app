@@ -13,6 +13,7 @@ use super::service_registry::ServiceRegistry;
 use crate::client_api::ephemeral::EphemeralEventEmitter;
 use crate::client_api::invalidation::InvalidationHandle;
 use crate::client_api::session::SessionStore;
+use crate::sdk::DspatchSdk;
 
 /// Core runtime state for the engine daemon.
 pub struct EngineRuntime {
@@ -20,9 +21,10 @@ pub struct EngineRuntime {
     started_at: Instant,
     shutdown_tx: broadcast::Sender<()>,
     session_store: SessionStore,
-    services: Option<Arc<ServiceRegistry>>,
+    services: Arc<tokio::sync::RwLock<Option<Arc<ServiceRegistry>>>>,
     invalidation: Option<InvalidationHandle>,
     ephemeral: EphemeralEventEmitter,
+    sdk: Option<Arc<DspatchSdk>>,
 }
 
 impl EngineRuntime {
@@ -33,9 +35,10 @@ impl EngineRuntime {
             started_at: Instant::now(),
             shutdown_tx,
             session_store: SessionStore::new(),
-            services: None,
+            services: Arc::new(tokio::sync::RwLock::new(None)),
             invalidation: None,
             ephemeral: EphemeralEventEmitter::new(),
+            sdk: None,
         }
     }
 
@@ -46,9 +49,10 @@ impl EngineRuntime {
             started_at: Instant::now(),
             shutdown_tx,
             session_store: SessionStore::new(),
-            services: Some(services),
+            services: Arc::new(tokio::sync::RwLock::new(Some(services))),
             invalidation: None,
             ephemeral: EphemeralEventEmitter::new(),
+            sdk: None,
         }
     }
 
@@ -60,9 +64,10 @@ impl EngineRuntime {
             started_at: Instant::now(),
             shutdown_tx,
             session_store: SessionStore::new(),
-            services: None,
+            services: Arc::new(tokio::sync::RwLock::new(None)),
             invalidation: Some(invalidation),
             ephemeral: EphemeralEventEmitter::new(),
+            sdk: None,
         }
     }
 
@@ -78,9 +83,10 @@ impl EngineRuntime {
             started_at: Instant::now(),
             shutdown_tx,
             session_store: SessionStore::new(),
-            services: Some(services),
+            services: Arc::new(tokio::sync::RwLock::new(Some(services))),
             invalidation: Some(invalidation),
             ephemeral: EphemeralEventEmitter::new(),
+            sdk: None,
         }
     }
 
@@ -104,8 +110,24 @@ impl EngineRuntime {
         let _ = self.shutdown_tx.send(());
     }
 
-    pub fn services(&self) -> Option<&Arc<ServiceRegistry>> {
-        self.services.as_ref()
+    pub fn services(&self) -> Option<Arc<ServiceRegistry>> {
+        self.services.try_read().ok().and_then(|g| g.clone())
+    }
+
+    pub async fn services_async(&self) -> Option<Arc<ServiceRegistry>> {
+        self.services.read().await.clone()
+    }
+
+    pub async fn replace_services(&self, services: Arc<ServiceRegistry>) {
+        *self.services.write().await = Some(services);
+    }
+
+    pub fn sdk(&self) -> Option<&Arc<DspatchSdk>> {
+        self.sdk.as_ref()
+    }
+
+    pub fn set_sdk(&mut self, sdk: Arc<DspatchSdk>) {
+        self.sdk = Some(sdk);
     }
 
     /// Returns true if the invalidation broadcaster has been started.
