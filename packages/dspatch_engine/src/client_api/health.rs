@@ -18,6 +18,7 @@ pub struct HealthResponse {
     pub docker_available: bool,
     pub authenticated: bool,
     pub connected_devices: u32,
+    pub backend_url: Option<String>,
 }
 
 /// Handler for `GET /health`.
@@ -32,6 +33,7 @@ pub async fn health_handler(
         docker_available,
         authenticated: runtime.session_store().has_sessions(),
         connected_devices: 0,    // TODO: M8 — wire to P2P layer
+        backend_url: runtime.config().backend_url.clone(),
     })
 }
 

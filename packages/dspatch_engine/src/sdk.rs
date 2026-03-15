@@ -22,9 +22,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::{broadcast, Mutex as TokioMutex, RwLock};
-use tokio::task::JoinHandle;
 
-use crate::api::{ConnectedAuthService, HttpApiClient, TokenStorage};
+use crate::api::HttpApiClient;
 use crate::config::DspatchConfig;
 use crate::crypto::aes_gcm::AesGcmCrypto;
 use crate::crypto::secure_storage::KeyringSecretStore;
@@ -36,7 +35,7 @@ use crate::db::key_manager::{DatabaseKeyManager, SecretStore};
 use crate::db::manager::{DatabaseManager, DatabaseState};
 use crate::db::Database;
 use crate::docker::{DockerCli, DockerClient};
-use crate::domain::services::{AgentProviderService, ApiClient, ApiKeyService, AuthService};
+use crate::domain::services::{AgentProviderService, ApiKeyService};
 use crate::hub::{HubApiClient, HubVersionChecker};
 use crate::server::agent_server::EmbeddedAgentServer;
 use crate::server::workspace_bridge::WorkspaceBridge;
@@ -106,8 +105,9 @@ struct DbServices {
 /// Central facade that wires all d:spatch services together.
 ///
 /// Services are created lazily on first access after the database becomes
-/// ready. The auth watcher task monitors authentication state changes and
-/// opens the correct database accordingly.
+/// ready. Authentication is handled by the Dart client; the engine opens
+/// the anonymous database on initialization and can switch to a per-user
+/// database when requested via `open_user_database()`.
 #[allow(dead_code)] // Fields held for Arc ownership / future use
 pub struct DspatchSdk {
     config: DspatchConfig,
@@ -115,11 +115,9 @@ pub struct DspatchSdk {
     // Core services (always present after construction via with_secret_store)
     crypto: Arc<AesGcmCrypto>,
     db_key_manager: Arc<DatabaseKeyManager>,
-    token_storage: Arc<TokenStorage>,
     db_manager: Arc<DatabaseManager>,
     api_client: Arc<HttpApiClient>,
     hub_client: Arc<RwLock<HubApiClient>>,
-    auth_service: Arc<ConnectedAuthService>,
     docker_client: Arc<DockerClient>,
     docker_service: Arc<LocalDockerService>,
     device_service: Arc<LocalDeviceService>,
@@ -139,9 +137,6 @@ pub struct DspatchSdk {
     // Server (created when DB services are first built; started/stopped separately)
     server: Arc<RwLock<Option<Arc<TokioMutex<EmbeddedAgentServer>>>>>,
     bridge: Arc<TokioMutex<Option<WorkspaceBridge>>>,
-
-    // Background tasks
-    auth_watcher: TokioMutex<Option<JoinHandle<()>>>,
 
     // Initialization guards
     initialized: std::sync::atomic::AtomicBool,
@@ -171,9 +166,6 @@ impl DspatchSdk {
         let db_key_manager = Arc::new(DatabaseKeyManager::new(Box::new(
             ArcSecretStoreAdapter(Arc::clone(&store_arc)),
         )));
-        let token_storage = Arc::new(TokenStorage::new(Box::new(
-            ArcSecretStoreAdapter(Arc::clone(&store_arc)),
-        )));
 
         let backend_url = config
             .backend_url
@@ -181,11 +173,6 @@ impl DspatchSdk {
             .unwrap_or_else(|| DEFAULT_BACKEND_URL.to_string());
         let api_client = Arc::new(HttpApiClient::new(&backend_url));
         let hub_client = Arc::new(RwLock::new(HubApiClient::new(&backend_url, None)));
-
-        let auth_service = Arc::new(ConnectedAuthService::new(
-            Arc::clone(&api_client) as Arc<dyn ApiClient>,
-            Arc::clone(&token_storage),
-        ));
 
         let db_manager = Arc::new(DatabaseManager::new(
             DatabaseKeyManager::new(Box::new(ArcSecretStoreAdapter(Arc::clone(&store_arc)))),
@@ -209,11 +196,9 @@ impl DspatchSdk {
             config,
             crypto,
             db_key_manager,
-            token_storage,
             db_manager,
             api_client,
             hub_client,
-            auth_service,
             docker_client,
             docker_service,
             device_service,
@@ -225,7 +210,6 @@ impl DspatchSdk {
             pending_migration: Arc::new(RwLock::new(None)),
             server: Arc::new(RwLock::new(None)),
             bridge: Arc::new(TokioMutex::new(None)),
-            auth_watcher: TokioMutex::new(None),
             initialized: std::sync::atomic::AtomicBool::new(false),
             recovery_spawned: std::sync::atomic::AtomicBool::new(false),
         }
@@ -233,161 +217,27 @@ impl DspatchSdk {
 
     // ── Initialization ─────────────────────────────────────────────────
 
-    /// Creates all core services and spawns the auth watcher task.
+    /// Boots the engine by running setup for an anonymous session.
     ///
-    /// After this returns, the auth service will begin initialization and
-    /// the database will open asynchronously once auth state is determined.
+    /// Call this once at startup. The engine always starts anonymous; when
+    /// the Dart client authenticates via `/auth/connect`, call
+    /// [`run_setup`] again with the username to switch databases.
     ///
-    /// Idempotent — calling this multiple times is safe; subsequent calls
-    /// return immediately.
+    /// Idempotent — subsequent calls return immediately.
     pub async fn initialize(&self) -> Result<()> {
         if self.initialized.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return Ok(());
         }
 
-        let auth = self.auth_service();
+        self.run_setup(None).await
+    }
 
-        // Subscribe to the auth broadcast BEFORE initializing auth, so we
-        // don't miss the initial state emission from auth.initialize().
-        let auth_rx = auth.subscribe_auth_state();
-        let db_manager = Arc::clone(&self.db_manager);
-        let hub_client = Arc::clone(&self.hub_client);
-        let database = Arc::clone(&self.database);
-        let db_services = Arc::clone(&self.db_services);
-        let server = Arc::clone(&self.server);
-        let bridge = Arc::clone(&self.bridge);
-        let db_state_tx = self.db_state_tx.clone();
-        let pending_migration = Arc::clone(&self.pending_migration);
-
-        let handle = tokio::spawn(async move {
-            let mut auth_rx = auth_rx;
-            // Helper: tear down old services and swap in a new database atomically.
-            let swap_database = |db: Arc<Database>,
-                                 database: &Arc<RwLock<Option<Arc<Database>>>>,
-                                 db_services: &Arc<RwLock<Option<DbServices>>>,
-                                 server: &Arc<RwLock<Option<Arc<TokioMutex<EmbeddedAgentServer>>>>>,
-                                 bridge: &Arc<TokioMutex<Option<WorkspaceBridge>>>,
-                                 db_state_tx: &broadcast::Sender<DatabaseReadyState>| {
-                let database = Arc::clone(database);
-                let db_services = Arc::clone(db_services);
-                let server = Arc::clone(server);
-                let bridge = Arc::clone(bridge);
-                let db_state_tx = db_state_tx.clone();
-                async move {
-                    // Notify listeners that database is closing.
-                    let _ = db_state_tx.send(DatabaseReadyState::Closed);
-
-                    // Dispose bridge.
-                    {
-                        let mut b = bridge.lock().await;
-                        if let Some(old_bridge) = b.take() {
-                            old_bridge.dispose().await;
-                        }
-                    }
-                    // Stop server if running (it holds old workspace_dao).
-                    {
-                        let mut srv = server.write().await;
-                        if let Some(s) = srv.take() {
-                            let mut guard = s.lock().await;
-                            guard.stop().await;
-                        }
-                    }
-                    // Atomically clear db_services and swap database
-                    // (acquire database lock first to prevent deadlocks).
-                    {
-                        let mut db_guard = database.write().await;
-                        let mut svc_guard = db_services.write().await;
-                        *svc_guard = None;
-                        *db_guard = Some(db);
-                    }
-
-                    // Notify listeners that new database is ready.
-                    let _ = db_state_tx.send(DatabaseReadyState::Ready);
-                }
-            };
-
-            loop {
-                let state = match auth_rx.recv().await {
-                    Ok(state) => state,
-                    Err(_) => break,
-                };
-                tracing::info!(
-                    mode = ?state.mode,
-                    username = ?state.username,
-                    "Auth state changed"
-                );
-
-                // Skip database open for undetermined mode — the user
-                // must explicitly choose anonymous or login first.
-                if state.mode == crate::domain::enums::AuthMode::Undetermined {
-                    tracing::info!("Auth undetermined — waiting for explicit auth choice");
-                    continue;
-                }
-
-                // Update hub client auth token.
-                {
-                    let mut hc = hub_client.write().await;
-                    *hc = HubApiClient::new(
-                        hc.base_url(),
-                        state.token.clone(),
-                    );
-                }
-
-                // Open the correct database.
-                let username = state.username.as_deref();
-                match db_manager.open_database(username) {
-                    Ok(DatabaseState::Ready {
-                        database: db,
-                        health_status,
-                    }) => {
-                        tracing::info!(
-                            health = ?health_status,
-                            "Database opened"
-                        );
-                        swap_database(
-                            Arc::new(db), &database, &db_services,
-                            &server, &bridge, &db_state_tx,
-                        ).await;
-                    }
-                    Ok(DatabaseState::MigrationAvailable { anonymous_db_path, user_db_path }) => {
-                        // An anonymous DB exists but no per-user DB yet.
-                        // Store the paths and notify the UI — do NOT auto-migrate.
-                        tracing::info!(
-                            from = %anonymous_db_path.display(),
-                            to = %user_db_path.display(),
-                            "Migration available — awaiting user decision"
-                        );
-
-                        *pending_migration.write().await = Some(PendingMigration {
-                            anonymous_db_path,
-                            user_db_path,
-                            username: username.unwrap_or_default().to_string(),
-                        });
-
-                        let _ = db_state_tx.send(DatabaseReadyState::MigrationPending);
-                    }
-                    Ok(DatabaseState::Loading) => {
-                        // Shouldn't happen with sync manager, but ignore.
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to open database: {e}");
-                    }
-                }
-            }
-        });
-
-        // Abort any existing watcher before storing the new one.
-        let mut watcher = self.auth_watcher.lock().await;
-        if let Some(old_handle) = watcher.take() {
-            old_handle.abort();
-        }
-        *watcher = Some(handle);
-
-        // Initialize auth AFTER watcher is subscribed so the initial
-        // state emission is not missed.
-        auth.initialize().await?;
-
-        Ok(())
+    /// Opens a per-user database, replacing the current anonymous database.
+    ///
+    /// Called by the Dart client after successful authentication via
+    /// `/auth/connect`.
+    pub async fn open_user_database(&self, username: &str) -> Result<()> {
+        self.run_setup(Some(username)).await
     }
 
     /// Spawns a background listener that runs workspace recovery whenever the
@@ -467,21 +317,11 @@ impl DspatchSdk {
     /// Waits for the database to become ready, with a timeout.
     ///
     /// Returns `Ok(())` if the database is already ready or becomes ready
-    /// within the timeout. Returns an error if the timeout expires or if
-    /// auth mode is still [`AuthMode::Undetermined`].
+    /// within the timeout. Returns an error if the timeout expires.
     pub async fn wait_for_database(&self, timeout: std::time::Duration) -> Result<()> {
         // Already ready?
         if self.is_database_ready().await {
             return Ok(());
-        }
-
-        // Check auth state — if undetermined, don't wait (user hasn't chosen)
-        let auth_state = self.auth_service().current_auth_state();
-        if auth_state.mode == crate::domain::enums::AuthMode::Undetermined {
-            return Err(AppError::Auth(
-                "Not authenticated. Run `dspatch auth login` or `dspatch auth anonymous` first."
-                    .into(),
-            ));
         }
 
         // Subscribe and wait for Ready signal
@@ -600,14 +440,6 @@ impl DspatchSdk {
     /// Tears down the current database, services, server, and bridge.
     /// Broadcasts [`DatabaseReadyState::Closed`].
     async fn teardown_database(&self) {
-        // Cancel auth watcher task.
-        {
-            let mut handle = self.auth_watcher.lock().await;
-            if let Some(h) = handle.take() {
-                h.abort();
-            }
-        }
-
         // Dispose bridge.
         {
             let mut b = self.bridge.lock().await;
@@ -637,7 +469,78 @@ impl DspatchSdk {
         let _ = self.db_state_tx.send(DatabaseReadyState::Closed);
     }
 
-    /// Installs a new database and broadcasts [`DatabaseReadyState::Ready`].
+    /// Central setup orchestrator. Runs on every auth transition:
+    ///
+    /// - `username = None` → anonymous session (engine startup)
+    /// - `username = Some("alice")` → authenticated session (after `/auth/connect`)
+    ///
+    /// Responsibilities:
+    /// 1. Open the correct database (anonymous or per-user)
+    /// 2. Handle anonymous→user migration (signal app, wait for decision)
+    /// 3. Run post-database-open initialization
+    ///
+    /// All setup logic belongs here — this is the single hook that runs
+    /// regardless of auth mode. Future tasks (preference loading, sync
+    /// bootstrap, scheduled jobs, etc.) go in this method.
+    async fn run_setup(&self, username: Option<&str>) -> Result<()> {
+        tracing::info!(user = ?username, "Running engine setup");
+
+        // Step 1: Open the appropriate database.
+        match self.db_manager.open_database(username) {
+            Ok(DatabaseState::Ready {
+                database: db,
+                health_status,
+            }) => {
+                tracing::info!(
+                    health = ?health_status,
+                    user = ?username,
+                    "Database opened"
+                );
+
+                // If switching from an existing DB (anonymous → user), tear
+                // down old services first.
+                if self.is_database_ready().await {
+                    self.teardown_database().await;
+                }
+
+                self.install_database(Arc::new(db)).await;
+            }
+            Ok(DatabaseState::MigrationAvailable { anonymous_db_path, user_db_path }) => {
+                tracing::info!(
+                    from = %anonymous_db_path.display(),
+                    to = %user_db_path.display(),
+                    "Migration available — awaiting user decision"
+                );
+
+                *self.pending_migration.write().await = Some(PendingMigration {
+                    anonymous_db_path,
+                    user_db_path,
+                    username: username.unwrap_or_default().to_string(),
+                });
+
+                // Signal the app to display migration UI. The app sends
+                // back a WS command (perform_migration / skip_migration)
+                // which calls the corresponding method on this struct.
+                let _ = self.db_state_tx.send(DatabaseReadyState::MigrationPending);
+                return Ok(());
+            }
+            Ok(DatabaseState::Loading) => {
+                // Shouldn't happen with sync manager, but not fatal.
+            }
+            Err(e) => {
+                tracing::error!(user = ?username, "Failed to open database: {e}");
+                return Err(e);
+            }
+        }
+
+        // Step 2: Post-database-open initialization.
+        // TODO: Add setup tasks here as needed (preference defaults, sync
+        // initialization, scheduled cleanup, hub token propagation, etc.)
+
+        Ok(())
+    }
+
+    /// Installs a new database reference and broadcasts [`DatabaseReadyState::Ready`].
     async fn install_database(&self, db: Arc<Database>) {
         {
             let mut db_guard = self.database.write().await;
@@ -647,11 +550,6 @@ impl DspatchSdk {
     }
 
     // ── Core service accessors ─────────────────────────────────────────
-
-    /// Returns the auth service.
-    pub fn auth_service(&self) -> &Arc<ConnectedAuthService> {
-        &self.auth_service
-    }
 
     /// Returns the docker service.
     pub fn docker_service(&self) -> &Arc<LocalDockerService> {
@@ -1025,14 +923,6 @@ impl DspatchSdk {
     pub async fn dispose(&self) -> Result<()> {
         self.teardown_database().await;
         Ok(())
-    }
-}
-
-impl Drop for DspatchSdk {
-    fn drop(&mut self) {
-        if let Some(handle) = self.auth_watcher.get_mut().take() {
-            handle.abort();
-        }
     }
 }
 

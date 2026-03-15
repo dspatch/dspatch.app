@@ -1,9 +1,0 @@
-cargo:
-  release:
-    extra_flags:
-      - --features
-      - flutter
-  debug:
-    extra_flags:
-      - --features
-      - flutter

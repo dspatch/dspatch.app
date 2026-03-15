@@ -11,7 +11,7 @@ use crate::engine::startup::EngineRuntime;
 use crate::util::error::AppError;
 use crate::util::result::Result;
 
-use super::auth::{anonymous_handler, login_handler, register_handler};
+use super::auth::{anonymous_handler, connect_handler, refresh_handler};
 use super::health::{engine_info_handler, health_handler};
 use super::ws::ws_handler;
 
@@ -21,8 +21,8 @@ pub fn build_router(runtime: Arc<EngineRuntime>) -> Router {
         .route("/health", axum::routing::get(health_handler))
         .route("/engine-info", axum::routing::get(engine_info_handler))
         .route("/auth/anonymous", axum::routing::post(anonymous_handler))
-        .route("/auth/login", axum::routing::post(login_handler))
-        .route("/auth/register", axum::routing::post(register_handler))
+        .route("/auth/connect", axum::routing::post(connect_handler))
+        .route("/auth/refresh", axum::routing::post(refresh_handler))
         .route("/ws", axum::routing::get(ws_handler))
         .with_state(runtime)
 }

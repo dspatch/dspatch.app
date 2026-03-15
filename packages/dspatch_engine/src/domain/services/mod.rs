@@ -5,7 +5,7 @@ pub mod agent_provider;
 pub mod agent_template;
 pub mod api_client;
 pub mod api_key;
-pub mod auth;
+
 pub mod connectivity;
 pub mod device;
 pub mod docker;
@@ -22,7 +22,7 @@ pub use agent_provider::AgentProviderService;
 pub use agent_template::AgentTemplateService;
 pub use api_client::ApiClient;
 pub use api_key::ApiKeyService;
-pub use auth::AuthService;
+
 pub use connectivity::ConnectivityService;
 pub use device::DeviceService;
 pub use docker::{ContainerSummary, DockerService};

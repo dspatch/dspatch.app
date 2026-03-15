@@ -49,7 +49,11 @@ impl Default for EngineConfig {
             agent_server_port: 0,
             invalidation_debounce_ms: 50,
             test_mode: false,
-            backend_url: None,
+            backend_url: if cfg!(debug_assertions) {
+                Some("http://localhost:3000".into())
+            } else {
+                Some("https://backend.dspatch.dev".into())
+            },
         }
     }
 }

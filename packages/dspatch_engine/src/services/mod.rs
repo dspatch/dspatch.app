@@ -10,7 +10,7 @@ pub mod agent_data;
 pub mod agent_provider;
 pub mod agent_template;
 pub mod api_key;
-pub mod auth;
+
 pub mod connectivity;
 pub mod device;
 pub mod docker;
@@ -25,7 +25,7 @@ pub use agent_data::LocalAgentDataService;
 pub use agent_provider::LocalAgentProviderService;
 pub use agent_template::LocalAgentTemplateService;
 pub use api_key::LocalApiKeyService;
-pub use auth::LocalAuthService;
+
 pub use connectivity::LocalConnectivityService;
 pub use device::LocalDeviceService;
 pub use docker::LocalDockerService;
