@@ -619,6 +619,7 @@ pub async fn dispatch_command(
         Command::GetDatabaseState
         | Command::PerformMigration
         | Command::SkipMigration
+        | Command::RefreshCredentials { .. }
         | Command::Logout => Err(AppError::Internal(
             "This command is handled by the WebSocket layer before dispatch".into(),
         )),

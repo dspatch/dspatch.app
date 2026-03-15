@@ -336,6 +336,15 @@ pub enum Command {
 
     // ── Session Commands ──────────────────────────────────────────────
 
+    #[serde(rename = "refresh_credentials")]
+    RefreshCredentials {
+        backend_token: String,
+        #[serde(default)]
+        device_id: Option<String>,
+        #[serde(default)]
+        identity_key_seed: Option<String>,
+    },
+
     #[serde(rename = "logout")]
     Logout,
 }

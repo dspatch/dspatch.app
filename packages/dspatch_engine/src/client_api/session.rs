@@ -98,6 +98,24 @@ impl SessionStore {
         }
     }
 
+    pub fn update_credentials(
+        &self,
+        session_token: &str,
+        backend_token: String,
+        device_id: Option<String>,
+        identity_key_seed: Option<String>,
+    ) {
+        if let Some(session) = self.sessions.write().unwrap().get_mut(session_token) {
+            session.backend_token = Some(backend_token);
+            if let Some(id) = device_id {
+                session.device_id = Some(id);
+            }
+            if let Some(seed) = identity_key_seed {
+                session.identity_key_seed = Some(seed);
+            }
+        }
+    }
+
     pub fn remove_expired(&self) {
         let now = Utc::now().timestamp();
         self.sessions

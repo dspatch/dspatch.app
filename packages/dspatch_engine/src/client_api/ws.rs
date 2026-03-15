@@ -245,6 +245,23 @@ async fn handle_client_message(
                 return true;
             }
 
+            // Refresh credentials: update stored token and device info.
+            if let Command::RefreshCredentials { backend_token, device_id, identity_key_seed } = &command {
+                runtime.session_store().update_credentials(
+                    session_token,
+                    backend_token.clone(),
+                    device_id.clone(),
+                    identity_key_seed.clone(),
+                );
+                tracing::info!("Session credentials refreshed");
+                let frame = ServerFrame::Result {
+                    id,
+                    data: serde_json::json!({"status": "ok"}),
+                };
+                let _ = send_frame(socket, &frame).await;
+                return false;
+            }
+
             // Database lifecycle commands route to the SDK directly,
             // bypassing ServiceRegistry — they must work even when the DB
             // is not yet open (e.g. migration-pending state).
