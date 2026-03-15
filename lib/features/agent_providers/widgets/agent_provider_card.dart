@@ -57,7 +57,7 @@ class AgentProviderCard extends StatelessWidget {
                         ),
                         if (!item.isTemplate &&
                             isHub &&
-                            provider!.hubAuthor != null) ...[
+                            provider.hubAuthor != null) ...[
                           const SizedBox(width: Spacing.xs),
                           Text(
                             'by ${provider.hubAuthor}',
@@ -82,7 +82,7 @@ class AgentProviderCard extends StatelessWidget {
                       ),
                     if (!item.isTemplate &&
                         isHub &&
-                        provider!.hubTags.isNotEmpty)
+                        provider.hubTags.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: Row(
@@ -144,7 +144,7 @@ class AgentProviderCard extends StatelessWidget {
               // Hub version (providers only)
               if (!item.isTemplate &&
                   isHub &&
-                  provider!.hubVersion != null)
+                  provider.hubVersion != null)
                 Padding(
                   padding: const EdgeInsets.only(right: Spacing.md),
                   child: Text(

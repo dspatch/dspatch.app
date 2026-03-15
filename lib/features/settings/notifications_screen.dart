@@ -58,7 +58,7 @@ final notificationPreferencesProvider =
   final result = <String, bool>{};
   for (final key in keys) {
     try {
-      final pref = await client.getPreference(key);
+      final pref = await client.sendCommand('get_preference', {'key': key});
       final value = pref['value'] as String?;
       result[key] = value != null ? value == 'true' : true;
     } catch (_) {
@@ -129,7 +129,10 @@ class NotificationsScreen extends ConsumerWidget {
                     onChanged: (value) {
                       ref
                           .read(engineClientProvider)
-                          .setPreference(event.key, value.toString());
+                          .sendCommand('set_preference', {
+                        'key': event.key,
+                        'value': value.toString(),
+                      });
                       // Refresh preferences to reflect the change.
                       ref.invalidate(notificationPreferencesProvider);
                     },

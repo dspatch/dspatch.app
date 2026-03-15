@@ -1,83 +1,11 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/commands/hub.dart';
 import '../../models/hub_types.dart';
 
 import '../../di/providers.dart';
 import '../../engine_client/models/auth_state.dart';
-
-// ---------------------------------------------------------------------------
-// Map → FRB type helpers
-// ---------------------------------------------------------------------------
-
-HubAgentSummary _hubAgentFromMap(Map<String, dynamic> m) {
-  final tagsRaw = (m['tags'] as List<dynamic>?) ?? [];
-  return HubAgentSummary(
-    slug: m['slug'] as String? ?? '',
-    name: m['name'] as String? ?? '',
-    description: m['description'] as String?,
-    author: m['author'] as String?,
-    category: m['category'] as String?,
-    tags: tagsRaw
-        .map((t) {
-          final tm = t as Map<String, dynamic>;
-          return HubTagRef(
-            slug: tm['slug'] as String? ?? '',
-            displayName: tm['display_name'] as String? ?? '',
-            category: tm['category'] as String? ?? '',
-          );
-        })
-        .toList(),
-    stars: m['stars'] as int? ?? 0,
-    downloads: m['downloads'] as int? ?? 0,
-    verified: m['verified'] as bool? ?? false,
-    version: m['version'] as int? ?? 0,
-    userLiked: m['user_liked'] as bool? ?? false,
-    agentType: m['agent_type'] as String? ?? 'provider',
-    sourceSlug: m['source_slug'] as String?,
-  );
-}
-
-HubWorkspaceSummary _hubWorkspaceFromMap(Map<String, dynamic> m) {
-  final tagsRaw = (m['tags'] as List<dynamic>?) ?? [];
-  return HubWorkspaceSummary(
-    slug: m['slug'] as String? ?? '',
-    name: m['name'] as String? ?? '',
-    description: m['description'] as String?,
-    author: m['author'] as String?,
-    category: m['category'] as String?,
-    tags: tagsRaw
-        .map((t) {
-          final tm = t as Map<String, dynamic>;
-          return HubTagRef(
-            slug: tm['slug'] as String? ?? '',
-            displayName: tm['display_name'] as String? ?? '',
-            category: tm['category'] as String? ?? '',
-          );
-        })
-        .toList(),
-    stars: m['stars'] as int? ?? 0,
-    downloads: m['downloads'] as int? ?? 0,
-    verified: m['verified'] as bool? ?? false,
-    version: m['version'] as int? ?? 0,
-    userLiked: m['user_liked'] as bool? ?? false,
-    agentCount: m['agent_count'] as int? ?? 0,
-  );
-}
-
-HubCategoryCount _hubCategoryFromMap(Map<String, dynamic> m) {
-  return HubCategoryCount(
-    category: m['category'] as String?,
-    count: m['count'] as int? ?? 0,
-  );
-}
-
-HubPagination _hubPaginationFromMap(Map<String, dynamic> m) {
-  return HubPagination(
-    nextCursor: m['next_cursor'] as String?,
-    hasMore: m['has_more'] as bool? ?? false,
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Agent browsing state
@@ -95,28 +23,20 @@ final hubAgentsProvider =
   final search = ref.watch(hubAgentSearchProvider);
   final category = ref.watch(hubAgentCategoryProvider);
   final cursor = ref.watch(hubAgentCursorProvider);
-  final result = await client.hubBrowseAgents(
+  final result = await client.send(HubBrowseAgents(
     search: search.isEmpty ? null : search,
     category: category,
     cursor: cursor,
     perPage: 20,
-  );
-  final agentsList = (result['agents'] as List<dynamic>?) ?? [];
-  final paginationMap = (result['pagination'] as Map<String, dynamic>?) ?? {};
-  return (
-    agentsList.map((a) => _hubAgentFromMap(a as Map<String, dynamic>)).toList(),
-    _hubPaginationFromMap(paginationMap),
-  );
+  ));
+  return (result.data, result.pagination);
 });
 
 final hubAgentCategoriesProvider =
     FutureProvider.autoDispose<List<HubCategoryCount>>((ref) async {
   final client = ref.watch(engineClientProvider);
-  final result = await client.hubAgentCategories();
-  final categories = (result['categories'] as List<dynamic>?) ?? [];
-  return categories
-      .map((c) => _hubCategoryFromMap(c as Map<String, dynamic>))
-      .toList();
+  final result = await client.send(HubAgentCategories());
+  return result.data;
 });
 
 // ---------------------------------------------------------------------------
@@ -136,28 +56,20 @@ final hubWorkspacesProvider = FutureProvider.autoDispose<
   final search = ref.watch(hubWorkspaceSearchProvider);
   final category = ref.watch(hubWorkspaceCategoryProvider);
   final cursor = ref.watch(hubWorkspaceCursorProvider);
-  final result = await client.hubBrowseWorkspaces(
+  final result = await client.send(HubBrowseWorkspaces(
     search: search.isEmpty ? null : search,
     category: category,
     cursor: cursor,
     perPage: 20,
-  );
-  final wsList = (result['workspaces'] as List<dynamic>?) ?? [];
-  final paginationMap = (result['pagination'] as Map<String, dynamic>?) ?? {};
-  return (
-    wsList.map((w) => _hubWorkspaceFromMap(w as Map<String, dynamic>)).toList(),
-    _hubPaginationFromMap(paginationMap),
-  );
+  ));
+  return (result.data, result.pagination);
 });
 
 final hubWorkspaceCategoriesProvider =
     FutureProvider.autoDispose<List<HubCategoryCount>>((ref) async {
   final client = ref.watch(engineClientProvider);
-  final result = await client.hubWorkspaceCategories();
-  final categories = (result['categories'] as List<dynamic>?) ?? [];
-  return categories
-      .map((c) => _hubCategoryFromMap(c as Map<String, dynamic>))
-      .toList();
+  final result = await client.send(HubWorkspaceCategories());
+  return result.data;
 });
 
 // ---------------------------------------------------------------------------
@@ -167,21 +79,15 @@ final hubWorkspaceCategoriesProvider =
 final hubStripAgentsProvider =
     FutureProvider<List<HubAgentSummary>>((ref) async {
   final client = ref.watch(engineClientProvider);
-  final result = await client.hubBrowseAgents(perPage: 8);
-  final agentsList = (result['agents'] as List<dynamic>?) ?? [];
-  return agentsList
-      .map((a) => _hubAgentFromMap(a as Map<String, dynamic>))
-      .toList();
+  final result = await client.send(HubBrowseAgents(perPage: 8));
+  return result.data;
 });
 
 final hubStripWorkspacesProvider =
     FutureProvider<List<HubWorkspaceSummary>>((ref) async {
   final client = ref.watch(engineClientProvider);
-  final result = await client.hubBrowseWorkspaces(perPage: 8);
-  final wsList = (result['workspaces'] as List<dynamic>?) ?? [];
-  return wsList
-      .map((w) => _hubWorkspaceFromMap(w as Map<String, dynamic>))
-      .toList();
+  final result = await client.send(HubBrowseWorkspaces(perPage: 8));
+  return result.data;
 });
 
 // ---------------------------------------------------------------------------
@@ -198,11 +104,8 @@ final hubWorkspaceSearchResultsProvider =
   final query = ref.watch(workspaceUnifiedSearchProvider);
   if (query.isEmpty) return [];
   final client = ref.watch(engineClientProvider);
-  final result = await client.hubBrowseWorkspaces(search: query, perPage: 5);
-  final wsList = (result['workspaces'] as List<dynamic>?) ?? [];
-  return wsList
-      .map((w) => _hubWorkspaceFromMap(w as Map<String, dynamic>))
-      .toList();
+  final result = await client.send(HubBrowseWorkspaces(search: query, perPage: 5));
+  return result.data;
 });
 
 /// Search query for agent template unified search dropdown.
@@ -215,11 +118,8 @@ final hubAgentSearchResultsProvider =
   final query = ref.watch(agentProviderUnifiedSearchProvider);
   if (query.isEmpty) return [];
   final client = ref.watch(engineClientProvider);
-  final result = await client.hubBrowseAgents(search: query, perPage: 5);
-  final agentsList = (result['agents'] as List<dynamic>?) ?? [];
-  return agentsList
-      .map((a) => _hubAgentFromMap(a as Map<String, dynamic>))
-      .toList();
+  final result = await client.send(HubBrowseAgents(search: query, perPage: 5));
+  return result.data;
 });
 
 // ---------------------------------------------------------------------------
@@ -239,10 +139,10 @@ final loadUserVotesProvider = FutureProvider.autoDispose<void>((ref) async {
 
   final client = ref.watch(engineClientProvider);
   try {
-    final agentResult = await client.hubMyVotes(targetType: 'agent');
-    final workspaceResult = await client.hubMyVotes(targetType: 'workspace');
-    final agentSlugs = ((agentResult['slugs'] as List<dynamic>?) ?? []).cast<String>();
-    final workspaceSlugs = ((workspaceResult['slugs'] as List<dynamic>?) ?? []).cast<String>();
+    final agentResult = await client.send(HubMyVotes(itemType: 'agent'));
+    final workspaceResult = await client.send(HubMyVotes(itemType: 'workspace'));
+    final agentSlugs = ((agentResult.raw['slugs'] as List<dynamic>?) ?? []).cast<String>();
+    final workspaceSlugs = ((workspaceResult.raw['slugs'] as List<dynamic>?) ?? []).cast<String>();
     ref.read(likedAgentSlugsProvider.notifier).state = agentSlugs.toSet();
     ref.read(likedWorkspaceSlugsProvider.notifier).state =
         workspaceSlugs.toSet();

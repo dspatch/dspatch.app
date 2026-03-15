@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import '../../database/engine_database.dart' show AgentProvider;
+import '../../models/commands/settings.dart';
 import 'dart:io';
 
 import 'package:dspatch_ui/dspatch_ui.dart';
@@ -150,7 +151,7 @@ class _HubCloneTemplateDialogState
 
       // 3. Create the local provider via the engine.
       final client = ref.read(engineClientProvider);
-      await client.createAgentProvider(request: {
+      await client.send(CreateAgentProvider(request: {
         'name': name,
         'source_type': 'local',
         'source_path': finalPath,
@@ -162,7 +163,7 @@ class _HubCloneTemplateDialogState
         'required_mounts_json': widget.template.requiredMountsJson,
         'fields_json': widget.template.fieldsJson,
         'hub_tags': const [],
-      });
+      }));
 
       if (mounted) {
         toast("Cloned '$name' to $finalPath", type: ToastType.success);

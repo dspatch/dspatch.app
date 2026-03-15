@@ -284,16 +284,16 @@ class _AgentTreeNode extends ConsumerWidget {
       if (runId == null) return;
       try {
         if (isSubAgent) {
-          await ref.read(engineClientProvider).startSubInstance(
-                runId: runId!,
-                parentInstanceId: '', // TODO: resolve parent instance ID
-                agentKey: agentKey,
-              );
+          await ref.read(engineClientProvider).sendCommand('start_sub_instance', {
+                'run_id': runId!,
+                'parent_instance_id': '', // TODO: resolve parent instance ID
+                'agent_key': agentKey,
+              });
         } else {
-          await ref.read(engineClientProvider).startRootInstance(
-                runId: runId!,
-                agentKey: agentKey,
-              );
+          await ref.read(engineClientProvider).sendCommand('start_root_instance', {
+                'run_id': runId!,
+                'agent_key': agentKey,
+              });
         }
       } catch (e) {
         debugPrint('[start_instance] Failed: $e');
@@ -352,10 +352,10 @@ class _AgentTreeNode extends ConsumerWidget {
                       tooltip: 'Stop instance',
                       onPressed: () async {
                         try {
-                          await ref.read(engineClientProvider).stopInstance(
-                                runId: runId!,
-                                instanceId: a.instanceId,
-                              );
+                          await ref.read(engineClientProvider).sendCommand('stop_instance', {
+                                'run_id': runId!,
+                                'instance_id': a.instanceId,
+                              });
                         } catch (e) {
                           debugPrint('[stop_instance] Failed: $e');
                         }
@@ -393,9 +393,9 @@ class _AgentTreeNode extends ConsumerWidget {
                         ? () async {
                             if (runId == null) return;
                             try {
-                              await ref.read(engineClientProvider).cleanupStaleInstances(
-                                    runId: runId!,
-                                  );
+                              await ref.read(engineClientProvider).sendCommand('cleanup_stale_instances', {
+                                    'run_id': runId!,
+                                  });
                             } catch (e) {
                               debugPrint('[cleanup] Failed: $e');
                             }
@@ -429,10 +429,10 @@ class _AgentTreeNode extends ConsumerWidget {
                                 tooltip: 'Stop instance',
                                 onPressed: () async {
                                   try {
-                                    await ref.read(engineClientProvider).stopInstance(
-                                          runId: runId!,
-                                          instanceId: a.instanceId,
-                                        );
+                                    await ref.read(engineClientProvider).sendCommand('stop_instance', {
+                                          'run_id': runId!,
+                                          'instance_id': a.instanceId,
+                                        });
                                   } catch (e) {
                                     debugPrint('[stop_instance] Failed: $e');
                                   }

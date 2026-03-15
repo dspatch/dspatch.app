@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'dart:async';
 
+import '../../../models/commands/hub.dart';
 import '../../../models/hub_types.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
@@ -107,20 +108,10 @@ class _TagAutocompleteInputState extends ConsumerState<TagAutocompleteInput> {
     setState(() => _loading = true);
     try {
       final client = ref.read(engineClientProvider);
-      final result = await client.hubPopularTags(tagType: widget.category);
-      final tagsList = (result['tags'] as List<dynamic>?) ?? [];
+      final result = await client.send(HubPopularTags(tagType: widget.category));
       if (!mounted) return;
       setState(() {
-        _suggestions = tagsList
-            .map((t) {
-              final m = t as Map<String, dynamic>;
-              return HubTagRef(
-                slug: m['slug'] as String? ?? '',
-                displayName: m['display_name'] as String? ?? '',
-                category: m['category'] as String? ?? widget.category,
-              );
-            })
-            .toList();
+        _suggestions = result.tags;
         _showDropdown = true;
         _loading = false;
       });
@@ -145,23 +136,13 @@ class _TagAutocompleteInputState extends ConsumerState<TagAutocompleteInput> {
       setState(() => _loading = true);
       try {
         final client = ref.read(engineClientProvider);
-        final result = await client.hubSearchTags(
+        final result = await client.send(HubSearchTags(
           query: value.trim(),
           tagType: widget.category,
-        );
-        final tagsList = (result['tags'] as List<dynamic>?) ?? [];
+        ));
         if (!mounted) return;
         setState(() {
-          _suggestions = tagsList
-              .map((t) {
-                final m = t as Map<String, dynamic>;
-                return HubTagRef(
-                  slug: m['slug'] as String? ?? '',
-                  displayName: m['display_name'] as String? ?? '',
-                  category: m['category'] as String? ?? widget.category,
-                );
-              })
-              .toList();
+          _suggestions = result.tags;
           _showDropdown = true;
           _loading = false;
         });

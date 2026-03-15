@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../di/providers.dart';
+import '../auth/auth_controller.dart';
 
 class AccountScreen extends ConsumerWidget {
   const AccountScreen({super.key});
@@ -44,11 +45,14 @@ class AccountScreen extends ConsumerWidget {
             _ConnectedAccountInfo(
               username: authState?.username ?? 'User',
               email: authState?.email,
-              onLogout: () => ref.read(engineClientProvider).logout(),
+              onLogout: () async {
+                await ref.read(authControllerProvider.notifier).logout();
+                if (context.mounted) context.go('/auth/login');
+              },
             )
           else
             _GuestAccountInfo(
-              onSignIn: () => ref.read(engineClientProvider).logout(),
+              onSignIn: () => context.go('/auth/login'),
             ),
         ],
       ),

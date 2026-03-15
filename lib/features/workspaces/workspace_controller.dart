@@ -6,13 +6,15 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../di/providers.dart';
 import '../../engine_client/engine_client.dart';
+import '../../models/commands/agent.dart';
+import '../../models/commands/workspace.dart';
 
 part 'workspace_controller.g.dart';
 
 @riverpod
 class WorkspaceController extends _$WorkspaceController {
   @override
-  FutureOr<void> build() {}
+  Future<void> build() async {}
 
   EngineClient get _client => ref.read(engineClientProvider);
 
@@ -22,10 +24,10 @@ class WorkspaceController extends _$WorkspaceController {
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-        () => _client.sendCommand('create_workspace', {
-              'project_path': projectPath,
-              'config_yaml': configYaml,
-            }));
+        () => _client.send(CreateWorkspace(
+              projectPath: projectPath,
+              configYaml: configYaml,
+            )));
     if (state.hasError) {
       final error = state.error;
       final message = switch (error) {
@@ -46,7 +48,8 @@ class WorkspaceController extends _$WorkspaceController {
 
   Future<bool> deleteWorkspace(String id) async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() => _client.deleteWorkspace(id));
+    state = await AsyncValue.guard(
+        () => _client.send(DeleteWorkspace(id: id)));
     if (state.hasError) {
       toast('Failed to delete workspace', type: ToastType.error);
       return false;
@@ -57,7 +60,8 @@ class WorkspaceController extends _$WorkspaceController {
 
   Future<bool> launchWorkspace(String id) async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() => _client.launchWorkspace(id));
+    state = await AsyncValue.guard(
+        () => _client.send(LaunchWorkspace(id: id)));
     if (state.hasError) {
       toast('Failed to launch workspace: ${state.error}',
           type: ToastType.error);
@@ -69,7 +73,8 @@ class WorkspaceController extends _$WorkspaceController {
 
   Future<bool> stopWorkspace(String id) async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() => _client.stopWorkspace(id));
+    state = await AsyncValue.guard(
+        () => _client.send(StopWorkspace(id: id)));
     if (state.hasError) {
       toast('Failed to stop workspace: ${state.error}',
           type: ToastType.error);
@@ -82,8 +87,8 @@ class WorkspaceController extends _$WorkspaceController {
   Future<bool> restartWorkspace(String id) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      await _client.stopWorkspace(id);
-      await _client.launchWorkspace(id);
+      await _client.send(StopWorkspace(id: id));
+      await _client.send(LaunchWorkspace(id: id));
     });
     if (state.hasError) {
       toast('Failed to restart workspace: ${state.error}',
@@ -101,11 +106,11 @@ class WorkspaceController extends _$WorkspaceController {
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-      () => _client.respondToInquiry(
+      () => _client.send(RespondToInquiry(
         inquiryId: inquiryId,
         response: responseText ?? '',
         choiceIndex: responseSuggestionIndex,
-      ),
+      )),
     );
     if (state.hasError) {
       toast('Failed to respond to inquiry', type: ToastType.error);
@@ -123,8 +128,8 @@ class WorkspaceController extends _$WorkspaceController {
     String text,
   ) async {
     try {
-      await _client.sendUserInputToAgent(
-          runId: runId, instanceId: instanceId, text: text);
+      await _client.send(SendAgentInput(
+          runId: runId, instanceId: instanceId, text: text));
       return true;
     } catch (e) {
       toast('Failed to send message: $e', type: ToastType.error);
@@ -133,12 +138,16 @@ class WorkspaceController extends _$WorkspaceController {
   }
 
   /// Sends an interrupt signal to a running agent instance.
+  // TODO: InterruptInstance now requires agentKey — callers need to provide it.
   Future<bool> interruptInstance(
     String runId,
     String instanceId,
   ) async {
     try {
-      await _client.interruptInstance(runId: runId, instanceId: instanceId);
+      await _client.sendCommand('interrupt_instance', {
+        'run_id': runId,
+        'instance_id': instanceId,
+      });
       return true;
     } catch (e) {
       toast('Failed to interrupt agent: $e', type: ToastType.error);

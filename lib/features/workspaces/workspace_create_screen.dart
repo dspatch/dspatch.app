@@ -82,7 +82,8 @@ class _WorkspaceCreateScreenState
   }
 
   Future<String> _configToYaml(WorkspaceConfig config) async {
-    final result = await ref.read(engineClientProvider).encodeWorkspaceYaml(config: _configToMap(config));
+    final result = await ref.read(engineClientProvider).sendCommand(
+        'encode_workspace_yaml', {'config': _configToMap(config)});
     return result['yaml'] as String? ?? '';
   }
 
@@ -184,7 +185,8 @@ class _WorkspaceCreateScreenState
     } else {
       // YAML → Visual: parse current YAML.
       try {
-        final result = await client.parseWorkspaceConfig(yaml: _configYaml);
+        final result = await client.sendCommand(
+            'parse_workspace_config', {'yaml': _configYaml});
         _parsedConfig = _configFromMap(result);
         _parseError = null;
       } on FormatException catch (e) {
@@ -229,7 +231,8 @@ class _WorkspaceCreateScreenState
 
     // 1. Parse YAML
     try {
-      final result = await client.parseWorkspaceConfig(yaml: yaml);
+      final result = await client.sendCommand(
+          'parse_workspace_config', {'yaml': yaml});
       config = _configFromMap(result);
     } on FormatException catch (e) {
       parseError = e.message;
@@ -248,8 +251,8 @@ class _WorkspaceCreateScreenState
     // 2. Validate config structure
     if (config != null) {
       try {
-        final validationResult =
-            await client.validateWorkspaceConfig(config: _configToMap(config));
+        final validationResult = await client.sendCommand(
+            'validate_workspace_config', {'config': _configToMap(config)});
         final validationErrors =
             (validationResult['errors'] as List<dynamic>?) ?? [];
         for (final ve in validationErrors) {
@@ -267,8 +270,8 @@ class _WorkspaceCreateScreenState
     // 3. Resolve templates (checks template existence, env, mounts, API keys)
     if (config != null) {
       try {
-        final resolution =
-            await client.resolveWorkspaceTemplates(config: _configToMap(config));
+        final resolution = await client.sendCommand(
+            'resolve_workspace_templates', {'config': _configToMap(config)});
         final unresolvedTemplates =
             (resolution['unresolved_templates'] as List<dynamic>?) ?? [];
         final missingApiKeys =

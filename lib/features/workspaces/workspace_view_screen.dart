@@ -358,12 +358,7 @@ class _WorkspaceDashboard extends ConsumerWidget {
   // ── Controls ────────────────────────────────────────────────────
 
   Widget _buildControls(WidgetRef ref, bool isLoading) {
-    final runStatus = activeRun?.status as String?;
-    final controller = ref.read(workspaceControllerProvider.notifier);
-    final canStart = runStatus == null || runStatus == 'stopped' || runStatus == 'failed';
-    final canStop = runStatus == 'running';
-    final isBusy = isLoading || runStatus == 'stopping' || runStatus == 'starting';
-
+    // TODO: Wire up start/stop controls using workspace controller + run status.
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

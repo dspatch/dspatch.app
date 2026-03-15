@@ -129,9 +129,9 @@ class WorkspaceInfoTab extends ConsumerWidget {
             )
           else
             FutureBuilder<Map<String, dynamic>>(
-              future: ref.read(engineClientProvider).containerStats(
-                    containerId: containerId,
-                  ),
+              future: ref.read(engineClientProvider).sendCommand('container_stats', {
+                    'container_id': containerId,
+                  }),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Padding(

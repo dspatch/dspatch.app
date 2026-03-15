@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import '../../../core/extensions/drift_extensions.dart';
 import '../../../database/engine_database.dart';
-import '../../../models/enums.dart';
 import '../../../core/extensions/agent_state_ext.dart';
 import '../../../core/utils/datetime_ext.dart';
 import 'dart:convert';

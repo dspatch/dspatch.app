@@ -1,4 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
+import '../../../models/commands/hub.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -69,9 +70,9 @@ class _HubLikeButtonState extends ConsumerState<HubLikeButton> {
     try {
       final client = ref.read(engineClientProvider);
       if (widget.targetType == 'agent') {
-        await client.hubVoteAgent(slug: widget.slug, like: _liked);
+        await client.send(HubVoteAgent(agentId: widget.slug, vote: _liked ? 1 : -1));
       } else {
-        await client.hubVoteWorkspace(slug: widget.slug, like: _liked);
+        await client.send(HubVoteWorkspace(workspaceId: widget.slug, vote: _liked ? 1 : -1));
       }
     } catch (e) {
       // Revert optimistic update

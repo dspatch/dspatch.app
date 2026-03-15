@@ -1,4 +1,8 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
+import '../../models/commands/config.dart';
+import '../../models/commands/hub.dart';
+import '../../models/commands/settings.dart';
+import '../../models/commands/workspace.dart';
 import '../../models/hub_types.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
@@ -40,10 +44,10 @@ class _HubWorkspaceBrowserDialogState
     try {
       final client = ref.read(engineClientProvider);
       final details =
-          await client.hubResolveWorkspaceDetails(slug: workspace.slug);
-      final configYamlString = details['config_yaml'] as String? ?? '';
-      final agentRefs = ((details['agent_refs'] as List<dynamic>?) ?? []).cast<String>();
-      final version = details['version'] as int? ?? 0;
+          await client.send(HubResolveWorkspaceDetails(slug: workspace.slug));
+      final configYamlString = details.raw['config_yaml'] as String? ?? '';
+      final agentRefs = ((details.raw['agent_refs'] as List<dynamic>?) ?? []).cast<String>();
+      final version = details.raw['version'] as int? ?? 0;
 
       // Create agent templates for each referenced agent that doesn't exist yet.
       // agentRefs are full URIs like "dspatch://agent/<author>/<slug>".
@@ -55,22 +59,22 @@ class _HubWorkspaceBrowserDialogState
           final authorSlug = uri != null
               ? uri.pathSegments.skip(1).join('/')
               : agentRef;
-          final resolved = await client.hubResolveAgent(slug: authorSlug);
-          await client.createAgentProvider(request: {
+          final resolved = await client.send(HubResolveAgent(agentId: authorSlug));
+          await client.send(CreateAgentProvider(request: {
             'name': agentRef,
             'source_type': 'hub',
             'hub_slug': agentRef,
             'hub_tags': const [],
-            'hub_version': resolved['version'],
-            'hub_repo_url': resolved['repo_url'],
-            'hub_commit_hash': resolved['commit_hash'],
-            'entry_point': resolved['entry_point'] ?? '',
-            'git_url': resolved['repo_url'],
-            'git_branch': resolved['branch'],
+            'hub_version': resolved.raw['version'],
+            'hub_repo_url': resolved.raw['repo_url'],
+            'hub_commit_hash': resolved.raw['commit_hash'],
+            'entry_point': resolved.raw['entry_point'] ?? '',
+            'git_url': resolved.raw['repo_url'],
+            'git_branch': resolved.raw['branch'],
             'required_env': const [],
             'required_mounts': const [],
             'fields': const {},
-          });
+          }));
           addedCount++;
         } catch (e) {
           debugPrint('Failed to create template for agent ref: $e');
@@ -79,15 +83,15 @@ class _HubWorkspaceBrowserDialogState
 
       // Create the local workspace from the resolved config YAML.
       final parsedConfig =
-          await client.parseWorkspaceConfig(yaml: configYamlString);
-      final projectPath = parsedConfig['workspace_dir'] as String? ?? '';
-      await client.createWorkspace(
+          await client.send(ParseWorkspaceConfig(yaml: configYamlString));
+      final projectPath = parsedConfig.config.workspaceDir ?? '';
+      await client.send(CreateWorkspace(
         projectPath: projectPath,
         configYaml: configYamlString,
-      );
+      ));
 
       if (mounted) {
-        final wsName = parsedConfig['name'] as String? ?? workspace.name;
+        final wsName = parsedConfig.config.name;
         final agentMsg = addedCount > 0
             ? ' with $addedCount agent template${addedCount == 1 ? '' : 's'}'
             : '';
@@ -112,20 +116,17 @@ class _HubWorkspaceBrowserDialogState
       final client = ref.read(engineClientProvider);
       final search = ref.read(hubWorkspaceSearchProvider);
       final category = ref.read(hubWorkspaceCategoryProvider);
-      final result = await client.hubBrowseWorkspaces(
+      final result = await client.send(HubBrowseWorkspaces(
         search: search.isEmpty ? null : search,
         category: category,
         cursor: _nextCursor,
         perPage: 20,
-      );
-      final wsList = (result['workspaces'] as List<dynamic>?) ?? [];
-      final paginationMap = (result['pagination'] as Map<String, dynamic>?) ?? {};
-      final workspaces = wsList.map((w) => _hubWorkspaceFromMap(w as Map<String, dynamic>)).toList();
+      ));
       if (mounted) {
         setState(() {
-          _allWorkspaces.addAll(workspaces);
-          _nextCursor = paginationMap['next_cursor'] as String?;
-          _hasMore = paginationMap['has_more'] as bool? ?? false;
+          _allWorkspaces.addAll(result.data);
+          _nextCursor = result.pagination.nextCursor;
+          _hasMore = result.pagination.hasMore;
           _loadingMore = false;
         });
       }
@@ -287,37 +288,6 @@ class _HubWorkspaceBrowserDialogState
         ),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Map → FRB type helpers
-// ---------------------------------------------------------------------------
-
-HubWorkspaceSummary _hubWorkspaceFromMap(Map<String, dynamic> m) {
-  final tagsRaw = (m['tags'] as List<dynamic>?) ?? [];
-  return HubWorkspaceSummary(
-    slug: m['slug'] as String? ?? '',
-    name: m['name'] as String? ?? '',
-    description: m['description'] as String?,
-    author: m['author'] as String?,
-    category: m['category'] as String?,
-    tags: tagsRaw
-        .map((t) {
-          final tm = t as Map<String, dynamic>;
-          return HubTagRef(
-            slug: tm['slug'] as String? ?? '',
-            displayName: tm['display_name'] as String? ?? '',
-            category: tm['category'] as String? ?? '',
-          );
-        })
-        .toList(),
-    stars: m['stars'] as int? ?? 0,
-    downloads: m['downloads'] as int? ?? 0,
-    verified: m['verified'] as bool? ?? false,
-    version: m['version'] as int? ?? 0,
-    userLiked: m['user_liked'] as bool? ?? false,
-    agentCount: m['agent_count'] as int? ?? 0,
-  );
 }
 
 // ---------------------------------------------------------------------------

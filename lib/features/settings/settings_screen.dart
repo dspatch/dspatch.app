@@ -9,6 +9,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../di/providers.dart';
+import '../auth/auth_controller.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -84,7 +85,7 @@ class SettingsScreen extends ConsumerWidget {
                       ? 'Sign out and return to login'
                       : 'Sign in to sync across devices',
                   onTap: () async {
-                    await ref.read(engineClientProvider).logout();
+                    await ref.read(authControllerProvider.notifier).logout();
                     if (context.mounted) context.go('/auth/login');
                   },
                 ),

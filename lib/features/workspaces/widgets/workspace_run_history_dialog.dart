@@ -55,9 +55,9 @@ class WorkspaceRunHistoryDialog extends ConsumerWidget {
                   icon: LucideIcons.trash_2,
                   onPressed: () async {
                     try {
-                      await ref.read(engineClientProvider).deleteNonActiveRuns(
-                            workspaceId: workspaceId,
-                          );
+                      await ref.read(engineClientProvider).sendCommand('delete_non_active_runs', {
+                            'workspace_id': workspaceId,
+                          });
                     } catch (e) {
                       if (context.mounted) {
                         toast('Failed to clear history: $e',
@@ -220,9 +220,9 @@ class _RunRow extends ConsumerWidget {
               size: ButtonSize.sm,
               onPressed: () async {
                 try {
-                  await ref.read(engineClientProvider).deleteWorkspaceRun(
-                        run.id,
-                      );
+                  await ref.read(engineClientProvider).sendCommand('delete_workspace_run', {
+                        'id': run.id,
+                      });
                 } catch (e) {
                   if (context.mounted) {
                     toast('Failed to delete run: $e',

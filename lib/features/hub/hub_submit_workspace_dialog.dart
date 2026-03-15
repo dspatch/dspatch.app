@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'dart:convert';
 
+import '../../models/commands/hub.dart';
 import '../../models/hub_types.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
@@ -89,13 +90,13 @@ class _HubSubmitWorkspaceDialogState
           .toList();
       final description = _descriptionController.text.trim();
 
-      await client.hubSubmitWorkspace(request: {
+      await client.send(HubSubmitWorkspace(request: {
         'name': name,
         'config_json': jsonEncode(widget.configYaml),
         if (description.isNotEmpty) 'description': description,
         if (_selectedCategory != null) 'category': _selectedCategory,
         if (allTags.isNotEmpty) 'tags_json': jsonEncode(allTags),
-      });
+      }));
 
       if (mounted) {
         toast('Submitted -- pending review', type: ToastType.success);

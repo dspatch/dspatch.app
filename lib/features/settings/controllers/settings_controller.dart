@@ -9,11 +9,14 @@ part 'settings_controller.g.dart';
 @riverpod
 class SettingsController extends _$SettingsController {
   @override
-  FutureOr<void> build() {}
+  Future<void> build() async {}
 
   Future<void> updateThemeMode(ThemeMode mode) async {
     final client = ref.read(engineClientProvider);
-    await client.setPreference('theme_mode', mode.name);
+    await client.sendCommand('set_preference', {
+      'key': 'theme_mode',
+      'value': mode.name,
+    });
     ref.read(themeModeProvider.notifier).state = mode;
   }
 }

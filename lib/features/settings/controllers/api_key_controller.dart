@@ -10,7 +10,7 @@ part 'api_key_controller.g.dart';
 @riverpod
 class ApiKeyController extends _$ApiKeyController {
   @override
-  FutureOr<void> build() {}
+  Future<void> build() async {}
 
   EngineClient get _client => ref.read(engineClientProvider);
 
@@ -22,16 +22,16 @@ class ApiKeyController extends _$ApiKeyController {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       // Encrypt the key via the engine.
-      final encrypted = await _client.encryptString(
-        plaintext: plaintext,
-        keyId: 'api_key',
-      );
+      final encrypted = await _client.sendCommand('encrypt_string', {
+        'plaintext': plaintext,
+        'key_id': 'api_key',
+      });
       final encryptedValue = encrypted['value'] as String? ?? plaintext;
-      await _client.createApiKey(
-        name: name,
-        value: encryptedValue,
-        providerName: providerLabel,
-      );
+      await _client.sendCommand('create_api_key', {
+        'name': name,
+        'value': encryptedValue,
+        'provider_name': providerLabel,
+      });
     });
     if (state.hasError) {
       toast('Failed to save API key', type: ToastType.error);
@@ -44,7 +44,7 @@ class ApiKeyController extends _$ApiKeyController {
   Future<bool> deleteApiKey(String id) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      await _client.deleteApiKey(id);
+      await _client.sendCommand('delete_api_key', {'id': id});
     });
     if (state.hasError) {
       toast('Failed to delete API key', type: ToastType.error);
@@ -67,7 +67,7 @@ class ApiKeyController extends _$ApiKeyController {
 
   Future<String?> decryptApiKey(String encryptedValue) async {
     try {
-      final result = await _client.decryptString(value: encryptedValue);
+      final result = await _client.sendCommand('decrypt_string', {'value': encryptedValue});
       return result['value'] as String?;
     } catch (e) {
       toast('Failed to decrypt API key', type: ToastType.error);

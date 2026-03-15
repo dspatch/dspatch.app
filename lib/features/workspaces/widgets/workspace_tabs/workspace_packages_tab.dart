@@ -14,7 +14,7 @@ class WorkspacePackagesTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return FutureBuilder<Map<String, dynamic>>(
-      future: ref.read(engineClientProvider).packageInspectorEntries(runId: runId),
+      future: ref.read(engineClientProvider).sendCommand('package_inspector_entries', {'run_id': runId}),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: Spinner());

@@ -2,6 +2,7 @@
 import 'dart:convert';
 
 import '../../database/engine_database.dart' show AgentProvider;
+import '../../models/commands/hub.dart';
 import '../../models/hub_types.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
@@ -120,7 +121,7 @@ class _HubSubmitAgentDialogState
       final description = _descriptionController.text.trim();
       final entryPoint = _entryPointController.text.trim();
 
-      await client.hubSubmitAgent(request: {
+      await client.send(HubSubmitAgent(request: {
         'name': name,
         'repo_url': repoUrl,
         if (branch.isNotEmpty) 'branch': branch,
@@ -128,7 +129,7 @@ class _HubSubmitAgentDialogState
         if (_selectedCategory != null) 'category': _selectedCategory,
         if (allTags.isNotEmpty) 'tags_json': jsonEncode(allTags),
         if (entryPoint.isNotEmpty) 'entry_point': entryPoint,
-      });
+      }));
 
       if (mounted) {
         toast('Submitted -- pending review', type: ToastType.success);

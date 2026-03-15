@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../database/engine_database.dart' show AgentTemplate;
+import '../../models/commands/hub.dart';
 import '../../models/hub_types.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
@@ -97,14 +98,14 @@ class _HubSubmitTemplateDialogState
           .toList();
       final description = _descController.text.trim();
 
-      await client.hubSubmitTemplate(request: {
+      await client.send(HubSubmitTemplate(request: {
         'name': name,
         'config_yaml': configYaml,
         'source_slug': sourceUri,
         if (description.isNotEmpty) 'description': description,
         if (_selectedCategory != null) 'category': _selectedCategory,
         if (allTags.isNotEmpty) 'tags_json': jsonEncode(allTags),
-      });
+      }));
 
       if (mounted) {
         toast('Template submitted — pending review', type: ToastType.success);

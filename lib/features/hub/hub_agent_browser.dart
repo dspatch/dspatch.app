@@ -1,4 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
+import '../../models/commands/hub.dart';
+import '../../models/commands/settings.dart';
 import '../../models/hub_types.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
@@ -48,10 +50,10 @@ class _HubAgentBrowserDialogState
         final author = agent.author ?? 'unknown';
         final sourceUri = 'dspatch://agent/$author/$sourceSlug';
 
-        await client.createAgentTemplate(request: {
+        await client.send(CreateAgentTemplate(request: {
           'name': agent.name,
           'source_uri': sourceUri,
-        });
+        }));
 
         if (mounted) {
           toast('Template "${agent.name}" added', type: ToastType.success);
@@ -60,26 +62,26 @@ class _HubAgentBrowserDialogState
         // Provider flow: resolve full metadata then create a local provider.
         final author = agent.author ?? 'unknown';
         final resolved =
-            await client.hubResolveAgent(slug: '$author/${agent.slug}');
+            await client.send(HubResolveAgent(agentId: '$author/${agent.slug}'));
 
-        await client.createAgentProvider(request: {
+        await client.send(CreateAgentProvider(request: {
           'name': agent.name,
           'source_type': 'hub',
           'hub_slug': agent.slug,
           'hub_author': agent.author,
           'hub_category': agent.category,
           'hub_tags': agent.tags.map((t) => t.displayName).toList(),
-          'hub_version': resolved['version'],
-          'hub_repo_url': resolved['repo_url'],
-          'hub_commit_hash': resolved['commit_hash'],
-          'entry_point': resolved['entry_point'] ?? '',
-          'git_url': resolved['repo_url'],
-          'git_branch': resolved['branch'],
+          'hub_version': resolved.raw['version'],
+          'hub_repo_url': resolved.raw['repo_url'],
+          'hub_commit_hash': resolved.raw['commit_hash'],
+          'entry_point': resolved.raw['entry_point'] ?? '',
+          'git_url': resolved.raw['repo_url'],
+          'git_branch': resolved.raw['branch'],
           'description': agent.description,
           'required_env': const [],
           'required_mounts': const [],
           'fields': const {},
-        });
+        }));
 
         if (mounted) {
           toast('Added "${agent.name}" to templates', type: ToastType.success);
@@ -101,20 +103,17 @@ class _HubAgentBrowserDialogState
       final client = ref.read(engineClientProvider);
       final search = ref.read(hubAgentSearchProvider);
       final category = ref.read(hubAgentCategoryProvider);
-      final result = await client.hubBrowseAgents(
+      final result = await client.send(HubBrowseAgents(
         search: search.isEmpty ? null : search,
         category: category,
         cursor: _nextCursor,
         perPage: 20,
-      );
-      final agentsList = (result['agents'] as List<dynamic>?) ?? [];
-      final paginationMap = (result['pagination'] as Map<String, dynamic>?) ?? {};
-      final agents = agentsList.map((a) => _hubAgentFromMap(a as Map<String, dynamic>)).toList();
+      ));
       if (mounted) {
         setState(() {
-          _allAgents.addAll(agents);
-          _nextCursor = paginationMap['next_cursor'] as String?;
-          _hasMore = paginationMap['has_more'] as bool? ?? false;
+          _allAgents.addAll(result.data);
+          _nextCursor = result.pagination.nextCursor;
+          _hasMore = result.pagination.hasMore;
           _loadingMore = false;
         });
       }
@@ -281,38 +280,6 @@ class _HubAgentBrowserDialogState
         ),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Map → FRB type helpers
-// ---------------------------------------------------------------------------
-
-HubAgentSummary _hubAgentFromMap(Map<String, dynamic> m) {
-  final tagsRaw = (m['tags'] as List<dynamic>?) ?? [];
-  return HubAgentSummary(
-    slug: m['slug'] as String? ?? '',
-    name: m['name'] as String? ?? '',
-    description: m['description'] as String?,
-    author: m['author'] as String?,
-    category: m['category'] as String?,
-    tags: tagsRaw
-        .map((t) {
-          final tm = t as Map<String, dynamic>;
-          return HubTagRef(
-            slug: tm['slug'] as String? ?? '',
-            displayName: tm['display_name'] as String? ?? '',
-            category: tm['category'] as String? ?? '',
-          );
-        })
-        .toList(),
-    stars: m['stars'] as int? ?? 0,
-    downloads: m['downloads'] as int? ?? 0,
-    verified: m['verified'] as bool? ?? false,
-    version: m['version'] as int? ?? 0,
-    userLiked: m['user_liked'] as bool? ?? false,
-    agentType: m['agent_type'] as String? ?? 'provider',
-    sourceSlug: m['source_slug'] as String?,
-  );
 }
 
 // ---------------------------------------------------------------------------

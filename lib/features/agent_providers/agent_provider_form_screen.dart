@@ -541,7 +541,7 @@ class _AgentProviderFormScreenState
       // New template: create first to get filePath, then write YAML.
       try {
         final client = ref.read(engineClientProvider);
-        final result = await client.createAgentTemplate(request: {
+        final result = await client.sendCommand('create_agent_template', {
           'name': name,
           'source_uri': _sourceUri!,
         });
@@ -707,9 +707,9 @@ class _AgentProviderFormScreenState
                 try {
                   final client = ref.read(engineClientProvider);
                   final author = result.author ?? 'unknown';
-                  final resolved =
-                      await client.hubResolveAgent(slug: '$author/${result.slug}');
-                  await client.createAgentProvider(request: {
+                  final resolved = await client.sendCommand(
+                      'hub_resolve_agent', {'slug': '$author/${result.slug}'});
+                  await client.sendCommand('create_agent_provider', {
                     'name': result.name,
                     'source_type': 'hub',
                     'hub_slug': result.slug,
