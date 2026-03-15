@@ -3,7 +3,7 @@ import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../di/providers.dart';
+import 'auth_controller.dart';
 import 'widgets/auth_layout.dart';
 
 /// 2FA verification screen shown during the login flow.
@@ -36,11 +36,16 @@ class _Verify2faScreenState extends ConsumerState<Verify2faScreen> {
     });
 
     try {
-      await ref.read(engineClientProvider).verify2Fa(
-            code: code,
-            isBackupCode: isBackupCode,
-          );
-      // Auth state becomes full -> route guard redirects to /sessions
+      final success =
+          await ref.read(authControllerProvider.notifier).verify2fa(
+                code: code,
+                isBackupCode: isBackupCode,
+              );
+      if (!mounted) return;
+      if (!success) {
+        setState(() => _isLoading = false);
+        return;
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -118,7 +123,7 @@ class _Verify2faScreenState extends ConsumerState<Verify2faScreen> {
             icon: LucideIcons.arrow_left,
             onPressed: _isLoading
                 ? null
-                : () => ref.read(engineClientProvider).logout(),
+                : () => ref.read(authControllerProvider.notifier).logout(),
           ),
         ],
       ),

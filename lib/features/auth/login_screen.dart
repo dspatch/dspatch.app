@@ -2,7 +2,9 @@
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../di/providers.dart';
+import 'package:go_router/go_router.dart';
+
+import 'auth_controller.dart';
 import 'widgets/auth_layout.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -30,6 +32,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
+    if (_isLoading) return;
+
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
 
@@ -38,18 +42,29 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return;
     }
 
+    debugPrint('[LOGIN_UI] _handleLogin called for user=$username');
+
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
     try {
-      await ref.read(engineClientProvider).login(
+      debugPrint('[LOGIN_UI] Calling authController.login()...');
+      final success = await ref.read(authControllerProvider.notifier).login(
             username: username,
             password: password,
           );
-      // Auth state change triggers route guard -> /auth/2fa-verify
-    } catch (e) {
+      debugPrint('[LOGIN_UI] authController.login() returned success=$success, mounted=$mounted');
+      if (!mounted) return;
+      if (!success) {
+        debugPrint('[LOGIN_UI] Login failed, resetting loading state');
+        setState(() => _isLoading = false);
+      } else {
+        debugPrint('[LOGIN_UI] Login succeeded, waiting for router redirect...');
+      }
+    } catch (e, st) {
+      debugPrint('[LOGIN_UI] _handleLogin EXCEPTION: $e\n$st');
       if (!mounted) return;
       setState(() {
         _isLoading = false;
@@ -60,8 +75,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _handleAnonymousMode() async {
     setState(() => _isLoading = true);
-    await ref.read(engineClientProvider).enterAnonymousMode();
-    // Auth state change triggers route guard → /sessions
+    await ref.read(authControllerProvider.notifier).enterAnonymousMode();
   }
 
   @override
@@ -169,14 +183,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
           const SizedBox(height: Spacing.xl),
 
-          // TODO: Re-enable when account creation is available
-          const Text(
-            'Account creation will be available soon.',
-            style: TextStyle(
-              fontSize: 13,
-              color: AppColors.mutedForeground,
-            ),
-            textAlign: TextAlign.center,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text(
+                "Don't have an account?",
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.mutedForeground,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Button(
+                label: 'Create account',
+                variant: ButtonVariant.link,
+                onPressed: () => context.go('/auth/register'),
+              ),
+            ],
           ),
         ],
       ),

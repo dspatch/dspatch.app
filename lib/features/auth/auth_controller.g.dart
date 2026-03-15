@@ -6,12 +6,9 @@ part of 'auth_controller.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$authControllerHash() => r'03d84c8b1baa0c914ae5caf47cf8da02c8d07da5';
+String _$authControllerHash() => r'73d34f43a184fc321036e2b5d5ef525299a60194';
 
-/// Delegates all auth operations to [RustSdk] and exposes
-/// an [AsyncValue] loading/error state for UI consumption.
-///
-/// Copied from [AuthController].
+/// See also [AuthController].
 @ProviderFor(AuthController)
 final authControllerProvider =
     AutoDisposeAsyncNotifierProvider<AuthController, void>.internal(

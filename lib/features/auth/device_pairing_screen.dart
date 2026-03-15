@@ -7,7 +7,7 @@ import 'package:dspatch_ui/dspatch_ui.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../di/providers.dart';
+import 'auth_controller.dart';
 import 'widgets/auth_layout.dart';
 
 class DevicePairingScreen extends ConsumerStatefulWidget {
@@ -81,8 +81,16 @@ class _DevicePairingScreenState extends ConsumerState<DevicePairingScreen> {
         'identity_key_hex': identityKeyHex,
       };
 
-      await ref.read(engineClientProvider).registerDevice(request: request);
-      // Auth state becomes full -> route guard redirects to /sessions
+      final success =
+          await ref.read(authControllerProvider.notifier).registerDevice(
+                request,
+                identityKeyHex: identityKeyHex,
+              );
+      if (!mounted) return;
+      if (!success) {
+        setState(() => _isLoading = false);
+        return;
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {

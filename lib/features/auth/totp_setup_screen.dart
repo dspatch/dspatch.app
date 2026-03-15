@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../../di/providers.dart';
+import 'auth_controller.dart';
 import 'widgets/auth_layout.dart';
 
 class TotpSetupScreen extends ConsumerStatefulWidget {
@@ -25,12 +25,13 @@ class _TotpSetupScreenState extends ConsumerState<TotpSetupScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSetupData();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadSetupData());
   }
 
   Future<void> _loadSetupData() async {
     try {
-      final data = await ref.read(engineClientProvider).setup2Fa();
+      final data =
+          await ref.read(authControllerProvider.notifier).setup2fa();
 
       if (!mounted) return;
 
@@ -55,12 +56,9 @@ class _TotpSetupScreenState extends ConsumerState<TotpSetupScreen> {
     });
 
     try {
-      final data = await ref.read(engineClientProvider).confirm2Fa(code: code);
-      // Stash backup codes so BackupCodesScreen can display them.
-      final codes = (data['backup_codes'] as List<dynamic>?)?.cast<String>();
-      ref.read(pendingBackupCodesProvider.notifier).state = codes;
-      // Scope is now awaitingBackupConfirmation -- the route guard will
-      // redirect to /auth/backup-codes automatically.
+      await ref.read(authControllerProvider.notifier).confirm2fa(code);
+      // Controller stashes backup codes and updates backendAuthState.
+      // Router redirects to /auth/backup-codes based on scope.
     } catch (e) {
       if (!mounted) return;
 

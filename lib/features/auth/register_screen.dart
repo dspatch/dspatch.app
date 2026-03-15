@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../di/providers.dart';
+import 'auth_controller.dart';
 import 'widgets/auth_layout.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -73,17 +73,17 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     });
 
     try {
-      await ref.read(engineClientProvider).register(
-            username: username,
-            email: email,
-            password: password,
-          );
-
+      final success =
+          await ref.read(authControllerProvider.notifier).register(
+                username: username,
+                email: email,
+                password: password,
+              );
       if (!mounted) return;
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) context.go('/auth/verify-email');
-      });
+      if (!success) {
+        setState(() => _isLoading = false);
+      }
+      // Router redirects based on backendAuthStateProvider scope.
     } catch (e) {
       if (!mounted) return;
       setState(() {

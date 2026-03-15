@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../di/providers.dart';
+import 'auth_controller.dart';
 import 'widgets/auth_layout.dart';
 
 class BackupCodesScreen extends ConsumerStatefulWidget {
@@ -19,11 +20,9 @@ class _BackupCodesScreenState extends ConsumerState<BackupCodesScreen> {
   Future<void> _acknowledge() async {
     setState(() => _isAcknowledging = true);
 
-    await ref.read(engineClientProvider).acknowledgeBackupCodes();
-    // Clear the ephemeral cache after acknowledgement.
-    ref.read(pendingBackupCodesProvider.notifier).state = null;
-    // Route guard will redirect to /auth/device-pairing after the scope
-    // upgrades to deviceRegistration.
+    await ref.read(authControllerProvider.notifier).acknowledgeBackupCodes();
+    // Controller clears pending codes and advances scope to device_registration.
+    // Router redirects to /auth/device-pairing.
   }
 
   @override

@@ -4,9 +4,8 @@ import 'dart:async';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-
 import '../../di/providers.dart';
+import 'auth_controller.dart';
 import 'widgets/auth_layout.dart';
 
 class VerifyEmailScreen extends ConsumerStatefulWidget {
@@ -37,13 +36,13 @@ class _VerifyEmailScreenState extends ConsumerState<VerifyEmailScreen> {
     });
 
     try {
-      await ref.read(engineClientProvider).verifyEmail(code: code);
-
+      final success =
+          await ref.read(authControllerProvider.notifier).verifyEmail(code);
       if (!mounted) return;
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) context.go('/auth/2fa-setup');
-      });
+      if (!success) {
+        setState(() => _isLoading = false);
+      }
+      // Router redirects based on backendAuthStateProvider scope.
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -57,7 +56,7 @@ class _VerifyEmailScreenState extends ConsumerState<VerifyEmailScreen> {
     if (_resendCooldown > 0) return;
 
     try {
-      await ref.read(engineClientProvider).resendVerification();
+      await ref.read(authControllerProvider.notifier).resendVerification();
       if (!mounted) return;
       toast('Verification code resent', type: ToastType.success);
 
@@ -80,8 +79,8 @@ class _VerifyEmailScreenState extends ConsumerState<VerifyEmailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authStateProvider).valueOrNull;
-    final email = authState?.email ?? 'your email';
+    final backendAuth = ref.watch(backendAuthStateProvider);
+    final email = backendAuth?.email ?? 'your email';
 
     return AuthLayout(
       stepperStep: 2,
