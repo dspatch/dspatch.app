@@ -1,11 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
-/// Typed commands for database lifecycle.
-///
-/// Note: These commands are NOT yet in the Rust Command enum (commands.rs).
-/// They are typed here to match the spec's goal of typing all commands.
-/// The Rust side will add these variants when database lifecycle management
-/// is implemented. Until then, these will return engine errors at runtime.
+/// Typed commands for database lifecycle (migration, state queries).
 library;
 
 import '../engine_responses.dart';
