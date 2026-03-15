@@ -116,24 +116,17 @@ void main() {
     });
   });
 
-  group('Auth endpoints — backend-dependent behavior', () {
-    test('login returns 503 when backend is NOT available', () async {
-      if (await harness.isBackendAvailable()) {
-        markTestSkipped(
-          'Backend IS available — 503 tests only apply without backend',
-        );
-        return;
-      }
-
+  group('Auth endpoints — connect/refresh', () {
+    test('connect with invalid JWT returns error', () async {
       final auth = EngineAuth(host: harness.host, port: harness.port);
       try {
         expect(
-          () => auth.login(username: 'test', password: 'test'),
+          () => auth.connect(backendToken: 'invalid-jwt'),
           throwsA(
             isA<AuthException>().having(
               (e) => e.statusCode,
               'statusCode',
-              equals(503),
+              isIn([400, 401, 403, 502, 503]),
             ),
           ),
         );
@@ -142,57 +135,15 @@ void main() {
       }
     });
 
-    test('register returns 503 when backend is NOT available', () async {
-      if (await harness.isBackendAvailable()) {
-        markTestSkipped(
-          'Backend IS available — 503 tests only apply without backend',
-        );
-        return;
-      }
-
+    test('refresh with invalid session returns error', () async {
       final auth = EngineAuth(host: harness.host, port: harness.port);
       try {
         expect(
-          () => auth.register(
-            username: 'test',
-            email: 'test@test.com',
-            password: 'TestPassword123!',
+          () => auth.refresh(
+            backendToken: 'invalid-jwt',
+            sessionToken: 'nonexistent-session',
           ),
-          throwsA(
-            isA<AuthException>().having(
-              (e) => e.statusCode,
-              'statusCode',
-              equals(503),
-            ),
-          ),
-        );
-      } finally {
-        auth.dispose();
-      }
-    });
-
-    test('login proxies to backend when available', () async {
-      if (!await harness.isBackendAvailable()) {
-        markTestSkipped('Backend not available at localhost:3000');
-        return;
-      }
-
-      // With the backend running, login with bad credentials should
-      // return a proper auth error, not 503.
-      final auth = EngineAuth(host: harness.host, port: harness.port);
-      try {
-        expect(
-          () => auth.login(
-            username: 'nonexistent_user',
-            password: 'wrong_password',
-          ),
-          throwsA(
-            isA<AuthException>().having(
-              (e) => e.statusCode,
-              'statusCode',
-              isNot(503),
-            ),
-          ),
+          throwsA(isA<AuthException>()),
         );
       } finally {
         auth.dispose();
