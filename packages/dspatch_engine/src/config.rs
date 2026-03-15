@@ -14,6 +14,19 @@ pub struct DspatchConfig {
     pub assets_dir: Option<String>,
 }
 
+impl DspatchConfig {
+    /// Creates a `DspatchConfig` from an `EngineConfig`, mapping shared fields.
+    pub fn from_engine_config(engine: &crate::engine::config::EngineConfig) -> Self {
+        Self {
+            server_port: engine.agent_server_port,
+            backend_url: engine.backend_url.clone(),
+            // Not applicable in daemon mode — Docker assets are
+            // resolved at the workspace bridge level, not SDK level.
+            assets_dir: None,
+        }
+    }
+}
+
 impl Default for DspatchConfig {
     fn default() -> Self {
         Self {
