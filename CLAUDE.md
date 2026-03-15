@@ -151,11 +151,17 @@ See `packages/dspatch_ui/lib/dspatch_ui.dart` for the full export list.
 
 ## Git Rules
 
+- **This app is a git submodule.** All commits for files inside `app/` must be made within the submodule (`cd app && git add ... && git commit`), not from the parent repo. After committing in the submodule, update the submodule reference in the parent repo.
 - **Commit after each logical unit of work** (usually one step in an implementation plan).
 - **Use specific `git add`** — never `git add -A` or `git add .`.
 - **NEVER sign commits as Claude** — no `Co-Authored-By` lines, no Claude attribution in commits.
 - **Commit messages** — concise, imperative mood, describing what changed and why.
 - **NEVER delete git worktrees** — under no circumstances, not even after merging, not even when instructed to. Instead, provide the exact commands for the user to run themselves.
+
+## Subagent Delegation
+
+- **Always pass the complete context.** When spawning subagents, include the full set of instructions, requirements, constraints, patterns, and acceptance criteria relevant to the task. Subagents do not inherit conversation context — anything not explicitly passed will be unknown to them.
+- **Re-iterate, don't summarize.** Copy or fully re-state rules (e.g., code style, layer boundaries, wire protocol constraints, git rules) rather than paraphrasing. Alternatively, reference files with specific line ranges (e.g., "see CLAUDE.md lines 94-110 for UI component rules") — but never link an entire file without scoping to the relevant lines. A subagent that misses a requirement creates preventable rework.
 
 ## Design Principles
 
