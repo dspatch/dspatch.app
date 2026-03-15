@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import '../../engine_client/models/auth_state.dart';
+import '../../engine_client/models/auth_token.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart' hide DropdownMenuItem;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,7 +26,7 @@ class AppSidebar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final collapsed = SidebarState.of(context)?.collapsed ?? false;
-    final authState = ref.watch(authStateProvider).valueOrNull;
+    final authToken = ref.watch(authTokenProvider);
     ref.watch(loadUserVotesProvider);
     final workspaces = ref.watch(workspacesProvider).valueOrNull ?? [];
     final recentWorkspaces = workspaces.take(3).toList();
@@ -159,7 +159,7 @@ class AppSidebar extends ConsumerWidget {
         ),
         padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
         child: _UserMenuTile(
-          authState: authState,
+          authToken: authToken,
           isCollapsed: collapsed,
           isDrawer: isDrawer,
         ),
@@ -183,18 +183,17 @@ class AppSidebar extends ConsumerWidget {
 }
 
 class _UserMenuTile extends ConsumerWidget {
-  final AuthState? authState;
+  final AuthToken? authToken;
   final bool isCollapsed;
   final bool isDrawer;
 
   const _UserMenuTile({
-    required this.authState,
+    required this.authToken,
     required this.isCollapsed,
     required this.isDrawer,
   });
 
-  bool get _isSignedIn =>
-      authState != null && authState!.mode == AuthMode.connected;
+  bool get _isSignedIn => authToken is BackendToken;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -313,12 +312,10 @@ class _UserMenuTile extends ConsumerWidget {
   }
 
   Widget _buildAccountTrigger() {
-    final initial = (authState!.username ?? authState!.email ?? '?')
-        .characters
-        .first
-        .toUpperCase();
-    final username = authState!.username ?? 'User';
-    final email = authState!.email;
+    final token = authToken as BackendToken;
+    final initial = token.username.characters.first.toUpperCase();
+    final username = token.username;
+    final email = token.email;
 
     final avatar = DspatchAvatar(
       fallback: initial,
@@ -359,8 +356,7 @@ class _UserMenuTile extends ConsumerWidget {
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              if (email != null)
-                                Text(
+                              Text(
                                   email,
                                   style: const TextStyle(
                                     fontSize: 11,

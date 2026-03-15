@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import '../../engine_client/models/auth_state.dart';
+import '../../engine_client/models/auth_token.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,8 +11,8 @@ import '../../features/auth/auth_controller.dart';
 /// sign in. Returns `true` if the user is authenticated (proceed with action),
 /// `false` if not (dialog shown, action cancelled).
 Future<bool> requireAuth(BuildContext context, WidgetRef ref) async {
-  final authState = ref.read(authStateProvider).valueOrNull;
-  if (authState != null && authState.mode == AuthMode.connected) {
+  final token = ref.read(authTokenProvider);
+  if (token is BackendToken) {
     return true;
   }
 

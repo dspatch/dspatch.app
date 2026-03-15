@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import '../../engine_client/models/auth_state.dart';
+import '../../engine_client/models/auth_token.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,10 +16,9 @@ class SettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final authState = ref.watch(authStateProvider).valueOrNull;
-    final mode = authState?.mode ?? AuthMode.undetermined;
-    final isConnected = mode == AuthMode.connected;
-    final username = authState?.username;
+    final authToken = ref.watch(authTokenProvider);
+    final isConnected = authToken is BackendToken;
+    final username = isConnected ? authToken.username : null;
 
     return ContentArea(
       child: CustomScrollView(
@@ -59,7 +58,7 @@ class SettingsScreen extends ConsumerWidget {
                       ? (username ?? 'Account')
                       : 'Anonymous mode',
                   description: isConnected
-                      ? 'Signed in \u2022 ${authState?.email ?? ''}'
+                      ? 'Signed in \u2022 ${isConnected ? authToken.email : ''}'
                       : 'Local-only \u2022 no sync or multi-device',
                   onTap: () => context.go('/settings/account'),
 

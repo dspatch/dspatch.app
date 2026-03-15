@@ -5,7 +5,7 @@ import '../../models/commands/hub.dart';
 import '../../models/hub_types.dart';
 
 import '../../di/providers.dart';
-import '../../engine_client/models/auth_state.dart';
+import '../../engine_client/models/auth_token.dart';
 
 // ---------------------------------------------------------------------------
 // Agent browsing state
@@ -134,8 +134,8 @@ final likedWorkspaceSlugsProvider = StateProvider<Set<String>>((_) => {});
 
 /// Load user's votes on app startup (called when auth state changes to connected).
 final loadUserVotesProvider = FutureProvider.autoDispose<void>((ref) async {
-  final authState = ref.watch(authStateProvider).valueOrNull;
-  if (authState == null || authState.mode != AuthMode.connected) return;
+  final authToken = ref.watch(authTokenProvider);
+  if (authToken is! BackendToken) return;
 
   final client = ref.watch(engineClientProvider);
   try {

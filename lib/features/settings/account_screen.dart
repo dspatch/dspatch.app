@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import '../../engine_client/models/auth_state.dart';
+import '../../engine_client/models/auth_token.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,8 +13,8 @@ class AccountScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final authState = ref.watch(authStateProvider).valueOrNull;
-    final isConnected = authState?.mode == AuthMode.connected;
+    final authToken = ref.watch(authTokenProvider);
+    final isConnected = authToken is BackendToken;
 
     return ContentArea(
       child: Column(
@@ -43,8 +43,8 @@ class AccountScreen extends ConsumerWidget {
           const SizedBox(height: Spacing.xl),
           if (isConnected)
             _ConnectedAccountInfo(
-              username: authState?.username ?? 'User',
-              email: authState?.email,
+              username: isConnected ? authToken.username : 'User',
+              email: isConnected ? authToken.email : null,
               onLogout: () async {
                 await ref.read(authControllerProvider.notifier).logout();
                 if (context.mounted) context.go('/auth/login');

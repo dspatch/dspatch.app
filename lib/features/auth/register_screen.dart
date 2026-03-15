@@ -83,7 +83,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       if (!success) {
         setState(() => _isLoading = false);
       }
-      // Router redirects based on backendAuthStateProvider scope.
+      // Router redirects based on authPhaseProvider.
     } catch (e) {
       if (!mounted) return;
       setState(() {

@@ -5,6 +5,7 @@ import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../di/providers.dart';
+import '../../engine_client/models/auth_token.dart';
 import 'auth_controller.dart';
 import 'widgets/auth_layout.dart';
 
@@ -42,7 +43,7 @@ class _VerifyEmailScreenState extends ConsumerState<VerifyEmailScreen> {
       if (!success) {
         setState(() => _isLoading = false);
       }
-      // Router redirects based on backendAuthStateProvider scope.
+      // Router redirects based on authPhaseProvider.
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -79,8 +80,8 @@ class _VerifyEmailScreenState extends ConsumerState<VerifyEmailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final backendAuth = ref.watch(backendAuthStateProvider);
-    final email = backendAuth?.email ?? 'your email';
+    final authToken = ref.watch(authTokenProvider);
+    final email = (authToken is BackendToken) ? authToken.email : 'your email';
 
     return AuthLayout(
       stepperStep: 2,
