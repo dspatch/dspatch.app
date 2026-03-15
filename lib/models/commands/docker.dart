@@ -95,26 +95,38 @@ class RemoveContainer extends VoidEngineCommand {
   Map<String, dynamic> get params => {'id': id};
 }
 
-class StopAllContainers extends VoidEngineCommand {
+class StopAllContainers extends EngineCommand<CountResponse> {
   @override
   String get method => 'stop_all_containers';
 
   @override
   Map<String, dynamic>? get params => null;
+
+  @override
+  CountResponse parseResponse(Map<String, dynamic> result) =>
+      CountResponse.fromJson(result);
 }
 
-class DeleteStoppedContainers extends VoidEngineCommand {
+class DeleteStoppedContainers extends EngineCommand<CountResponse> {
   @override
   String get method => 'delete_stopped_containers';
 
   @override
   Map<String, dynamic>? get params => null;
+
+  @override
+  CountResponse parseResponse(Map<String, dynamic> result) =>
+      CountResponse.fromJson(result);
 }
 
-class CleanOrphanedContainers extends VoidEngineCommand {
+class CleanOrphanedContainers extends EngineCommand<CountResponse> {
   @override
   String get method => 'clean_orphaned_containers';
 
   @override
   Map<String, dynamic>? get params => null;
+
+  @override
+  CountResponse parseResponse(Map<String, dynamic> result) =>
+      CountResponse.fromJson(result);
 }

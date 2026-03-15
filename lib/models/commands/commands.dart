@@ -5,7 +5,6 @@ library;
 
 export 'command.dart';
 export 'agent.dart';
-export 'auth.dart';
 export 'config.dart';
 export 'crypto.dart';
 export 'database.dart';

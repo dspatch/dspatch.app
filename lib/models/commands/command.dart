@@ -21,6 +21,17 @@ class VoidResponse extends EngineResponse {
   const VoidResponse();
 }
 
+/// Response for bulk operations that return an affected count.
+class CountResponse extends EngineResponse {
+  const CountResponse({required this.count});
+
+  final int count;
+
+  factory CountResponse.fromJson(Map<String, dynamic> json) {
+    return CountResponse(count: json['count'] as int? ?? 0);
+  }
+}
+
 /// Base class for all engine commands.
 ///
 /// [R] is the typed response this command produces.
