@@ -14,7 +14,7 @@ use crate::db::schema::TABLE_NAMES;
 use crate::engine::startup::EngineRuntime;
 
 use super::protocol::{ClientFrame, ServerFrame};
-use super::session::Session;
+use super::session::{AuthMode, Session};
 use super::commands::Command;
 use super::dispatch::dispatch_command;
 use super::error_mapping::error_to_frame;
@@ -49,7 +49,7 @@ pub async fn ws_handler(
 
 async fn handle_ws_connection(
     mut socket: WebSocket,
-    _session: Session,
+    session: Session,
     runtime: Arc<EngineRuntime>,
 ) {
     let welcome = ServerFrame::welcome();
@@ -57,6 +57,19 @@ async fn handle_ws_connection(
         tracing::error!(error = %e, "failed to send welcome event");
         return;
     }
+
+    let auth_event = ServerFrame::Event {
+        name: "auth_state_changed".into(),
+        data: serde_json::json!({
+            "mode": match session.auth_mode {
+                AuthMode::Anonymous => "anonymous",
+                AuthMode::Connected => "connected",
+            },
+            "token_scope": if session.auth_mode == AuthMode::Connected { Some("full") } else { None::<&str> },
+            "username": session.username,
+        }),
+    };
+    send_frame(&mut socket, &auth_event).await.ok();
 
     let mut shutdown_rx = runtime.subscribe_shutdown();
 
@@ -208,6 +221,18 @@ async fn handle_client_message(socket: &mut WebSocket, text: &str, runtime: &Arc
                 }
             };
 
+            // Database lifecycle commands route to the SDK directly,
+            // bypassing ServiceRegistry — they must work even when the DB
+            // is not yet open (e.g. migration-pending state).
+            if let Some(response) = handle_sdk_command(&command, runtime).await {
+                let frame = match response {
+                    Ok(data) => ServerFrame::Result { id, data },
+                    Err(e) => error_to_frame(&id, &e),
+                };
+                let _ = send_frame(socket, &frame).await;
+                return;
+            }
+
             let services = match runtime.services() {
                 Some(s) => s,
                 None => {
@@ -221,12 +246,61 @@ async fn handle_client_message(socket: &mut WebSocket, text: &str, runtime: &Arc
                 }
             };
 
-            let response = match dispatch_command(&command, services).await {
+            let response = match dispatch_command(&command, &services).await {
                 Ok(data) => ServerFrame::Result { id, data },
                 Err(e) => error_to_frame(&id, &e),
             };
             let _ = send_frame(socket, &response).await;
         }
+    }
+}
+
+/// Handles commands that route to the SDK rather than ServiceRegistry.
+///
+/// Returns `Some(result)` if the command was handled, `None` if it should
+/// fall through to the normal dispatch path.
+async fn handle_sdk_command(
+    command: &Command,
+    runtime: &Arc<EngineRuntime>,
+) -> Option<crate::util::result::Result<serde_json::Value>> {
+    match command {
+        Command::GetDatabaseState => {
+            let sdk = match runtime.sdk() {
+                Some(s) => s,
+                None => return Some(Ok(serde_json::json!({ "state": "ready" }))),
+            };
+            let state = if sdk.is_migration_pending().await {
+                "migration_pending"
+            } else if sdk.is_database_ready().await {
+                "ready"
+            } else {
+                "closed"
+            };
+            Some(Ok(serde_json::json!({ "state": state })))
+        }
+        Command::PerformMigration => {
+            let sdk = match runtime.sdk() {
+                Some(s) => s,
+                None => {
+                    return Some(Err(crate::util::error::AppError::Internal(
+                        "Database migration not available in this mode".into(),
+                    )))
+                }
+            };
+            Some(sdk.perform_migration().await.map(|()| serde_json::json!({})))
+        }
+        Command::SkipMigration => {
+            let sdk = match runtime.sdk() {
+                Some(s) => s,
+                None => {
+                    return Some(Err(crate::util::error::AppError::Internal(
+                        "Database migration not available in this mode".into(),
+                    )))
+                }
+            };
+            Some(sdk.skip_migration().await.map(|()| serde_json::json!({})))
+        }
+        _ => None,
     }
 }
 
