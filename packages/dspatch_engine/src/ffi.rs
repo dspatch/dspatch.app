@@ -12,9 +12,12 @@ use once_cell::sync::Lazy;
 
 use crate::client_api::invalidation::InvalidationBroadcaster;
 use crate::client_api::server::start_client_api;
+use crate::config::DspatchConfig;
+use crate::crypto::KeyringSecretStore;
 use crate::engine::config::EngineConfig;
 use crate::engine::service_registry::ServiceRegistry;
-use crate::engine::startup::{init_tracing, open_database, EngineRuntime};
+use crate::engine::startup::{init_tracing, EngineRuntime};
+use crate::sdk::{DatabaseReadyState, DspatchSdk};
 
 /// Holds the tokio runtime and engine runtime so we can shut down later.
 struct EngineHandle {
@@ -81,8 +84,26 @@ pub unsafe extern "C" fn start_engine(config_json: *const c_char) -> i32 {
         std::fs::create_dir_all(&config.db_dir)
             .map_err(|e| format!("failed to create db_dir: {e}"))?;
 
-        let db_path = config.db_dir.join("engine.db");
-        let db = Arc::new(open_database(&db_path).map_err(|e| format!("{e}"))?);
+        // Clone db_dir before config is moved into EngineRuntime.
+        let db_dir = config.db_dir.clone();
+
+        // Create and initialize the SDK (replaces direct DB open).
+        let sdk_config = DspatchConfig::from_engine_config(&config);
+        let sdk = Arc::new(DspatchSdk::with_secret_store(
+            sdk_config,
+            Box::new(KeyringSecretStore::new("dspatch")),
+            db_dir.clone(),
+        ));
+
+        sdk.initialize()
+            .await
+            .map_err(|e| format!("failed to initialize SDK: {e}"))?;
+
+        // Get DB handle from SDK.
+        let db = sdk
+            .database()
+            .await
+            .map_err(|e| format!("failed to get database from SDK: {e}"))?;
 
         let broadcaster = InvalidationBroadcaster::new(
             db.tracker().clone(),
@@ -90,12 +111,67 @@ pub unsafe extern "C" fn start_engine(config_json: *const c_char) -> i32 {
         );
         let invalidation_handle = broadcaster.start();
 
-        let registry = Arc::new(ServiceRegistry::new(db, config.db_dir.clone(), None));
-        let runtime = Arc::new(EngineRuntime::with_services_and_invalidation(
+        let registry = Arc::new(ServiceRegistry::new(db, db_dir.clone(), None));
+        let mut runtime = Arc::new(EngineRuntime::with_services_and_invalidation(
             config,
             registry,
             invalidation_handle,
         ));
+
+        // Store SDK on runtime (safe: no clones of the Arc exist yet).
+        Arc::get_mut(&mut runtime)
+            .expect("runtime has no other references yet")
+            .set_sdk(Arc::clone(&sdk));
+
+        // Bridge SDK database state changes → ephemeral events + service rebuild.
+        {
+            let ephemeral = runtime.ephemeral().clone_sender();
+            let bridge_runtime = Arc::clone(&runtime);
+            let bridge_sdk = Arc::clone(&sdk);
+            let bridge_db_dir = db_dir.clone();
+            let mut db_rx = sdk.subscribe_database_state();
+            tokio::spawn(async move {
+                loop {
+                    match db_rx.recv().await {
+                        Ok(state) => {
+                            let state_str = match &state {
+                                DatabaseReadyState::Ready => "ready",
+                                DatabaseReadyState::Closed => "closed",
+                                DatabaseReadyState::MigrationPending => "migration_pending",
+                            };
+                            ephemeral.emit(
+                                "database_state_changed",
+                                serde_json::json!({ "state": state_str }),
+                            );
+
+                            // Rebuild ServiceRegistry when a new database becomes ready.
+                            if matches!(state, DatabaseReadyState::Ready) {
+                                match bridge_sdk.database().await {
+                                    Ok(db) => {
+                                        let new_registry = Arc::new(ServiceRegistry::new(
+                                            db,
+                                            bridge_db_dir.clone(),
+                                            None,
+                                        ));
+                                        bridge_runtime.replace_services(new_registry).await;
+                                        tracing::info!(
+                                            "ServiceRegistry rebuilt after database change"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            error = %e,
+                                            "failed to get DB for service rebuild"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
 
         Ok::<_, String>(runtime)
     }) {
