@@ -13,13 +13,19 @@ import '../../engine_client/models/auth_phase.dart';
 import '../../engine_client/models/auth_token.dart';
 import '../../engine_client/models/db_state.dart';
 import '../../engine_client/secure_token_store.dart';
+import '../../models/commands/session.dart';
 
 part 'auth_controller.g.dart';
 
 @riverpod
 class AuthController extends _$AuthController {
   @override
-  Future<void> build() async {}
+  Future<void> build() async {
+    ref.onDispose(() {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+    });
+  }
 
   BackendAuth get _backend => ref.read(backendAuthProvider);
   EngineConnection get _connection => ref.read(engineConnectionProvider);
@@ -78,14 +84,10 @@ class AuthController extends _$AuthController {
         email: email,
       );
 
-      // Update engine's cached credentials.
+      // Update engine's cached credentials via typed command.
       try {
-        _connection.sendRaw(jsonEncode({
-          'type': 'command',
-          'id': 'refresh_creds_${DateTime.now().millisecondsSinceEpoch}',
-          'method': 'refresh_credentials',
-          'params': {'backend_token': response.token},
-        }));
+        final client = ref.read(engineClientProvider);
+        await client.send(RefreshCredentials(backendToken: response.token));
       } catch (_) {}
 
       // Schedule next refresh.
@@ -157,11 +159,10 @@ class AuthController extends _$AuthController {
   }
 
   static List<int> _hexToBytes(String hex) {
-    final result = <int>[];
-    for (var i = 0; i < hex.length; i += 2) {
-      result.add(int.parse(hex.substring(i, i + 2), radix: 16));
-    }
-    return result;
+    return List.generate(
+      hex.length ~/ 2,
+      (i) => int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16),
+    );
   }
 
   Future<bool> register({
@@ -332,6 +333,21 @@ class AuthController extends _$AuthController {
   /// from the engine and establish the WS connection.
   Future<void> enterAnonymousMode() async {
     _transition(AuthPhase.authenticated, clearToken: true);
+  }
+
+  /// Stores an anonymous session token obtained by SetupScreen.
+  /// Maintains the single-writer invariant for authTokenProvider.
+  void setAnonymousToken({required String token, required int expiresAt}) {
+    ref.read(authTokenProvider.notifier).state = AnonymousToken(
+      token: token,
+      expiresAt: expiresAt,
+    );
+  }
+
+  /// Updates dbStateProvider. Called by SetupScreen when the engine
+  /// command returns a state before the WS event arrives (fallback path).
+  void setDbState(DbState state) {
+    ref.read(dbStateProvider.notifier).state = state;
   }
 
   /// Called by SetupScreen after /auth/connect + WS handshake.

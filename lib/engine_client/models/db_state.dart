@@ -7,5 +7,13 @@
 enum DbState {
   unknown,
   migrationPending,
-  ready,
+  ready;
+
+  /// Parses engine wire format strings to DbState.
+  /// Centralizes the mapping so callers don't duplicate switch logic.
+  factory DbState.fromString(String? value) => switch (value) {
+        'ready' => DbState.ready,
+        'migration_pending' => DbState.migrationPending,
+        _ => DbState.unknown,
+      };
 }

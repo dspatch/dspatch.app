@@ -127,12 +127,7 @@ Future<void> main(List<String> args) async {
   client.events.listen((event) {
     if (event.name == 'database_state_changed') {
       final state = event.data['state'] as String?;
-      final dbState = switch (state) {
-        'ready' => DbState.ready,
-        'migration_pending' => DbState.migrationPending,
-        _ => DbState.unknown,
-      };
-      container.read(dbStateProvider.notifier).state = dbState;
+      container.read(dbStateProvider.notifier).state = DbState.fromString(state);
     }
   });
 

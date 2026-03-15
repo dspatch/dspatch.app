@@ -180,6 +180,11 @@ async fn handle_ws_connection(
             }
         }
     }
+
+    // Clear sensitive credentials from the session on disconnect so they
+    // don't linger in memory. The session itself is kept for potential
+    // reconnect, but device_id and identity_key_seed are zeroed.
+    runtime.session_store().clear_credentials(&session_token);
 }
 
 /// Returns `true` if the connection should be closed (e.g. logout).

@@ -11,5 +11,6 @@ export 'database.dart';
 export 'docker.dart';
 export 'hub.dart';
 export 'server.dart';
+export 'session.dart';
 export 'settings.dart';
 export 'workspace.dart';

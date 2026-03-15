@@ -116,6 +116,16 @@ impl SessionStore {
         }
     }
 
+    /// Clears sensitive credential fields (device_id, identity_key_seed)
+    /// from a session without removing it. Called on WS disconnect so
+    /// credentials don't linger in memory.
+    pub fn clear_credentials(&self, session_token: &str) {
+        if let Some(session) = self.sessions.write().unwrap().get_mut(session_token) {
+            session.device_id = None;
+            session.identity_key_seed = None;
+        }
+    }
+
     pub fn remove_expired(&self) {
         let now = Utc::now().timestamp();
         self.sessions

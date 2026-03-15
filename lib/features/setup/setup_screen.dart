@@ -158,8 +158,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       debugPrint('[SETUP] Connecting engine (anonymous)...');
       final anonResult = await engineAuth.authenticateAnonymous();
 
-      // Store the anonymous token so the rest of the flow can use it.
-      ref.read(authTokenProvider.notifier).state = AnonymousToken(
+      // Store the anonymous token via AuthController (single-writer invariant).
+      ref.read(authControllerProvider.notifier).setAnonymousToken(
         token: anonResult.sessionToken,
         expiresAt: anonResult.expiresAt ?? 0,
       );
@@ -198,14 +198,15 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     // Also query the engine directly (handles case where WS event listener
     // hasn't received the event yet but the engine already has a state).
     try {
-      final dbState = await client.send(GetDatabaseState());
-      final state = dbState.raw['state'] as String?;
-      debugPrint('[SETUP] GetDatabaseState returned: state=$state');
-      if (state == 'ready') {
-        ref.read(dbStateProvider.notifier).state = DbState.ready;
+      final dbResponse = await client.send(GetDatabaseState());
+      final stateStr = dbResponse.raw['state'] as String?;
+      final parsedState = DbState.fromString(stateStr);
+      debugPrint('[SETUP] GetDatabaseState returned: state=$stateStr');
+      if (parsedState == DbState.ready) {
+        ref.read(authControllerProvider.notifier).setDbState(DbState.ready);
         return;
-      } else if (state == 'migration_pending') {
-        ref.read(dbStateProvider.notifier).state = DbState.migrationPending;
+      } else if (parsedState == DbState.migrationPending) {
+        ref.read(authControllerProvider.notifier).setDbState(DbState.migrationPending);
         if (!mounted) return;
         ref.read(authControllerProvider.notifier).setMigrating();
         await _showMigrationDialog();
