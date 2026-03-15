@@ -611,6 +611,16 @@ pub async fn dispatch_command(
         Command::StartServer { .. } | Command::StopServer => Err(AppError::Internal(
             "Server lifecycle managed by engine internally — not a client command".into(),
         )),
+
+        // ── Database Lifecycle ───────────────────────────────────
+        // Intercepted in ws.rs before dispatch — these need the SDK,
+        // not ServiceRegistry, and must work when services are None.
+
+        Command::GetDatabaseState
+        | Command::PerformMigration
+        | Command::SkipMigration => Err(AppError::Internal(
+            "Database lifecycle commands are handled by the WebSocket layer".into(),
+        )),
     }
 }
 

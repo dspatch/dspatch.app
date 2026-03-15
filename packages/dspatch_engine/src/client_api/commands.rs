@@ -322,4 +322,15 @@ pub enum Command {
 
     #[serde(rename = "stop_server")]
     StopServer,
+
+    // ── Database Lifecycle Commands ───────────────────────────────────
+
+    #[serde(rename = "get_database_state")]
+    GetDatabaseState,
+
+    #[serde(rename = "perform_migration")]
+    PerformMigration,
+
+    #[serde(rename = "skip_migration")]
+    SkipMigration,
 }
