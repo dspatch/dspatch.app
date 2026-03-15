@@ -61,13 +61,22 @@ class EngineAuth {
     return _postAuth('/auth/anonymous', {});
   }
 
-  /// Connects to the engine with a backend-issued token.
+  /// Connects to the engine with a backend-issued token and device credentials.
   ///
-  /// Called after the full backend auth flow completes (scope=full).
-  Future<AuthResult> connect({required String backendToken}) async {
-    return _postAuth('/auth/connect', {
+  /// Device credentials are optional (absent for anonymous sessions).
+  /// The engine stores them in memory for signing backend-proxied requests.
+  Future<AuthResult> connect({
+    required String backendToken,
+    String? deviceId,
+    String? identityKeySeed,
+  }) async {
+    final body = <String, dynamic>{
       'backend_token': backendToken,
-    });
+    };
+    if (deviceId != null) body['device_id'] = deviceId;
+    if (identityKeySeed != null) body['identity_key_seed'] = identityKeySeed;
+
+    return _postAuth('/auth/connect', body);
   }
 
   /// Refreshes the engine session using a backend token and existing session.
