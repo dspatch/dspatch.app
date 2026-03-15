@@ -17,6 +17,10 @@ use super::session::AuthMode;
 #[derive(Debug, Deserialize)]
 pub struct ConnectRequest {
     pub backend_token: String,
+    #[serde(default)]
+    pub device_id: Option<String>,
+    #[serde(default)]
+    pub identity_key_seed: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,7 +57,7 @@ pub async fn anonymous_handler(
 ) -> Json<AuthResponse> {
     let token = runtime
         .session_store()
-        .create_session(AuthMode::Anonymous, None, None, None);
+        .create_session(AuthMode::Anonymous, None, None, None, None, None);
     tracing::info!("anonymous session created");
     Json(AuthResponse {
         session_token: token,
@@ -102,6 +106,8 @@ pub async fn connect_handler(
         Some(status.username.clone()),
         Some(body.backend_token),
         expires_at,
+        body.device_id,
+        body.identity_key_seed,
     );
 
     tracing::info!(username = %status.username, "connected session created");

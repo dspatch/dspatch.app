@@ -131,7 +131,7 @@ fn session_store_insert_and_validate() {
     use dspatch_engine::client_api::session::{SessionStore, AuthMode};
 
     let store = SessionStore::new();
-    let token = store.create_session(AuthMode::Anonymous, None);
+    let token = store.create_session(AuthMode::Anonymous, None, None, None, None, None);
     assert!(!token.is_empty());
     assert_eq!(token.len(), 64); // 32 bytes = 64 hex chars
 
@@ -149,7 +149,7 @@ fn session_store_remove() {
     use dspatch_engine::client_api::session::{SessionStore, AuthMode};
 
     let store = SessionStore::new();
-    let token = store.create_session(AuthMode::Connected, Some("alice".into()));
+    let token = store.create_session(AuthMode::Connected, Some("alice".into()), None, None, None, None);
 
     assert!(store.validate(&token).is_some());
     store.remove(&token);
@@ -161,7 +161,7 @@ fn session_store_connected_mode_has_username() {
     use dspatch_engine::client_api::session::{SessionStore, AuthMode};
 
     let store = SessionStore::new();
-    let token = store.create_session(AuthMode::Connected, Some("bob".into()));
+    let token = store.create_session(AuthMode::Connected, Some("bob".into()), None, None, None, None);
 
     let session = store.validate(&token).unwrap();
     assert_eq!(session.auth_mode, AuthMode::Connected);
@@ -388,7 +388,7 @@ async fn ws_accepts_authenticated_connection_and_sends_welcome() {
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
     let runtime = Arc::new(EngineRuntime::new(config));
-    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 
     let runtime_clone = runtime.clone();
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
@@ -442,7 +442,7 @@ async fn ws_command_returns_not_implemented() {
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
     let runtime = Arc::new(EngineRuntime::new(config));
-    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 
     let runtime_clone = runtime.clone();
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
@@ -495,7 +495,7 @@ async fn ws_invalid_frame_returns_parse_error() {
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
     let runtime = Arc::new(EngineRuntime::new(config));
-    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 
     let runtime_clone = runtime.clone();
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
@@ -542,7 +542,7 @@ async fn ws_connection_stays_alive_during_idle_period() {
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
     let runtime = Arc::new(EngineRuntime::new(config));
-    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 
     let runtime_clone = runtime.clone();
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
@@ -875,7 +875,7 @@ async fn ws_command_dispatches_to_service() {
     config.client_api_port = 0;
     let runtime = Arc::new(EngineRuntime::with_services(config, registry));
 
-    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 
     let runtime_clone = runtime.clone();
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
@@ -1102,7 +1102,7 @@ async fn ws_receives_invalidation_on_table_change() {
         config, registry, handle,
     ));
 
-    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 
     let runtime_clone = runtime.clone();
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
@@ -1196,7 +1196,7 @@ async fn ws_receives_ephemeral_events() {
     config.client_api_port = 0;
     let runtime = Arc::new(EngineRuntime::new(config));
 
-    let token = runtime.session_store().create_session(AuthMode::Anonymous, None);
+    let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 
     let runtime_clone = runtime.clone();
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();

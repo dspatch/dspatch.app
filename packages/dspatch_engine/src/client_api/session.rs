@@ -22,6 +22,8 @@ pub struct Session {
     pub username: Option<String>,
     pub backend_token: Option<String>,
     pub expires_at: Option<i64>,
+    pub device_id: Option<String>,
+    pub identity_key_seed: Option<String>,
 }
 
 /// Thread-safe in-memory store mapping session tokens to sessions.
@@ -42,6 +44,8 @@ impl SessionStore {
         username: Option<String>,
         backend_token: Option<String>,
         expires_at: Option<i64>,
+        device_id: Option<String>,
+        identity_key_seed: Option<String>,
     ) -> String {
         let token = generate_token();
         let session = Session {
@@ -49,6 +53,8 @@ impl SessionStore {
             username,
             backend_token,
             expires_at,
+            device_id,
+            identity_key_seed,
         };
         self.sessions.write().unwrap().insert(token.clone(), session);
         token
