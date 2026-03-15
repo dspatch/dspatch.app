@@ -10,8 +10,11 @@ import '../engine_client/backend_auth.dart';
 import '../engine_client/engine_auth.dart';
 import '../engine_client/engine_client.dart';
 import '../engine_client/engine_connection.dart';
+import '../engine_client/models/auth_phase.dart';
 import '../engine_client/models/auth_state.dart';
+import '../engine_client/models/auth_token.dart';
 import '../engine_client/models/backend_auth_state.dart';
+import '../engine_client/models/db_state.dart';
 import '../engine_client/secure_token_store.dart';
 import '../engine_client/protocol/protocol.dart';
 import '../features/agent_providers/models/agent_list_item.dart';
@@ -90,6 +93,20 @@ final backendAuthStateProvider = StateProvider<BackendAuthState?>((_) => null);
 final secureTokenStoreProvider = Provider<SecureTokenStore>(
   (_) => throw UnimplementedError('Override secureTokenStoreProvider in main.dart'),
 );
+
+/// Single source of truth for routing. AuthController is the only writer.
+final authPhaseProvider = StateProvider<AuthPhase>((_) => AuthPhase.unauthenticated);
+
+/// Credentials for API calls and persistence. Not used for routing.
+final authTokenProvider = StateProvider<AuthToken?>((_) => null);
+
+/// Engine database state. Written by WS event listener, read by setup screen.
+/// StateProvider (not stream) so the value is never missed.
+final dbStateProvider = StateProvider<DbState>((_) => DbState.unknown);
+
+/// Whether the engine WebSocket is currently connected. Informational only —
+/// does not affect routing. Can drive a connectivity indicator in the UI.
+final engineSessionProvider = StateProvider<bool>((_) => false);
 
 // ---------------------------------------------------------------------------
 // Engine Events
