@@ -4,13 +4,14 @@ import 'dart:async';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../database/engine_database.dart';
 import '../../di/providers.dart';
 import '../../engine_client/engine_auth.dart';
-import '../../engine_client/protocol/protocol.dart';
+import '../../engine_client/models/auth_token.dart';
+import '../../engine_client/models/db_state.dart';
 import '../../models/commands/database.dart';
+import '../auth/auth_controller.dart';
 
 /// Gateway screen shown after authentication.
 ///
@@ -92,8 +93,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         debugPrint('[SETUP] Theme preference not set or failed: $e');
       }
 
-      debugPrint('[SETUP] Setup complete, navigating to /workspaces');
-      if (mounted) context.go('/workspaces');
+      // Phase → ready (via AuthController — single writer). Router handles navigation.
+      ref.read(authControllerProvider.notifier).setReady();
+      debugPrint('[SETUP] Setup complete, phase=ready');
     } catch (e, st) {
       debugPrint('[SETUP] FATAL ERROR: $e\n$st');
       if (mounted) setState(() => _error = e.toString());
@@ -105,14 +107,13 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   /// This is the SINGLE place the engine WS is connected. main.dart creates
   /// the EngineConnection/EngineClient objects but does NOT connect them.
   ///
-  /// - Authenticated user (backendAuth.scope == 'full'):
+  /// - Authenticated user (BackendToken with scope == 'full'):
   ///   call engineAuth.connect(backendToken) → get session token → connect WS.
   /// - Anonymous / no stored session:
   ///   call engineAuth.authenticateAnonymous() → get session token → connect WS.
   Future<void> _connectEngine() async {
     final connection = ref.read(engineConnectionProvider);
 
-    // If already connected (e.g. navigated back to /setup), skip.
     if (connection.isConnected) {
       debugPrint('[SETUP] Engine already connected, skipping');
       return;
@@ -121,82 +122,110 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     setState(() => _status = 'Connecting to engine...');
 
     final engineAuth = ref.read(engineAuthProvider);
-    final backendAuth = ref.read(backendAuthStateProvider);
+    final token = ref.read(authTokenProvider);
     final tokenStore = ref.read(secureTokenStoreProvider);
 
     final AuthResult authResult;
 
-    if (backendAuth != null && backendAuth.isFullyAuthenticated) {
-      // Authenticated — connect with backend token.
-      debugPrint('[SETUP] Connecting engine (authenticated, user=${backendAuth.username})...');
-      authResult = await engineAuth.connect(backendToken: backendAuth.token);
+    if (token is BackendToken) {
+      // Authenticated — connect with backend token + device credentials.
+      debugPrint('[SETUP] Connecting engine (authenticated, user=${token.username})...');
 
-      // Persist the session token so restarts don't require re-login.
+      final deviceCreds = await tokenStore.loadDeviceCredentials();
+      authResult = await engineAuth.connect(
+        backendToken: token.token,
+        deviceId: deviceCreds?.deviceId,
+        identityKeySeed: deviceCreds?.identityKeyHex,
+      );
+
+      // Persist session token for restart persistence.
       await tokenStore.saveSession(
-        backendToken: backendAuth.token,
-        expiresAt: backendAuth.expiresAt,
-        scope: backendAuth.scope,
-        username: backendAuth.username,
-        email: backendAuth.email,
+        backendToken: token.token,
+        expiresAt: token.expiresAt,
+        scope: token.scope,
+        username: token.username,
+        email: token.email,
         sessionToken: authResult.sessionToken,
       );
     } else {
-      // Anonymous — get an anonymous session.
+      // Anonymous — get anonymous token, then connect.
       debugPrint('[SETUP] Connecting engine (anonymous)...');
-      authResult = await engineAuth.authenticateAnonymous();
+      final anonResult = await engineAuth.authenticateAnonymous();
+
+      // Store the anonymous token so the rest of the flow can use it.
+      ref.read(authTokenProvider.notifier).state = AnonymousToken(
+        token: anonResult.sessionToken,
+        expiresAt: anonResult.expiresAt ?? 0,
+      );
+
+      authResult = anonResult;
     }
 
     debugPrint('[SETUP] Got session token, connecting WS...');
     await connection.reconnect(authResult.sessionToken);
+
+    // Update phase to connecting (via AuthController — single writer).
+    ref.read(authControllerProvider.notifier).setConnecting();
     debugPrint('[SETUP] Engine WS connected (mode=${authResult.authMode})');
   }
 
-  /// Waits for the engine to signal `database_state_changed` with
-  /// `state == 'ready'`. Handles `migration_pending` by prompting the user,
-  /// then continues waiting for `ready`. Never proceeds without confirmation.
+  /// Waits for the engine to signal database readiness via dbStateProvider.
+  /// Handles `migration_pending` by prompting the user, then continues
+  /// waiting for `ready`. Never proceeds without confirmation.
   Future<void> _waitForDatabase() async {
     final client = ref.read(engineClientProvider);
-    debugPrint('[SETUP] _waitForDatabase: subscribing to events...');
+    debugPrint('[SETUP] _waitForDatabase: checking current state...');
 
-    final completer = Completer<void>();
-    late final StreamSubscription<EventFrame> sub;
-
-    Future<void> handleState(String? state) async {
-      debugPrint('[SETUP] database state: $state');
-      if (completer.isCompleted) return;
-
-      if (state == 'ready') {
-        sub.cancel();
-        completer.complete();
-      } else if (state == 'migration_pending') {
-        if (!mounted) return;
-        // Show dialog and send the user's choice. Do NOT complete —
-        // wait for the engine to emit 'ready' after the migration finishes.
-        await _showMigrationDialog();
-      }
+    // Check if the state is already set (event arrived before we got here).
+    final currentState = ref.read(dbStateProvider);
+    if (currentState == DbState.ready) {
+      debugPrint('[SETUP] DB already ready');
+      return;
     }
 
-    // Listen for all database_state_changed events.
-    sub = client.events.listen((event) {
-      if (event.name != 'database_state_changed') return;
-      handleState(event.data['state'] as String?);
-    }, onError: (e) {
-      debugPrint('[SETUP] Event stream error: $e');
-      sub.cancel();
-      if (!completer.isCompleted) completer.completeError(e);
-    });
+    if (currentState == DbState.migrationPending) {
+      if (!mounted) return;
+      ref.read(authControllerProvider.notifier).setMigrating();
+      await _showMigrationDialog();
+    }
 
-    // Query current state to handle the case where the event was already
-    // emitted before we subscribed. The event listener above remains active
-    // so we never miss a transition.
+    // Also query the engine directly (handles case where WS event listener
+    // hasn't received the event yet but the engine already has a state).
     try {
       final dbState = await client.send(GetDatabaseState());
       final state = dbState.raw['state'] as String?;
       debugPrint('[SETUP] GetDatabaseState returned: state=$state');
-      await handleState(state);
+      if (state == 'ready') {
+        ref.read(dbStateProvider.notifier).state = DbState.ready;
+        return;
+      } else if (state == 'migration_pending') {
+        ref.read(dbStateProvider.notifier).state = DbState.migrationPending;
+        if (!mounted) return;
+        ref.read(authControllerProvider.notifier).setMigrating();
+        await _showMigrationDialog();
+      }
     } catch (e) {
       debugPrint('[SETUP] GetDatabaseState failed (waiting for events): $e');
     }
+
+    // Wait for dbStateProvider to become ready.
+    if (ref.read(dbStateProvider) == DbState.ready) return;
+
+    final completer = Completer<void>();
+    late final ProviderSubscription<DbState> sub;
+    sub = ref.listenManual(dbStateProvider, (prev, next) {
+      if (completer.isCompleted) return;
+      debugPrint('[SETUP] dbStateProvider changed: $prev -> $next');
+      if (next == DbState.ready) {
+        sub.close();
+        completer.complete();
+      } else if (next == DbState.migrationPending && prev != DbState.migrationPending) {
+        if (mounted) {
+          ref.read(authControllerProvider.notifier).setMigrating();
+          _showMigrationDialog();
+        }
+      }
+    });
 
     return completer.future;
   }
@@ -267,7 +296,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       await client.send(SkipMigration());
     }
     // Do NOT return — the engine will emit 'ready' when done, and
-    // _waitForDatabase's event listener will complete the completer.
+    // _waitForDatabase's provider listener will complete the completer.
   }
 
   @override
