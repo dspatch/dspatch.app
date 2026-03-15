@@ -9,7 +9,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../di/providers.dart';
 import '../../engine_client/backend_auth.dart';
 import '../../engine_client/engine_connection.dart';
-import '../../engine_client/models/backend_auth_state.dart';
+import '../../engine_client/models/auth_phase.dart';
+import '../../engine_client/models/auth_token.dart';
+import '../../engine_client/models/db_state.dart';
 import '../../engine_client/secure_token_store.dart';
 
 part 'auth_controller.g.dart';
@@ -23,6 +25,19 @@ class AuthController extends _$AuthController {
   EngineConnection get _connection => ref.read(engineConnectionProvider);
   SecureTokenStore get _tokenStore => ref.read(secureTokenStoreProvider);
 
+  /// Sets phase and token atomically. The router only watches authPhaseProvider,
+  /// so setting token first ensures credentials are available before the
+  /// router reacts to the phase change.
+  void _transition(AuthPhase phase, {AuthToken? token, bool clearToken = false}) {
+    debugPrint('[AUTH] transition -> $phase');
+    if (clearToken) {
+      ref.read(authTokenProvider.notifier).state = null;
+    } else if (token != null) {
+      ref.read(authTokenProvider.notifier).state = token;
+    }
+    ref.read(authPhaseProvider.notifier).state = phase;
+  }
+
   Future<bool> login({
     required String username,
     required String password,
@@ -30,8 +45,6 @@ class AuthController extends _$AuthController {
     debugPrint('[LOGIN] login() called for user=$username');
     state = const AsyncLoading();
     try {
-      // If this device has been registered before, construct the Ed25519
-      // device proof that the backend requires for accounts with devices.
       String? deviceId;
       String? deviceSignature;
       int? deviceTimestamp;
@@ -42,7 +55,6 @@ class AuthController extends _$AuthController {
         deviceTimestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         final message = 'login:$username:$deviceTimestamp';
 
-        // Reconstruct the Ed25519 key pair from the stored private key seed.
         final seed = _hexToBytes(deviceCreds.identityKeyHex);
         final ed25519 = Ed25519();
         final keyPair = await ed25519.newKeyPairFromSeed(seed);
@@ -54,7 +66,6 @@ class AuthController extends _$AuthController {
         deviceId = deviceCreds.deviceId;
       }
 
-      debugPrint('[LOGIN] Sending POST to backend...');
       final response = await _backend.login(
         username: username,
         password: password,
@@ -62,16 +73,8 @@ class AuthController extends _$AuthController {
         deviceSignature: deviceSignature,
         deviceTimestamp: deviceTimestamp,
       );
-      debugPrint(
-        '[LOGIN] Backend responded: scope=${response.scope}, '
-        'expiresAt=${response.expiresAt}, hasToken=${response.token.isNotEmpty}',
-      );
+
       await _handleAuthResponse(response);
-      // Clear loggedOut AFTER auth state is set so the router never sees
-      // loggedOut=false with a null backendAuthState (which would let the
-      // stale anonymous WS session through to /setup → workspaces).
-      ref.read(loggedOutProvider.notifier).state = false;
-      debugPrint('[LOGIN] login() complete, setting AsyncData');
       state = const AsyncData(null);
       return true;
     } catch (e, st) {
@@ -99,7 +102,6 @@ class AuthController extends _$AuthController {
       final response = await _backend.register(
           username: username, email: email, password: password);
       await _handleAuthResponse(response);
-      ref.read(loggedOutProvider.notifier).state = false;
       state = const AsyncData(null);
       return true;
     } catch (e, st) {
@@ -111,9 +113,10 @@ class AuthController extends _$AuthController {
   Future<bool> verifyEmail(String code) async {
     state = const AsyncLoading();
     try {
-      final backendState = ref.read(backendAuthStateProvider)!;
+      final token = ref.read(authTokenProvider);
+      if (token is! BackendToken) throw StateError('No backend token');
       final response =
-          await _backend.verifyEmail(token: backendState.token, code: code);
+          await _backend.verifyEmail(token: token.token, code: code);
       await _handleAuthResponse(response);
       state = const AsyncData(null);
       return true;
@@ -124,17 +127,17 @@ class AuthController extends _$AuthController {
   }
 
   Future<void> resendVerification() async {
-    final backendState = ref.read(backendAuthStateProvider)!;
-    await _backend.resendVerification(token: backendState.token);
+    final token = ref.read(authTokenProvider);
+    if (token is! BackendToken) throw StateError('No backend token');
+    await _backend.resendVerification(token: token.token);
   }
 
   Future<Map<String, dynamic>> setup2fa() async {
     state = const AsyncLoading();
     try {
-      final backendState = ref.read(backendAuthStateProvider)!;
-      final response = await _backend.setup2fa(token: backendState.token);
-      // setup2fa does NOT issue a new token — it only returns TOTP details.
-      // The existing partial token remains valid.
+      final token = ref.read(authTokenProvider);
+      if (token is! BackendToken) throw StateError('No backend token');
+      final response = await _backend.setup2fa(token: token.token);
       state = const AsyncData(null);
       return {'totp_uri': response.totpUri, 'secret': response.secret};
     } catch (e, st) {
@@ -146,19 +149,24 @@ class AuthController extends _$AuthController {
   Future<Map<String, dynamic>?> confirm2fa(String code) async {
     state = const AsyncLoading();
     try {
-      final backendState = ref.read(backendAuthStateProvider)!;
+      final backendToken = ref.read(authTokenProvider);
+      if (backendToken is! BackendToken) throw StateError('No backend token');
+
       final response =
-          await _backend.confirm2fa(token: backendState.token, code: code);
+          await _backend.confirm2fa(token: backendToken.token, code: code);
       final codes = response.backupCodes;
       ref.read(pendingBackupCodesProvider.notifier).state = codes;
 
-      // The backend returns scope 'device_registration', but we need to show
-      // the backup codes screen first. Save the new token but use the
-      // synthetic 'awaiting_backup_confirmation' scope locally. The
-      // acknowledgeBackupCodes() method advances to 'device_registration'.
-      final username =
-          response.username ?? backendState.username;
-      final email = response.email ?? backendState.email;
+      final username = response.username ?? backendToken.username;
+      final email = response.email ?? backendToken.email;
+
+      final token = BackendToken(
+        token: response.token,
+        expiresAt: response.expiresAt,
+        scope: 'awaiting_backup_confirmation',
+        username: username,
+        email: email,
+      );
 
       await _tokenStore.saveSession(
         backendToken: response.token,
@@ -167,13 +175,8 @@ class AuthController extends _$AuthController {
         username: username,
         email: email,
       );
-      ref.read(backendAuthStateProvider.notifier).state = BackendAuthState(
-        token: response.token,
-        expiresAt: response.expiresAt,
-        scope: 'awaiting_backup_confirmation',
-        username: username,
-        email: email,
-      );
+
+      _transition(AuthPhase.backupCodes, token: token);
 
       state = const AsyncData(null);
       return {'backup_codes': codes};
@@ -185,15 +188,19 @@ class AuthController extends _$AuthController {
 
   Future<void> acknowledgeBackupCodes() async {
     state = const AsyncLoading();
-    final backendState = ref.read(backendAuthStateProvider)!;
-    ref.read(backendAuthStateProvider.notifier).state = BackendAuthState(
-      token: backendState.token,
-      expiresAt: backendState.expiresAt,
+    final token = ref.read(authTokenProvider);
+    if (token is! BackendToken) throw StateError('No backend token');
+
+    final updated = BackendToken(
+      token: token.token,
+      expiresAt: token.expiresAt,
       scope: 'device_registration',
-      username: backendState.username,
-      email: backendState.email,
+      username: token.username,
+      email: token.email,
     );
+
     ref.read(pendingBackupCodesProvider.notifier).state = null;
+    _transition(AuthPhase.deviceRegistration, token: updated);
     state = const AsyncData(null);
   }
 
@@ -203,9 +210,10 @@ class AuthController extends _$AuthController {
   }) async {
     state = const AsyncLoading();
     try {
-      final backendState = ref.read(backendAuthStateProvider)!;
+      final token = ref.read(authTokenProvider);
+      if (token is! BackendToken) throw StateError('No backend token');
       final response = await _backend.verify2fa(
-        token: backendState.token,
+        token: token.token,
         code: code,
         isBackupCode: isBackupCode,
       );
@@ -224,14 +232,13 @@ class AuthController extends _$AuthController {
   }) async {
     state = const AsyncLoading();
     try {
-      final backendState = ref.read(backendAuthStateProvider)!;
+      final token = ref.read(authTokenProvider);
+      if (token is! BackendToken) throw StateError('No backend token');
       final response = await _backend.registerDevice(
-        token: backendState.token,
+        token: token.token,
         body: request,
       );
 
-      // Persist the device's Ed25519 private key and backend-assigned device
-      // ID so that subsequent logins can construct the required device proof.
       final deviceId = response.deviceId;
       if (deviceId != null) {
         await _tokenStore.saveDeviceCredentials(
@@ -249,55 +256,64 @@ class AuthController extends _$AuthController {
     }
   }
 
+  /// Enter anonymous mode. The setup screen will obtain an anonymous token
+  /// from the engine and establish the WS connection.
   Future<void> enterAnonymousMode() async {
-    ref.read(loggedOutProvider.notifier).state = false;
-    ref.read(backendAuthStateProvider.notifier).state = null;
+    _transition(AuthPhase.authenticated, clearToken: true);
   }
+
+  /// Called by SetupScreen after /auth/connect + WS handshake.
+  void setConnecting() => _transition(AuthPhase.connecting);
+
+  /// Called by SetupScreen when engine signals migration_pending.
+  void setMigrating() => _transition(AuthPhase.migrating);
+
+  /// Called by SetupScreen after DB is opened and preferences loaded.
+  void setReady() => _transition(AuthPhase.ready);
 
   Future<void> logout() async {
     state = const AsyncLoading();
 
-    // Fire the logout command without awaiting the response. Awaiting
-    // would let the engine close the WS server-side, triggering
-    // _onDisconnected → auto-reconnect before disconnect() runs.
+    // Fire-and-forget logout command.
     try {
       _connection.sendRaw(
         '{"type":"command","id":"logout","method":"logout","params":{}}',
       );
-    } catch (_) {
-      // Best-effort — the engine may already be unreachable.
-    }
+    } catch (_) {}
 
-    // Disconnect immediately after sending. This bumps the epoch so any
-    // in-flight auto-reconnect is invalidated.
     await _connection.disconnect();
 
-    ref.read(backendAuthStateProvider.notifier).state = null;
+    // Clear keyring (preserves device credentials).
     await _tokenStore.clearSession();
 
-    // Mark DB as not ready and signal logout so the router redirects to
-    // /auth/login instead of /setup (which would auto-connect as anonymous).
+    // Reset engine state.
+    ref.read(dbStateProvider.notifier).state = DbState.unknown;
+    ref.read(engineSessionProvider.notifier).state = false;
     ref.read(databaseReadyProvider.notifier).state = false;
-    ref.read(loggedOutProvider.notifier).state = true;
+
+    // Atomic: clear token, then set phase. Router reacts to phase only.
+    _transition(AuthPhase.unauthenticated, clearToken: true);
 
     state = const AsyncData(null);
   }
 
-  /// Saves the auth response to the keyring and updates the backend auth
-  /// state provider. Engine reconnection (for scope == 'full') is handled
-  /// by SetupScreen — the gateway all authenticated routes pass through.
+  /// Maps a backend auth response to the correct phase + token.
   Future<void> _handleAuthResponse(BackendAuthResponse response) async {
-    // Carry forward identity fields from the current state when the
-    // backend response omits them (e.g. 2FA setup/confirm endpoints).
-    final existing = ref.read(backendAuthStateProvider);
-    final username = response.username ?? existing?.username ?? '';
-    final email = response.email ?? existing?.email ?? '';
+    final existing = ref.read(authTokenProvider);
+    final username = response.username ??
+        (existing is BackendToken ? existing.username : '');
+    final email = response.email ??
+        (existing is BackendToken ? existing.email : '');
 
-    debugPrint(
-      '[LOGIN] _handleAuthResponse: scope=${response.scope}, '
-      'username=$username, email=$email',
+    final token = BackendToken(
+      token: response.token,
+      expiresAt: response.expiresAt,
+      scope: response.scope,
+      username: username,
+      email: email,
     );
-    debugPrint('[LOGIN] Saving session to keyring...');
+
+    // Persist to keyring.
     await _tokenStore.saveSession(
       backendToken: response.token,
       expiresAt: response.expiresAt,
@@ -305,15 +321,17 @@ class AuthController extends _$AuthController {
       username: username,
       email: email,
     );
-    debugPrint('[LOGIN] Session saved. Updating backendAuthStateProvider...');
 
-    ref.read(backendAuthStateProvider.notifier).state = BackendAuthState(
-      token: response.token,
-      expiresAt: response.expiresAt,
-      scope: response.scope,
-      username: username,
-      email: email,
-    );
-    debugPrint('[LOGIN] backendAuthStateProvider updated');
+    // Map backend scope to AuthPhase.
+    final phase = switch (response.scope) {
+      'email_verification' => AuthPhase.verifyEmail,
+      'setup_2fa' => AuthPhase.setup2fa,
+      'partial_2fa' => AuthPhase.verify2fa,
+      'device_registration' => AuthPhase.deviceRegistration,
+      'full' => AuthPhase.authenticated,
+      _ => AuthPhase.unauthenticated,
+    };
+
+    _transition(phase, token: token);
   }
 }
