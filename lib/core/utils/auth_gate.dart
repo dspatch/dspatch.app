@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../di/providers.dart';
+import '../../features/auth/auth_controller.dart';
 
 /// Shows a dialog if the user is not authenticated, explaining they need to
 /// sign in. Returns `true` if the user is authenticated (proceed with action),
@@ -44,7 +45,7 @@ Future<bool> requireAuth(BuildContext context, WidgetRef ref) async {
   );
 
   if (result == true) {
-    await ref.read(engineClientProvider).logout();
+    await ref.read(authControllerProvider.notifier).logout();
     return false;
   }
 

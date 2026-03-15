@@ -6,7 +6,7 @@ part of 'engine_controller.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$engineControllerHash() => r'44bcdba17aef7ce79cc5e37d2ff42036eb12621c';
+String _$engineControllerHash() => r'e7212253536bed1b1b9c8f6229ac1cae64f69f6f';
 
 /// Controller for user-initiated Docker operations on the Engine screen.
 ///

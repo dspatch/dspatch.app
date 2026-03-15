@@ -26,6 +26,15 @@ class EngineDatabase extends _$EngineDatabase {
   EngineDatabase(String dbPath)
       : super(_openReadOnly(dbPath));
 
+  /// Creates an in-memory placeholder database.
+  ///
+  /// Used during app startup before the engine signals which database file
+  /// to read from. Any queries against this placeholder will fail (no tables
+  /// exist), which is fine because the router prevents navigation to data
+  /// screens until the real database is swapped in via [updateOverrides].
+  EngineDatabase.placeholder()
+      : super(NativeDatabase.memory());
+
   /// Constructor for testing — accepts an arbitrary [QueryExecutor].
   EngineDatabase.forTesting(super.executor);
 

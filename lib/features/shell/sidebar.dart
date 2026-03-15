@@ -9,6 +9,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/constants.dart';
 import '../../core/utils/platform_info.dart';
 import '../../di/providers.dart';
+import '../auth/auth_controller.dart';
 import '../hub/hub_providers.dart';
 
 
@@ -224,7 +225,7 @@ class _UserMenuTile extends ConsumerWidget {
         DropdownMenuItem(
           icon: LucideIcons.log_in,
           label: 'Sign in',
-          onTap: () => ref.read(engineClientProvider).logout(),
+          onTap: () => navigate('/auth/login'),
         ),
         const DropdownMenuSeparator(),
       ],
@@ -249,7 +250,10 @@ class _UserMenuTile extends ConsumerWidget {
         DropdownMenuItem(
           icon: LucideIcons.log_out,
           label: 'Log out',
-          onTap: () => ref.read(engineClientProvider).logout(),
+          onTap: () async {
+            await ref.read(authControllerProvider.notifier).logout();
+            if (context.mounted) context.go('/auth/login');
+          },
         ),
       ],
     ];

@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'engine_client/models/auth_state.dart';
+import 'engine_client/models/backend_auth_state.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -42,10 +43,56 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: notifier,
     redirect: (context, state) {
       final auth = ref.read(authStateProvider).valueOrNull;
+      final backendAuth = ref.read(backendAuthStateProvider);
       final path = state.uri.path;
       final isOnAuthRoute = path.startsWith('/auth');
 
-      debugPrint('[ROUTER] redirect: path=$path, auth=${auth?.mode}, scope=${auth?.tokenScope}');
+      debugPrint('[ROUTER] redirect: path=$path, auth=${auth?.mode}, scope=${auth?.tokenScope}, backendScope=${backendAuth?.scope}');
+
+      // After logout, force redirect to login regardless of stale WS
+      // auth state. The StreamProvider caches the last event, so
+      // authStateProvider may still show 'connected/full' briefly.
+      // This MUST be checked first — before backend auth or WS state.
+      final loggedOut = ref.read(loggedOutProvider);
+      if (loggedOut) {
+        debugPrint('[ROUTER] Logged out, -> /auth/login');
+        if (path == '/auth/login' || path == '/auth/register') return null;
+        return '/auth/login';
+      }
+
+      // If there's an active backend auth flow (not yet connected to engine),
+      // route based on the backend auth scope.
+      if (backendAuth != null && !backendAuth.isFullyAuthenticated) {
+        final scope = backendAuth.scope;
+        if (scope == 'email_verification' && path != '/auth/verify-email') {
+          return '/auth/verify-email';
+        }
+        if (scope == 'setup_2fa' && path != '/auth/2fa-setup') {
+          return '/auth/2fa-setup';
+        }
+        if (scope == 'partial_2fa' && path != '/auth/2fa-verify') {
+          return '/auth/2fa-verify';
+        }
+        if (scope == 'awaiting_backup_confirmation' &&
+            path != '/auth/backup-codes') {
+          return '/auth/backup-codes';
+        }
+        if (scope == 'device_registration' &&
+            path != '/auth/device-pairing' &&
+            path != '/auth/sas-verify') {
+          return '/auth/device-pairing';
+        }
+        return null;
+      }
+
+      // Backend auth is complete (scope == 'full') but engine WS hasn't
+      // connected yet. Send to /setup which handles the engine connect +
+      // WS reconnect before proceeding.
+      if (backendAuth != null && backendAuth.isFullyAuthenticated &&
+          (auth == null || auth.mode != AuthMode.connected)) {
+        if (path != '/setup') return '/setup';
+        return null;
+      }
 
       // Not authenticated — only allow login and registration.
       if (auth == null || auth.mode == AuthMode.undetermined) {
@@ -53,7 +100,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         if (path == '/auth/login' || path == '/auth/register') return null;
         return '/auth/login';
       }
-
 
       final isFullyAuthed = auth.mode == AuthMode.anonymous ||
           (auth.mode == AuthMode.connected &&
@@ -63,17 +109,24 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // Fully authenticated — send through /setup gateway.
       if (isFullyAuthed) {
-        // On auth routes → go to setup (which handles DB init + migration).
         if (isOnAuthRoute) {
           debugPrint('[ROUTER] Fully authed on auth route, -> /setup');
           return '/setup';
         }
-        // /setup handles its own redirect to /workspaces when DB is ready.
-        // All other app routes are fine — DB must be ready to reach them.
+
+        // Database must be ready before accessing any data screens.
+        // SetupScreen handles engine connection, migration, and opening the
+        // Drift database at the correct path. Until it marks the DB as
+        // ready, all app routes redirect back to /setup.
+        final dbReady = ref.read(databaseReadyProvider);
+        if (!dbReady && path != '/setup') {
+          debugPrint('[ROUTER] DB not ready, -> /setup');
+          return '/setup';
+        }
       }
 
-      // Mid-flow redirects for partial auth states. These apply regardless
-      // of whether the user is currently on an auth route or an app route.
+      // Fallback mid-flow redirects for WS-based auth state
+      // (backendAuthState should handle most mid-flow routing above).
       if (!isFullyAuthed && auth.mode == AuthMode.connected) {
         if (auth.tokenScope == TokenScope.emailVerification &&
             path != '/auth/verify-email') {
@@ -271,15 +324,33 @@ class _AuthNotifier extends ChangeNotifier {
         .listen<AsyncValue<String>>(databaseStateStreamProvider, (_, _) {
       notifyListeners();
     });
+    _backendAuthSub = ref
+        .listen<BackendAuthState?>(backendAuthStateProvider, (_, _) {
+      notifyListeners();
+    });
+    _dbReadySub = ref
+        .listen<bool>(databaseReadyProvider, (_, _) {
+      notifyListeners();
+    });
+    _loggedOutSub = ref
+        .listen<bool>(loggedOutProvider, (_, _) {
+      notifyListeners();
+    });
   }
 
   late final ProviderSubscription<AsyncValue<AuthState>> _authSub;
   late final ProviderSubscription<AsyncValue<String>> _dbSub;
+  late final ProviderSubscription<BackendAuthState?> _backendAuthSub;
+  late final ProviderSubscription<bool> _dbReadySub;
+  late final ProviderSubscription<bool> _loggedOutSub;
 
   @override
   void dispose() {
     _authSub.close();
     _dbSub.close();
+    _backendAuthSub.close();
+    _dbReadySub.close();
+    _loggedOutSub.close();
     super.dispose();
   }
 }

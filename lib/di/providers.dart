@@ -6,8 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../database/engine_database.dart';
+import '../engine_client/backend_auth.dart';
+import '../engine_client/engine_auth.dart';
 import '../engine_client/engine_client.dart';
+import '../engine_client/engine_connection.dart';
 import '../engine_client/models/auth_state.dart';
+import '../engine_client/models/backend_auth_state.dart';
+import '../engine_client/secure_token_store.dart';
 import '../engine_client/protocol/protocol.dart';
 import '../features/agent_providers/models/agent_list_item.dart';
 import '../models/commands/commands.dart';
@@ -18,13 +23,10 @@ import '../models/docker_types.dart';
 // ---------------------------------------------------------------------------
 
 /// The read-only Drift database backed by the engine's SQLite file.
-/// Must be overridden in main.dart with the correct database path.
 ///
-/// Example:
-/// ```dart
-/// engineDatabaseProvider.overrideWithValue(EngineDatabase(dbPath))
-/// ```
-final engineDatabaseProvider = Provider<EngineDatabase>(
+/// Initialized with a placeholder in main.dart. SetupScreen swaps it to
+/// the real database after fetching the path from `/engine-info`.
+final engineDatabaseProvider = StateProvider<EngineDatabase>(
   (_) => throw UnimplementedError('Override engineDatabaseProvider in main.dart'),
 );
 
@@ -60,6 +62,34 @@ final authModeProvider = Provider<String>((ref) {
   return ref.watch(authStateProvider).valueOrNull?.mode ??
       AuthMode.undetermined;
 });
+
+/// EngineAuth for connect/refresh calls to the engine.
+/// Overridden in main.dart with the instance from EngineBootstrap.
+final engineAuthProvider = Provider<EngineAuth>(
+  (_) => throw UnimplementedError('Override engineAuthProvider in main.dart'),
+);
+
+/// EngineConnection for reconnect support.
+/// Overridden in main.dart with the instance from EngineBootstrap.
+final engineConnectionProvider = Provider<EngineConnection>(
+  (_) => throw UnimplementedError('Override engineConnectionProvider in main.dart'),
+);
+
+/// BackendAuth client for direct backend communication.
+/// Overridden in main.dart with the configured instance.
+final backendAuthProvider = Provider<BackendAuth>(
+  (_) => throw UnimplementedError('Override backendAuthProvider in main.dart'),
+);
+
+/// Tracks the backend auth state during the multi-step login/register flow.
+/// Local to the app — not from the engine.
+final backendAuthStateProvider = StateProvider<BackendAuthState?>((_) => null);
+
+/// Secure token store for persisting auth credentials in the OS keyring.
+/// Overridden in main.dart.
+final secureTokenStoreProvider = Provider<SecureTokenStore>(
+  (_) => throw UnimplementedError('Override secureTokenStoreProvider in main.dart'),
+);
 
 // ---------------------------------------------------------------------------
 // Engine Events
@@ -161,7 +191,7 @@ final workspaceConfigProvider = FutureProvider.autoDispose
     final file = await _readFileAsString('$projectPath/dspatch.workspace.yml');
     if (file == null) return null;
     final result = await ref.read(engineClientProvider)
-        .parseWorkspaceConfig(yaml: file);
+        .sendCommand('parse_workspace_config', {'yaml': file});
     return result;
   } catch (_) {
     return null;
@@ -443,9 +473,22 @@ final themeModeProvider = StateProvider<ThemeMode>(
   (_) => ThemeMode.system,
 );
 
+/// Whether the Drift database has been opened at the correct path.
+///
+/// Set to `true` by [SetupScreen] after fetching the DB path from
+/// `/engine-info` and swapping the [engineDatabaseProvider]. The router
+/// uses this to prevent navigation to data screens before the database
+/// is ready.
+final databaseReadyProvider = StateProvider<bool>((_) => false);
+
 /// Database health status from startup check. Null means healthy (no warning needed).
 /// Set in main.dart only when status is [repaired] or [reset].
 final dbHealthStatusProvider = StateProvider<String?>((_) => null);
+
+/// Set to true during logout to prevent the router from treating stale
+/// engine auth state (cached by StreamProvider) as a valid session.
+/// Cleared when the user logs in again or enters anonymous mode.
+final loggedOutProvider = StateProvider<bool>((_) => false);
 
 /// Ephemeral cache for backup codes returned by confirm2fa.
 /// Set by AuthController.confirm2fa, consumed by BackupCodesScreen,

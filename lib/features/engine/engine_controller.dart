@@ -7,6 +7,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../di/providers.dart';
 import '../../engine_client/engine_client.dart';
+import '../../models/commands/docker.dart';
+import '../../models/docker_types.dart';
 import '../../shared/widgets/confirm_delete_dialog.dart';
 
 part 'engine_controller.g.dart';
@@ -19,7 +21,7 @@ part 'engine_controller.g.dart';
 @riverpod
 class EngineController extends _$EngineController {
   @override
-  FutureOr<void> build() {}
+  Future<void> build() async {}
 
   EngineClient get _client => ref.read(engineClientProvider);
 
@@ -31,13 +33,19 @@ class EngineController extends _$EngineController {
   // ─── Image lifecycle ─────────────────────────────────────────────────
 
   /// Builds the runtime image, streaming output to the operation console.
+  ///
+  // TODO: Rearchitect — build output should be written to a DB table and
+  // read via Drift watch queries, not returned as a single WS response.
+  // Until then, this uses sendCommand directly instead of typed send().
   Future<void> buildRuntimeImage() async {
     state = const AsyncLoading();
     _setInProgress(true);
     _appendLog('─── Build started ───');
 
     try {
-      await for (final line in _client.buildRuntimeImage()) {
+      final result = await _client.sendCommand('build_runtime_image');
+      final lines = (result['lines'] as List<dynamic>?)?.cast<String>() ?? [];
+      for (final line in lines) {
         _appendLog(line);
       }
       ref.invalidate(dockerStatusProvider);
@@ -58,9 +66,10 @@ class EngineController extends _$EngineController {
   /// Returns `true` if the image was deleted, `false` if cancelled or failed.
   Future<bool> deleteRuntimeImageCascade(BuildContext context) async {
     // Check for dependent containers.
-    List<Map<String, dynamic>> containers;
+    List<ContainerSummary> containers;
     try {
-      containers = await _client.listContainers();
+      final response = await _client.send(ListContainers());
+      containers = response.containers;
     } catch (_) {
       containers = [];
     }
@@ -69,7 +78,7 @@ class EngineController extends _$EngineController {
       if (!context.mounted) return false;
 
       final running =
-          containers.where((c) => c['state'] == 'running').length;
+          containers.where((c) => c.state == 'running').length;
       final stopped = containers.length - running;
 
       final parts = <String>[];
@@ -93,24 +102,22 @@ class EngineController extends _$EngineController {
     try {
       // 1. Stop running containers.
       final running = containers
-          .where((c) => c['state'] == 'running')
+          .where((c) => c.state == 'running')
           .toList();
       for (final c in running) {
-        final id = c['id'] as String;
-        _appendLog('Stopping container ${_shortId(id)}...');
-        await _client.stopContainer(id: id);
+        _appendLog('Stopping container ${_shortId(c.id)}...');
+        await _client.send(StopContainer(id: c.id));
       }
 
       // 2. Remove all containers.
       for (final c in containers) {
-        final id = c['id'] as String;
-        _appendLog('Removing container ${_shortId(id)}...');
-        await _client.removeContainer(id: id);
+        _appendLog('Removing container ${_shortId(c.id)}...');
+        await _client.send(RemoveContainer(id: c.id));
       }
 
       // 3. Delete the image.
       _appendLog('Deleting runtime image...');
-      await _client.deleteRuntimeImage();
+      await _client.send(DeleteRuntimeImage());
       _appendLog('Runtime image deleted');
 
       ref.invalidate(dockerStatusProvider);
@@ -143,7 +150,7 @@ class EngineController extends _$EngineController {
 
   /// Stops a single container.
   Future<bool> stopContainer(String id) => _loggedOp(
-        action: () async { await _client.stopContainer(id: id); },
+        action: () async { await _client.send(StopContainer(id: id)); },
         logStart: 'Stopping container ${_shortId(id)}...',
         logSuccess: 'Container ${_shortId(id)} stopped',
         toastSuccess: 'Container stopped',
@@ -153,7 +160,7 @@ class EngineController extends _$EngineController {
 
   /// Removes a single container.
   Future<bool> removeContainer(String id) => _loggedOp(
-        action: () async { await _client.removeContainer(id: id); },
+        action: () async { await _client.send(RemoveContainer(id: id)); },
         logStart: 'Removing container ${_shortId(id)}...',
         logSuccess: 'Container ${_shortId(id)} removed',
         toastSuccess: 'Container removed',
@@ -166,8 +173,8 @@ class EngineController extends _$EngineController {
   /// Stops all running d:spatch containers.
   Future<bool> stopAllContainers() => _bulkOp(
         action: () async {
-          final result = await _client.stopAllContainers();
-          return result['count'] as int? ?? 0;
+          final result = await _client.send(StopAllContainers());
+          return result.count;
         },
         logMessage: (c) => 'Stopped $c container${c == 1 ? '' : 's'}',
         successMessage: (c) => 'Stopped $c container${c == 1 ? '' : 's'}',
@@ -177,8 +184,8 @@ class EngineController extends _$EngineController {
   /// Removes all stopped d:spatch containers.
   Future<bool> deleteStoppedContainers() => _bulkOp(
         action: () async {
-          final result = await _client.deleteStoppedContainers();
-          return result['count'] as int? ?? 0;
+          final result = await _client.send(DeleteStoppedContainers());
+          return result.count;
         },
         logMessage: (c) =>
             'Removed $c stopped container${c == 1 ? '' : 's'}',
@@ -189,8 +196,8 @@ class EngineController extends _$EngineController {
   /// Removes orphaned containers.
   Future<bool> cleanOrphaned() => _bulkOp(
         action: () async {
-          final result = await _client.cleanOrphanedContainers();
-          return result['count'] as int? ?? 0;
+          final result = await _client.send(CleanOrphanedContainers());
+          return result.count;
         },
         logMessage: (c) =>
             'Cleaned $c orphaned container${c == 1 ? '' : 's'}',
