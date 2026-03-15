@@ -25,6 +25,78 @@ class AuthController extends _$AuthController {
   EngineConnection get _connection => ref.read(engineConnectionProvider);
   SecureTokenStore get _tokenStore => ref.read(secureTokenStoreProvider);
 
+  Timer? _refreshTimer;
+
+  /// Starts a timer to refresh the backend token before it expires.
+  /// Called when phase reaches ready with a BackendToken.
+  void startRefreshTimer() {
+    _refreshTimer?.cancel();
+    final token = ref.read(authTokenProvider);
+    if (token is! BackendToken) return;
+
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final refreshAt = token.expiresAt - 300; // 5 minutes before expiry
+    final delaySeconds = refreshAt - now;
+
+    if (delaySeconds <= 0) {
+      // Already expired or about to — refresh immediately.
+      _refreshToken();
+      return;
+    }
+
+    _refreshTimer = Timer(Duration(seconds: delaySeconds), _refreshToken);
+  }
+
+  Future<void> _refreshToken() async {
+    // Guard against race with logout — if we're no longer in ready state,
+    // the refresh is stale.
+    if (ref.read(authPhaseProvider) != AuthPhase.ready) return;
+
+    try {
+      final token = ref.read(authTokenProvider);
+      if (token is! BackendToken) return;
+
+      final response = await _backend.refreshToken(token: token.token);
+      final username = response.username ?? token.username;
+      final email = response.email ?? token.email;
+
+      final newToken = BackendToken(
+        token: response.token,
+        expiresAt: response.expiresAt,
+        scope: 'full',
+        username: username,
+        email: email,
+      );
+
+      ref.read(authTokenProvider.notifier).state = newToken;
+
+      await _tokenStore.saveSession(
+        backendToken: response.token,
+        expiresAt: response.expiresAt,
+        scope: 'full',
+        username: username,
+        email: email,
+      );
+
+      // Update engine's cached credentials.
+      try {
+        _connection.sendRaw(jsonEncode({
+          'type': 'command',
+          'id': 'refresh_creds_${DateTime.now().millisecondsSinceEpoch}',
+          'method': 'refresh_credentials',
+          'params': {'backend_token': response.token},
+        }));
+      } catch (_) {}
+
+      // Schedule next refresh.
+      startRefreshTimer();
+    } catch (e) {
+      debugPrint('[AUTH] Token refresh failed: $e');
+      // Refresh failed — force re-login.
+      await logout();
+    }
+  }
+
   /// Sets phase and token atomically. The router only watches authPhaseProvider,
   /// so setting token first ensures credentials are available before the
   /// router reacts to the phase change.
@@ -272,6 +344,8 @@ class AuthController extends _$AuthController {
   void setReady() => _transition(AuthPhase.ready);
 
   Future<void> logout() async {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
     state = const AsyncLoading();
 
     // Fire-and-forget logout command.
