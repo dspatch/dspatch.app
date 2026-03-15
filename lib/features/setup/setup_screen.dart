@@ -93,6 +93,12 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         debugPrint('[SETUP] Theme preference not set or failed: $e');
       }
 
+      // Start proactive token refresh if authenticated (not anonymous).
+      final currentToken = ref.read(authTokenProvider);
+      if (currentToken is BackendToken) {
+        ref.read(authControllerProvider.notifier).startRefreshTimer();
+      }
+
       // Phase → ready (via AuthController — single writer). Router handles navigation.
       ref.read(authControllerProvider.notifier).setReady();
       debugPrint('[SETUP] Setup complete, phase=ready');
