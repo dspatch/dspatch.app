@@ -224,7 +224,10 @@ class _UserMenuTile extends ConsumerWidget {
         DropdownMenuItem(
           icon: LucideIcons.log_in,
           label: 'Sign in',
-          onTap: () => navigate('/auth/login'),
+          onTap: () async {
+            await ref.read(authControllerProvider.notifier).logout();
+            if (context.mounted) navigate('/auth/login');
+          },
         ),
         const DropdownMenuSeparator(),
       ],

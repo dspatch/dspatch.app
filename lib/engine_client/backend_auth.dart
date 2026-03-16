@@ -92,9 +92,9 @@ class BackendAuth {
     return _post('/api/auth/login', body: {
       'username': username,
       'password': password,
-      if (deviceId != null) 'device_id': deviceId,
-      if (deviceSignature != null) 'device_signature': deviceSignature,
-      if (deviceTimestamp != null) 'device_timestamp': deviceTimestamp,
+      'device_id': ?deviceId,
+      'device_signature': ?deviceSignature,
+      'device_timestamp': ?deviceTimestamp,
     });
   }
 
@@ -138,10 +138,14 @@ class BackendAuth {
     required String token,
     required String code,
     bool isBackupCode = false,
+    String? deviceId,
+    String? deviceSignature,
   }) async {
     return _post('/api/auth/2fa/verify', body: {
       'code': code,
       'is_backup_code': isBackupCode,
+      'device_id': ?deviceId,
+      'device_signature': ?deviceSignature,
     }, token: token);
   }
 

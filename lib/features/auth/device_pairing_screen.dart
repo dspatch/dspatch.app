@@ -88,7 +88,10 @@ class _DevicePairingScreenState extends ConsumerState<DevicePairingScreen> {
               );
       if (!mounted) return;
       if (!success) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _error = 'Device registration failed. Please try again.';
+        });
         return;
       }
     } catch (e) {

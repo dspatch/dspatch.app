@@ -123,7 +123,7 @@ class AuthController extends _$AuthController {
       String? deviceSignature;
       int? deviceTimestamp;
 
-      final deviceCreds = await _tokenStore.loadDeviceCredentials();
+      final deviceCreds = await _tokenStore.loadDeviceCredentials(username);
       if (deviceCreds != null) {
         debugPrint('[LOGIN] Found stored device credentials, signing proof...');
         deviceTimestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -255,7 +255,7 @@ class AuthController extends _$AuthController {
       return {'backup_codes': codes};
     } catch (e, st) {
       state = AsyncError(e, st);
-      return null;
+      rethrow;
     }
   }
 
@@ -285,10 +285,32 @@ class AuthController extends _$AuthController {
     try {
       final token = ref.read(authTokenProvider);
       if (token is! BackendToken) throw StateError('No backend token');
+
+      // Sign the JWT with the device key if credentials are available.
+      // The backend requires a device proof for accounts with registered
+      // devices — the signed message is the raw Bearer token itself.
+      String? deviceId;
+      String? deviceSignature;
+      final deviceCreds = await _tokenStore.loadDeviceCredentials(token.username);
+      if (deviceCreds != null) {
+        debugPrint('[AUTH] verify2fa: signing device proof');
+        final seed = _hexToBytes(deviceCreds.identityKeyHex);
+        final ed25519 = Ed25519();
+        final keyPair = await ed25519.newKeyPairFromSeed(seed);
+        final signature = await ed25519.sign(
+          utf8.encode(token.token),
+          keyPair: keyPair,
+        );
+        deviceSignature = base64.encode(signature.bytes);
+        deviceId = deviceCreds.deviceId;
+      }
+
       final response = await _backend.verify2fa(
         token: token.token,
         code: code,
         isBackupCode: isBackupCode,
+        deviceId: deviceId,
+        deviceSignature: deviceSignature,
       );
       await _handleAuthResponse(response);
       state = const AsyncData(null);
@@ -313,11 +335,20 @@ class AuthController extends _$AuthController {
       );
 
       final deviceId = response.deviceId;
-      if (deviceId != null) {
+      final username = response.username ??
+          ((ref.read(authTokenProvider)) is BackendToken
+              ? (ref.read(authTokenProvider) as BackendToken).username
+              : '');
+      debugPrint('[AUTH] registerDevice: deviceId=${deviceId ?? 'NULL'}, user=$username');
+      if (deviceId != null && username.isNotEmpty) {
         await _tokenStore.saveDeviceCredentials(
+          username: username,
           deviceId: deviceId,
           identityKeyHex: identityKeyHex,
         );
+      } else {
+        debugPrint('[AUTH] WARNING: backend did not return device_id — '
+            'device credentials will not be saved');
       }
 
       await _handleAuthResponse(response);
@@ -360,6 +391,7 @@ class AuthController extends _$AuthController {
   void setReady() => _transition(AuthPhase.ready);
 
   Future<void> logout() async {
+    debugPrint('[AUTH] logout()');
     _refreshTimer?.cancel();
     _refreshTimer = null;
     state = const AsyncLoading();
