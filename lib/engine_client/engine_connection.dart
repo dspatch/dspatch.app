@@ -34,6 +34,15 @@ class EngineConnection {
   bool _disposed = false;
   bool _connected = false;
 
+  /// Called during auto-reconnect when `connect()` fails.
+  ///
+  /// Must return a fresh session token, or `null` to stop reconnecting.
+  /// Returning `null` signals that the callback handled the failure
+  /// (e.g., by triggering logout or a phase transition).
+  /// If the callback throws, the reconnect loop continues with normal
+  /// backoff — useful when the engine is temporarily unreachable.
+  Future<String?> Function()? onTokenRefresh;
+
   /// Monotonically increasing counter used to invalidate stale [connect]
   /// calls. When [reconnect] (or another connect cycle) starts, the epoch
   /// is bumped so that any in-flight [connect] from auto-reconnect notices
@@ -355,10 +364,33 @@ class EngineConnection {
       print('[CONN] Reconnected successfully');
     } catch (e) {
       print('[CONN] Reconnect failed: $e');
-      // connect() increments _connectEpoch, so use the current value
-      // for the retry — not the stale `epoch` parameter. If something
-      // else bumped the epoch (e.g. reconnect()), the staleness check
-      // at the top of the next iteration will bail out.
+
+      // Try to refresh the session token (e.g., engine restarted and
+      // wiped its in-memory session store).
+      if (onTokenRefresh != null) {
+        try {
+          final newToken = await onTokenRefresh!();
+          if (_disposed) return;
+
+          if (newToken != null) {
+            print('[CONN] Token refreshed, retrying immediately');
+            _token = newToken;
+            // Reset backoff — we have a fresh token, retry promptly.
+            _reconnectWithBackoff(initialReconnectDelay, _connectEpoch);
+            return;
+          } else {
+            // Callback returned null — it handled the failure (logout,
+            // phase transition, etc.). Stop reconnecting.
+            print('[CONN] Token refresh returned null, stopping reconnect');
+            return;
+          }
+        } catch (refreshError) {
+          // Token refresh itself failed (engine probably down).
+          // Fall through to normal backoff.
+          print('[CONN] Token refresh failed: $refreshError');
+        }
+      }
+
       final currentEpoch = _connectEpoch;
       final nextDelay = Duration(
         milliseconds: (delay.inMilliseconds * 2)
