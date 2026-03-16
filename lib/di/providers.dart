@@ -8,8 +8,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../database/engine_database.dart';
 import '../engine_client/backend_auth.dart';
 import '../engine_client/engine_auth.dart';
+import '../engine_client/engine_health.dart';
+import '../main.dart' show kEnginePort;
 import '../engine_client/engine_client.dart';
 import '../engine_client/engine_connection.dart';
+import '../engine_client/engine_process_manager.dart';
 import '../engine_client/models/auth_phase.dart';
 import '../engine_client/models/auth_token.dart';
 import '../engine_client/models/db_state.dart';
@@ -67,6 +70,12 @@ final backendAuthProvider = Provider<BackendAuth>(
 /// Overridden in main.dart.
 final secureTokenStoreProvider = Provider<SecureTokenStore>(
   (_) => throw UnimplementedError('Override secureTokenStoreProvider in main.dart'),
+);
+
+/// Engine process manager for starting/stopping the engine on desktop.
+/// Overridden in main.dart.
+final engineProcessManagerProvider = Provider<EngineProcessManager>(
+  (_) => throw UnimplementedError('Override engineProcessManagerProvider in main.dart'),
 );
 
 /// Single source of truth for routing. AuthController is the only writer.
@@ -390,6 +399,19 @@ final globalPendingInquiryCountProvider =
 // ---------------------------------------------------------------------------
 // Docker
 // ---------------------------------------------------------------------------
+
+/// Engine health status from the HTTP `/health` endpoint.
+/// Returns uptime, auth state, docker availability, etc.
+/// Auto-disposed when Engine screen unmounts.
+final engineHealthProvider =
+    FutureProvider.autoDispose<HealthStatus>((ref) async {
+  final health = EngineHealth(host: '127.0.0.1', port: kEnginePort);
+  final status = await health.checkHealth();
+  if (status == null) {
+    throw Exception('Engine is not reachable');
+  }
+  return status;
+});
 
 /// Docker daemon status. Auto-disposed when Engine screen is not active.
 /// Refresh via `ref.invalidate(dockerStatusProvider)`.
