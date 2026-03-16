@@ -8,10 +8,11 @@ import '../../../di/providers.dart';
 import '../../../engine_client/engine_health.dart';
 import '../../../engine_client/models/db_state.dart';
 import '../../../models/docker_types.dart';
+import '../engine_controller.dart';
 
 /// Compact 4-column status grid at the top of the Engine dashboard.
 ///
-/// Shows Engine Status, Docker Status, Database, and Auth mode.
+/// Shows Docker Status, Runtime Image, Database, and Auth mode.
 /// Conditionally shows sysbox warning banner below.
 class StatusGrid extends ConsumerWidget {
   const StatusGrid({super.key});
@@ -21,6 +22,8 @@ class StatusGrid extends ConsumerWidget {
     final health = ref.watch(engineHealthProvider);
     final dockerStatus = ref.watch(dockerStatusProvider);
     final dbState = ref.watch(dbStateProvider);
+    final inProgress = ref.watch(operationInProgressProvider);
+    final controller = ref.read(engineControllerProvider.notifier);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -28,11 +31,17 @@ class StatusGrid extends ConsumerWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Card 1: Engine Status
-            Expanded(child: _EngineCard(health: health)),
-            const SizedBox(width: Spacing.sm),
-            // Card 2: Docker Status
+            // Card 1: Docker Status
             Expanded(child: _DockerCard(status: dockerStatus)),
+            const SizedBox(width: Spacing.sm),
+            // Card 2: Runtime Image
+            Expanded(
+              child: _RuntimeImageCard(
+                status: dockerStatus,
+                inProgress: inProgress,
+                controller: controller,
+              ),
+            ),
             const SizedBox(width: Spacing.sm),
             // Card 3: Database
             Expanded(child: _DatabaseCard(dbState: dbState)),
@@ -62,53 +71,71 @@ class StatusGrid extends ConsumerWidget {
 
 // ─── Card widgets ──────────────────────────────────────────────────────────
 
-class _EngineCard extends StatelessWidget {
-  const _EngineCard({required this.health});
-  final AsyncValue<HealthStatus> health;
+/// Runtime Image metric card with inline Build/Delete icon buttons.
+class _RuntimeImageCard extends StatelessWidget {
+  const _RuntimeImageCard({
+    required this.status,
+    required this.inProgress,
+    required this.controller,
+  });
+
+  final AsyncValue<DockerStatus> status;
+  final bool inProgress;
+  final EngineController controller;
 
   @override
   Widget build(BuildContext context) {
-    return _MetricCard(
-      icon: health.when(
-        loading: () => const _SpinnerIcon(),
-        error: (_, _) => const Icon(LucideIcons.circle_x,
-            size: 16, color: AppColors.destructive),
-        data: (h) => Icon(
-          h.isRunning ? LucideIcons.circle_check : LucideIcons.circle_x,
-          size: 16,
-          color: h.isRunning ? AppColors.success : AppColors.destructive,
-        ),
-      ),
-      value: health.when(
-        loading: () => const Text('Checking...',
-            style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: AppColors.mutedForeground)),
-        error: (_, _) => const Text('Unreachable',
-            style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: AppColors.destructive)),
-        data: (h) => Text(
-          _formatUptime(h.uptimeSeconds),
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            fontFamily: AppFonts.mono,
-          ),
-        ),
-      ),
-      label: 'Engine',
-    );
-  }
+    final dockerStatus = status.valueOrNull;
+    final isRunning = dockerStatus?.isRunning ?? false;
+    final hasImage = dockerStatus?.hasRuntimeImage ?? false;
+    final disabled = inProgress || !isRunning;
 
-  static String _formatUptime(int seconds) {
-    if (seconds < 60) return '${seconds}s';
-    if (seconds < 3600) return '${seconds ~/ 60}m ${seconds % 60}s';
-    final hours = seconds ~/ 3600;
-    final mins = (seconds % 3600) ~/ 60;
-    return '${hours}h ${mins}m';
+    return _MetricCard(
+      icon: Icon(
+        hasImage ? LucideIcons.circle_check : LucideIcons.circle_x,
+        size: 16,
+        color: hasImage ? AppColors.success : AppColors.mutedForeground,
+      ),
+      value: Text(
+        hasImage ? 'Built' : 'Not Built',
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+          color: hasImage ? AppColors.success : AppColors.mutedForeground,
+        ),
+      ),
+      label: 'Runtime Image',
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DspatchTooltip(
+            message: hasImage ? 'Rebuild image' : 'Build image',
+            child: DspatchIconButton(
+              icon: LucideIcons.refresh_cw,
+              variant: IconButtonVariant.outline,
+              size: IconButtonSize.sm,
+              onPressed: disabled
+                  ? null
+                  : () => hasImage
+                      ? controller.rebuildRuntimeImage(context)
+                      : controller.buildRuntimeImage(),
+            ),
+          ),
+          if (hasImage)
+            DspatchTooltip(
+              message: 'Delete image',
+              child: DspatchIconButton(
+                icon: LucideIcons.trash_2,
+                variant: IconButtonVariant.outline,
+                size: IconButtonSize.sm,
+                onPressed: disabled
+                    ? null
+                    : () => controller.deleteRuntimeImageCascade(context),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 
@@ -233,11 +260,13 @@ class _MetricCard extends StatelessWidget {
     required this.icon,
     required this.value,
     required this.label,
+    this.trailing,
   });
 
   final Widget icon;
   final Widget value;
   final String label;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -264,6 +293,7 @@ class _MetricCard extends StatelessWidget {
               ],
             ),
           ),
+          ?trailing,
         ],
       ),
     );

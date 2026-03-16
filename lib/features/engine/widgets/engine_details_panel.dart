@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../di/providers.dart';
 import '../../../main.dart' show kEnginePort;
-import '../engine_controller.dart';
 
 /// Collapsible "Engine Details" panel — key-value table showing config,
 /// connection, and runtime image info.
@@ -22,15 +21,9 @@ class _EngineDetailsPanelState extends ConsumerState<EngineDetailsPanel> {
   @override
   Widget build(BuildContext context) {
     final health = ref.watch(engineHealthProvider);
-    final dockerStatus = ref.watch(dockerStatusProvider);
     final wsConnected = ref.watch(engineSessionProvider);
-    final inProgress = ref.watch(operationInProgressProvider);
-    final controller = ref.read(engineControllerProvider.notifier);
 
     final healthData = health.valueOrNull;
-    final docker = dockerStatus.valueOrNull;
-    final dockerRunning = docker?.isRunning ?? false;
-    final hasImage = docker?.hasRuntimeImage ?? false;
 
     return DspatchCard(
       padding: EdgeInsets.zero,
@@ -117,68 +110,6 @@ class _EngineDetailsPanelState extends ConsumerState<EngineDetailsPanel> {
                         _DetailRow(
                           label: 'Backend URL',
                           value: healthData?.backendUrl ?? '—',
-                        ),
-                        const SizedBox(height: Spacing.sm),
-                        const Separator(),
-                        const SizedBox(height: Spacing.sm),
-                        _DetailRow(
-                          label: 'Runtime Image',
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                hasImage
-                                    ? LucideIcons.circle_check
-                                    : LucideIcons.circle_x,
-                                size: 14,
-                                color: hasImage
-                                    ? AppColors.success
-                                    : AppColors.mutedForeground,
-                              ),
-                              const SizedBox(width: Spacing.xs),
-                              Text(
-                                hasImage
-                                    ? 'Built${docker?.runtimeImageSize != null ? ' (${docker!.runtimeImageSize})' : ''}'
-                                    : 'Not Built',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontFamily: AppFonts.mono,
-                                  color: hasImage
-                                      ? null
-                                      : AppColors.mutedForeground,
-                                ),
-                              ),
-                              const SizedBox(width: Spacing.sm),
-                              DspatchTooltip(
-                                message:
-                                    hasImage ? 'Rebuild image' : 'Build image',
-                                child: DspatchIconButton(
-                                  icon: LucideIcons.refresh_cw,
-                                  variant: IconButtonVariant.outline,
-                                  size: IconButtonSize.sm,
-                                  onPressed: (inProgress || !dockerRunning)
-                                      ? null
-                                      : () => hasImage
-                                          ? controller
-                                              .rebuildRuntimeImage(context)
-                                          : controller.buildRuntimeImage(),
-                                ),
-                              ),
-                              if (hasImage)
-                                DspatchTooltip(
-                                  message: 'Delete image',
-                                  child: DspatchIconButton(
-                                    icon: LucideIcons.trash_2,
-                                    variant: IconButtonVariant.outline,
-                                    size: IconButtonSize.sm,
-                                    onPressed: (inProgress || !dockerRunning)
-                                        ? null
-                                        : () => controller
-                                            .deleteRuntimeImageCascade(context),
-                                  ),
-                                ),
-                            ],
-                          ),
                         ),
                       ],
                     ),

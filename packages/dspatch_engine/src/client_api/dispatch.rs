@@ -4,6 +4,8 @@
 
 use std::collections::HashMap;
 
+use futures::StreamExt;
+
 use crate::client_api::commands::Command;
 use crate::domain::models::CreateWorkspaceRequest;
 use crate::docker::{DSPATCH_CONTAINER_LABEL, RUNTIME_IMAGE_TAG};
@@ -242,25 +244,8 @@ pub async fn dispatch_command(
         // ── Docker Commands ─────────────────────────────────────
 
         Command::DetectDockerStatus => {
-            match services.docker().ping().await {
-                Ok(()) => {
-                    let version = services.docker().version().await.ok();
-                    let mut result = serde_json::json!({ "available": true });
-                    if let Some(v) = version {
-                        result["version"] = serde_json::json!({
-                            "version": v.version,
-                            "api_version": v.api_version,
-                            "os": v.os,
-                            "arch": v.arch,
-                        });
-                    }
-                    Ok(result)
-                }
-                Err(e) => Ok(serde_json::json!({
-                    "available": false,
-                    "error": e.to_string(),
-                })),
-            }
+            let status = services.docker_service().detect_status().await?;
+            Ok(serde_json::to_value(&status).unwrap())
         }
 
         Command::ListContainers => {
@@ -354,6 +339,12 @@ pub async fn dispatch_command(
                 }
             }
             Ok(serde_json::Value::Null)
+        }
+
+        Command::BuildRuntimeImage => {
+            let stream = services.docker_service().build_runtime_image();
+            let lines: Vec<String> = stream.collect().await;
+            Ok(serde_json::json!({ "lines": lines }))
         }
 
         Command::DeleteRuntimeImage => {

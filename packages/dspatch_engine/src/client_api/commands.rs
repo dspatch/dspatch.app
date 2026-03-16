@@ -194,6 +194,9 @@ pub enum Command {
     #[serde(rename = "clean_orphaned_containers")]
     CleanOrphanedContainers,
 
+    #[serde(rename = "build_runtime_image")]
+    BuildRuntimeImage,
+
     #[serde(rename = "delete_runtime_image")]
     DeleteRuntimeImage,
 
