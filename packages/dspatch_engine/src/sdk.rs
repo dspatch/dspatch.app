@@ -134,6 +134,12 @@ pub struct DspatchSdk {
     // Database state broadcast
     db_state_tx: broadcast::Sender<DatabaseReadyState>,
 
+    /// Signaled by external listeners (e.g. the daemon's ServiceRegistry bridge)
+    /// after they have dropped all references to the old database in response to
+    /// a `Closed` broadcast. `teardown_database` waits on this before returning
+    /// so that file handles are fully released (required for rename on Windows).
+    teardown_ack: Arc<tokio::sync::Notify>,
+
     // Pending migration (set when MigrationAvailable, cleared by perform/skip)
     pending_migration: Arc<RwLock<Option<PendingMigration>>>,
 
@@ -211,6 +217,7 @@ impl DspatchSdk {
             db_services: Arc::new(RwLock::new(None)),
             current_db_path: Arc::new(RwLock::new(None)),
             db_state_tx,
+            teardown_ack: Arc::new(tokio::sync::Notify::new()),
             pending_migration: Arc::new(RwLock::new(None)),
             server: Arc::new(RwLock::new(None)),
             bridge: Arc::new(TokioMutex::new(None)),
@@ -316,6 +323,14 @@ impl DspatchSdk {
     /// auth transitions.
     pub fn subscribe_database_state(&self) -> broadcast::Receiver<DatabaseReadyState> {
         self.db_state_tx.subscribe()
+    }
+
+    /// Returns the teardown acknowledgement handle. External listeners that
+    /// hold `Arc<Database>` references (e.g. a `ServiceRegistry`) must call
+    /// `notify.notify_one()` after dropping those references when they receive
+    /// a `Closed` state on the database broadcast.
+    pub fn teardown_ack(&self) -> Arc<tokio::sync::Notify> {
+        Arc::clone(&self.teardown_ack)
     }
 
     /// Waits for the database to become ready, with a timeout.
@@ -471,8 +486,19 @@ impl DspatchSdk {
             *path_guard = None;
         }
 
-        // Notify database state listeners.
+        // Notify database state listeners, then wait for external holders
+        // (e.g. the daemon's ServiceRegistry) to drop their Arc<Database>.
+        // Without this, file handles stay open and rename fails on Windows.
+        let has_listeners = self.db_state_tx.receiver_count() > 0;
         let _ = self.db_state_tx.send(DatabaseReadyState::Closed);
+        if has_listeners {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                self.teardown_ack.notified(),
+            )
+            .await
+            .ok(); // Proceed even on timeout — best effort.
+        }
     }
 
     /// Central setup orchestrator. Runs on every auth transition:

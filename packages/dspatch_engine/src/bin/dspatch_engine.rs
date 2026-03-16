@@ -123,6 +123,7 @@ async fn main() {
         let bridge_sdk = Arc::clone(&sdk);
         let bridge_db_dir = db_dir.clone();
         let bridge_hub_client = Some(hub_client);
+        let teardown_ack = sdk.teardown_ack();
         let mut db_rx = sdk.subscribe_database_state();
         tokio::spawn(async move {
             loop {
@@ -137,22 +138,34 @@ async fn main() {
                             "state": state_str,
                         }));
 
-                        // Rebuild ServiceRegistry when a new database becomes ready.
-                        if matches!(state, dspatch_engine::sdk::DatabaseReadyState::Ready) {
-                            match bridge_sdk.database().await {
-                                Ok(db) => {
-                                    let new_registry = Arc::new(ServiceRegistry::new(
-                                        db,
-                                        bridge_db_dir.clone(),
-                                        bridge_hub_client.clone(),
-                                    ));
-                                    bridge_runtime.replace_services(new_registry).await;
-                                    tracing::info!("ServiceRegistry rebuilt after database change");
-                                }
-                                Err(e) => {
-                                    tracing::error!(error = %e, "failed to get DB for service rebuild");
+                        match state {
+                            dspatch_engine::sdk::DatabaseReadyState::Ready => {
+                                // Rebuild ServiceRegistry with the new database.
+                                match bridge_sdk.database().await {
+                                    Ok(db) => {
+                                        let new_registry = Arc::new(ServiceRegistry::new(
+                                            db,
+                                            bridge_db_dir.clone(),
+                                            bridge_hub_client.clone(),
+                                        ));
+                                        bridge_runtime.replace_services(new_registry).await;
+                                        tracing::info!("ServiceRegistry rebuilt after database change");
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(error = %e, "failed to get DB for service rebuild");
+                                    }
                                 }
                             }
+                            dspatch_engine::sdk::DatabaseReadyState::Closed => {
+                                // Drop the old ServiceRegistry so its Arc<Database> is
+                                // released. Without this, file handles remain open and
+                                // operations like rename fail on Windows (OS error 32).
+                                bridge_runtime.clear_services().await;
+                                // Signal the SDK that all external DB references are dropped.
+                                teardown_ack.notify_one();
+                                tracing::info!("ServiceRegistry cleared after database close");
+                            }
+                            _ => {}
                         }
                     }
                     Err(_) => break,

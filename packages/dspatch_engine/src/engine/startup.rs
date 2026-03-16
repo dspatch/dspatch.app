@@ -122,6 +122,13 @@ impl EngineRuntime {
         *self.services.write().await = Some(services);
     }
 
+    /// Drops the current ServiceRegistry so its `Arc<Database>` is released.
+    /// Must be called before any operation that needs exclusive file access
+    /// (e.g. database rename on Windows).
+    pub async fn clear_services(&self) {
+        *self.services.write().await = None;
+    }
+
     pub fn sdk(&self) -> Option<&Arc<DspatchSdk>> {
         self.sdk.as_ref()
     }

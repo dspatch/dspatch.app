@@ -22,8 +22,15 @@ setup:
 # ── Dev ───────────────────────────────────────────────────────────────
 
 # Build, codesign, and run the daemon — watches for changes
+[unix]
 dev:
     cargo watch -c -s 'just _build-and-run'
+
+# Build and run the daemon — watches for changes (no codesigning needed)
+[windows]
+[script("powershell")]
+dev:
+    cargo-watch -c -x "run --bin dspatch-daemon"
 
 # Build and codesign the daemon (debug)
 build:
