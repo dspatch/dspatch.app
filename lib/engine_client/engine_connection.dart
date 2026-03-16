@@ -370,7 +370,7 @@ class EngineConnection {
       if (onTokenRefresh != null) {
         try {
           final newToken = await onTokenRefresh!();
-          if (_disposed) return;
+          if (_disposed || epoch != _connectEpoch) return;
 
           if (newToken != null) {
             print('[CONN] Token refreshed, retrying immediately');
