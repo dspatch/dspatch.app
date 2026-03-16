@@ -8,10 +8,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../database/engine_database.dart';
 import '../../di/providers.dart';
 import '../../engine_client/engine_auth.dart';
+import '../../engine_client/models/auth_phase.dart';
 import '../../engine_client/models/auth_token.dart';
 import '../../engine_client/models/db_state.dart';
 import '../../models/commands/commands.dart';
-import '../../engine_client/models/auth_phase.dart';
 import '../auth/auth_controller.dart';
 
 /// Gateway screen shown after authentication.
@@ -180,7 +180,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       if (currentToken == null) {
         // No credentials at all — force logout.
         debugPrint('[TOKEN_REFRESH] No auth token, logging out');
-        ref.read(authControllerProvider.notifier).logout();
+        await ref.read(authControllerProvider.notifier).logout();
         return null;
       }
 
