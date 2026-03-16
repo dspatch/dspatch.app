@@ -584,17 +584,17 @@ class _AgentProviderFormScreenState
         widget.id!,
         {
           'name': name,
-          'source_type': _sourceType,
+          'sourceType': _sourceType,
           if (_sourceType == 'local')
-            'source_path': _sourcePathController.text.trim(),
+            'sourcePath': _sourcePathController.text.trim(),
           if (_sourceType == 'git')
-            'git_url': _gitUrlController.text.trim(),
+            'gitUrl': _gitUrlController.text.trim(),
           if (_sourceType == 'git')
-            'git_branch': _gitBranchController.text.trim().ifEmpty(null),
-          'entry_point': entryPoint,
+            'gitBranch': _gitBranchController.text.trim().ifEmpty(null),
+          'entryPoint': entryPoint,
           'description': _descriptionController.text.trim().ifEmpty(null),
-          'required_env': _requiredEnv,
-          'required_mounts': _requiredMounts,
+          'requiredEnv': _requiredEnv,
+          'requiredMounts': _requiredMounts,
           'fields': _fields,
         },
       );
@@ -602,19 +602,19 @@ class _AgentProviderFormScreenState
       success = await controller.createAgentProvider(
         {
           'name': name,
-          'source_type': _sourceType,
+          'sourceType': _sourceType,
           if (_sourceType == 'local')
-            'source_path': _sourcePathController.text.trim(),
+            'sourcePath': _sourcePathController.text.trim(),
           if (_sourceType == 'git')
-            'git_url': _gitUrlController.text.trim(),
+            'gitUrl': _gitUrlController.text.trim(),
           if (_sourceType == 'git')
-            'git_branch': _gitBranchController.text.trim().ifEmpty(null),
-          'entry_point': entryPoint,
+            'gitBranch': _gitBranchController.text.trim().ifEmpty(null),
+          'entryPoint': entryPoint,
           'description': _descriptionController.text.trim().ifEmpty(null),
-          'required_env': _requiredEnv,
-          'required_mounts': _requiredMounts,
+          'requiredEnv': _requiredEnv,
+          'requiredMounts': _requiredMounts,
           'fields': _fields,
-          'hub_tags': const [],
+          'hubTags': const [],
         },
       );
     }
