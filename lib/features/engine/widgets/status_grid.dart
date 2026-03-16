@@ -2,131 +2,50 @@
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../core/utils/platform_info.dart';
 import '../../../di/providers.dart';
-import '../engine_controller.dart';
+import '../../../engine_client/engine_health.dart';
+import '../../../engine_client/models/db_state.dart';
 
 /// Compact 4-column status grid at the top of the Engine dashboard.
 ///
-/// Shows Docker Status, Docker Version, Runtime Image (with actions),
-/// and Container counts. Conditionally shows install/sysbox banners below.
+/// Shows Engine Status, Docker Status, Database, and Auth mode.
+/// Conditionally shows sysbox warning banner below.
 class StatusGrid extends ConsumerWidget {
   const StatusGrid({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final status = ref.watch(dockerStatusProvider);
-    final containers = ref.watch(containerListProvider);
-    final inProgress = ref.watch(operationInProgressProvider);
-    final controller = ref.read(engineControllerProvider.notifier);
-
-    // Derive container counts.
-    final containerList = containers.valueOrNull ?? [];
-    final runningCount =
-        containerList.where((c) => c.state == 'running').length;
-    final stoppedCount = containerList.length - runningCount;
+    final health = ref.watch(engineHealthProvider);
+    final dockerStatus = ref.watch(dockerStatusProvider);
+    final dbState = ref.watch(dbStateProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ── Metric cards grid ──────────────────────────────────────────
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Card 1: Docker Status
-            Expanded(
-              child: _MetricCard(
-                icon: status.when(
-                  loading: () => const _SpinnerIcon(),
-                  error: (_, _) => const Icon(LucideIcons.circle_alert,
-                      size: 16, color: AppColors.destructive),
-                  data: (s) => Icon(
-                    s.isRunning
-                        ? LucideIcons.circle_check
-                        : LucideIcons.circle_x,
-                    size: 16,
-                    color:
-                        s.isRunning ? AppColors.success : AppColors.destructive,
-                  ),
-                ),
-                value: status.when(
-                  loading: () => const Text('Checking...',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.mutedForeground)),
-                  error: (_, _) => const Text('Error',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.destructive)),
-                  data: (s) => Text(
-                    s.isRunning
-                        ? 'Ready'
-                        : s.isInstalled
-                            ? 'Not Running'
-                            : 'Not Installed',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: s.isRunning
-                          ? AppColors.success
-                          : AppColors.destructive,
-                    ),
-                  ),
-                ),
-                label: 'Docker Status',
-              ),
-            ),
+            // Card 1: Engine Status
+            Expanded(child: _EngineCard(health: health)),
             const SizedBox(width: Spacing.sm),
-            // Card 2: Docker Version
-            Expanded(
-              child: _MetricCard(
-                icon: const Icon(LucideIcons.terminal,
-                    size: 16, color: AppColors.mutedForeground),
-                value: Text(
-                  status.valueOrNull?.dockerVersion ?? 'N/A',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    fontFamily: AppFonts.mono,
-                  ),
-                ),
-                label: 'Docker Version',
-              ),
-            ),
+            // Card 2: Docker Status
+            Expanded(child: _DockerCard(status: dockerStatus)),
             const SizedBox(width: Spacing.sm),
-            // Card 3: Runtime Image
-            Expanded(
-              child: _RuntimeImageCard(
-                status: status,
-                inProgress: inProgress,
-                controller: controller,
-              ),
-            ),
+            // Card 3: Database
+            Expanded(child: _DatabaseCard(dbState: dbState)),
             const SizedBox(width: Spacing.sm),
-            // Card 4: Containers
-            Expanded(
-              child: _MetricCard(
-                icon: const Icon(LucideIcons.server,
-                    size: 16, color: AppColors.mutedForeground),
-                value: _ContainerCountLabel(
-                  running: runningCount,
-                  stopped: stoppedCount,
-                ),
-                label: 'Containers',
-              ),
-            ),
+            // Card 4: Auth
+            Expanded(child: _AuthCard(health: health)),
           ],
         ),
 
-        // ── Conditional banners ────────────────────────────────────────
-        // Docker install/error banners are handled by DockerErrorBanner
-        // in engine_screen.dart (pinned above scroll area).
-        if (status.hasValue &&
-            status.value!.isRunning &&
+        // Sysbox warning (Linux only)
+        if (dockerStatus.hasValue &&
+            dockerStatus.value!.isRunning &&
             PlatformInfo.isLinux &&
-            !status.value!.hasSysbox) ...[
+            !dockerStatus.value!.hasSysbox) ...[
           const SizedBox(height: Spacing.sm),
           const StatusCard(
             icon: LucideIcons.triangle_alert,
@@ -138,10 +57,174 @@ class StatusGrid extends ConsumerWidget {
       ],
     );
   }
-
 }
 
-// ─── Private sub-widgets ──────────────────────────────────────────────────
+// ─── Card widgets ──────────────────────────────────────────────────────────
+
+class _EngineCard extends StatelessWidget {
+  const _EngineCard({required this.health});
+  final AsyncValue<HealthStatus> health;
+
+  @override
+  Widget build(BuildContext context) {
+    return _MetricCard(
+      icon: health.when(
+        loading: () => const _SpinnerIcon(),
+        error: (_, _) => const Icon(LucideIcons.circle_x,
+            size: 16, color: AppColors.destructive),
+        data: (h) => Icon(
+          h.isRunning ? LucideIcons.circle_check : LucideIcons.circle_x,
+          size: 16,
+          color: h.isRunning ? AppColors.success : AppColors.destructive,
+        ),
+      ),
+      value: health.when(
+        loading: () => const Text('Checking...',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppColors.mutedForeground)),
+        error: (_, _) => const Text('Unreachable',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppColors.destructive)),
+        data: (h) => Text(
+          _formatUptime(h.uptimeSeconds),
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            fontFamily: AppFonts.mono,
+          ),
+        ),
+      ),
+      label: 'Engine',
+    );
+  }
+
+  static String _formatUptime(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    if (seconds < 3600) return '${seconds ~/ 60}m ${seconds % 60}s';
+    final hours = seconds ~/ 3600;
+    final mins = (seconds % 3600) ~/ 60;
+    return '${hours}h ${mins}m';
+  }
+}
+
+class _DockerCard extends StatelessWidget {
+  const _DockerCard({required this.status});
+  final AsyncValue<dynamic> status;
+
+  @override
+  Widget build(BuildContext context) {
+    return _MetricCard(
+      icon: status.when(
+        loading: () => const _SpinnerIcon(),
+        error: (_, _) => const Icon(LucideIcons.circle_alert,
+            size: 16, color: AppColors.destructive),
+        data: (s) => Icon(
+          s.isRunning ? LucideIcons.circle_check : LucideIcons.circle_x,
+          size: 16,
+          color: s.isRunning ? AppColors.success : AppColors.destructive,
+        ),
+      ),
+      value: status.when(
+        loading: () => const Text('Checking...',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppColors.mutedForeground)),
+        error: (_, _) => const Text('Error',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppColors.destructive)),
+        data: (s) => Text(
+          s.isRunning
+              ? (s.dockerVersion != null ? 'v${s.dockerVersion}' : 'Ready')
+              : s.isInstalled
+                  ? 'Not Running'
+                  : 'Not Installed',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: s.isRunning ? AppColors.foreground : AppColors.destructive,
+          ),
+        ),
+      ),
+      label: 'Docker',
+    );
+  }
+}
+
+class _DatabaseCard extends StatelessWidget {
+  const _DatabaseCard({required this.dbState});
+  final DbState dbState;
+
+  @override
+  Widget build(BuildContext context) {
+    final isReady = dbState == DbState.ready;
+    final isPending = dbState == DbState.migrationPending;
+
+    return _MetricCard(
+      icon: Icon(
+        isPending ? LucideIcons.triangle_alert : LucideIcons.database,
+        size: 16,
+        color: isPending ? AppColors.warning : AppColors.mutedForeground,
+      ),
+      value: Text(
+        isReady
+            ? 'v12 Ready'
+            : isPending
+                ? 'Migration Pending'
+                : 'Unknown',
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+          color: isPending ? AppColors.warning : null,
+        ),
+      ),
+      label: 'Database',
+    );
+  }
+}
+
+class _AuthCard extends StatelessWidget {
+  const _AuthCard({required this.health});
+  final AsyncValue<HealthStatus> health;
+
+  @override
+  Widget build(BuildContext context) {
+    return _MetricCard(
+      icon: Icon(
+        health.valueOrNull?.authenticated == true
+            ? LucideIcons.shield_check
+            : LucideIcons.shield,
+        size: 16,
+        color: AppColors.mutedForeground,
+      ),
+      value: health.when(
+        loading: () => const Text('...',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppColors.mutedForeground)),
+        error: (_, _) => const Text('Unknown',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppColors.mutedForeground)),
+        data: (h) => Text(
+          h.authenticated ? 'Connected' : 'Anonymous',
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+        ),
+      ),
+      label: 'Auth',
+    );
+  }
+}
+
+// ─── Shared private widgets ────────────────────────────────────────────────
 
 /// A compact metric card: icon + value text + muted sublabel.
 class _MetricCard extends StatelessWidget {
@@ -149,13 +232,11 @@ class _MetricCard extends StatelessWidget {
     required this.icon,
     required this.value,
     required this.label,
-    this.trailing,
   });
 
   final Widget icon;
   final Widget value;
   final String label;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -182,112 +263,6 @@ class _MetricCard extends StatelessWidget {
               ],
             ),
           ),
-          ?trailing,
-        ],
-      ),
-    );
-  }
-}
-
-/// Runtime Image metric card with inline Build/Delete icon buttons.
-class _RuntimeImageCard extends StatelessWidget {
-  const _RuntimeImageCard({
-    required this.status,
-    required this.inProgress,
-    required this.controller,
-  });
-
-  final AsyncValue<dynamic> status;
-  final bool inProgress;
-  final EngineController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final dockerStatus = status.valueOrNull;
-    final isRunning = dockerStatus?.isRunning ?? false;
-    final hasImage = dockerStatus?.hasRuntimeImage ?? false;
-    final disabled = inProgress || !isRunning;
-
-    return _MetricCard(
-      icon: Icon(
-        hasImage ? LucideIcons.circle_check : LucideIcons.circle_x,
-        size: 16,
-        color: hasImage ? AppColors.success : AppColors.mutedForeground,
-      ),
-      value: Text(
-        hasImage ? 'Built' : 'Not Built',
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-          color: hasImage ? AppColors.success : AppColors.mutedForeground,
-        ),
-      ),
-      label: 'Runtime Image',
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          DspatchTooltip(
-            message: hasImage ? 'Rebuild image' : 'Build image',
-            child: DspatchIconButton(
-              icon: LucideIcons.refresh_cw,
-              variant: IconButtonVariant.outline,
-              size: IconButtonSize.sm,
-              onPressed: disabled
-                  ? null
-                  : () => hasImage
-                      ? controller.rebuildRuntimeImage(context)
-                      : controller.buildRuntimeImage(),
-            ),
-          ),
-          if (hasImage)
-            DspatchTooltip(
-              message: 'Delete image',
-              child: DspatchIconButton(
-                icon: LucideIcons.trash_2,
-                variant: IconButtonVariant.outline,
-                size: IconButtonSize.sm,
-                onPressed: disabled
-                    ? null
-                    : () => controller.deleteRuntimeImageCascade(context),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Container count label: "X running / Y stopped".
-class _ContainerCountLabel extends StatelessWidget {
-  const _ContainerCountLabel({
-    required this.running,
-    required this.stopped,
-  });
-
-  final int running;
-  final int stopped;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text.rich(
-      TextSpan(
-        children: [
-          TextSpan(
-            text: '$running running',
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          if (stopped > 0)
-            TextSpan(
-              text: ' / $stopped stopped',
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.normal,
-                color: AppColors.mutedForeground,
-              ),
-            ),
         ],
       ),
     );
