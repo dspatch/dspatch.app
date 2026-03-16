@@ -180,7 +180,13 @@ class _WorkspaceCreateScreenState
     if (tab == 'yaml') {
       // Visual → YAML: serialize current config.
       if (_parsedConfig != null) {
-        _configYaml = await _configToYaml(_parsedConfig!);
+        try {
+          _configYaml = await _configToYaml(_parsedConfig!);
+        } catch (e) {
+          // Serialization failed — switch to YAML tab anyway so the user
+          // can fix the config manually.
+          toast('Could not serialize config: $e', type: ToastType.warning);
+        }
       }
       _jsonEditorRevision++;
     } else {
