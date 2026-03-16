@@ -4,6 +4,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../di/providers.dart';
 import '../../engine_client/engine_client.dart';
+import '../../models/commands/commands.dart';
 
 part 'agent_provider_controller.g.dart';
 
@@ -17,7 +18,7 @@ class AgentProviderController extends _$AgentProviderController {
   Future<bool> createAgentProvider(Map<String, dynamic> request) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-        () => _client.sendCommand('create_agent_provider', request));
+        () => _client.send(CreateAgentProvider(request: request)));
     if (state.hasError) {
       final message = state.error is EngineException
           ? (state.error as EngineException).message
@@ -33,10 +34,7 @@ class AgentProviderController extends _$AgentProviderController {
       String id, Map<String, dynamic> request) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-        () => _client.sendCommand('update_agent_provider', {
-              'id': id,
-              ...request,
-            }));
+        () => _client.send(UpdateAgentProvider(id: id, request: request)));
     if (state.hasError) {
       final message = state.error is EngineException
           ? (state.error as EngineException).message
@@ -51,7 +49,7 @@ class AgentProviderController extends _$AgentProviderController {
   Future<bool> deleteAgentProvider(String id) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-        () => _client.sendCommand('delete_agent_provider', {'id': id}));
+        () => _client.send(DeleteAgentProvider(id: id)));
     if (state.hasError) {
       final message = state.error is EngineException
           ? (state.error as EngineException).message
@@ -66,11 +64,7 @@ class AgentProviderController extends _$AgentProviderController {
   Future<bool> updateAgentTemplate(String id, String name, String sourceUri) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-        () => _client.sendCommand('update_agent_template', {
-              'id': id,
-              'name': name,
-              'source_uri': sourceUri,
-            }));
+        () => _client.send(UpdateAgentTemplate(id: id, name: name, sourceUri: sourceUri)));
     if (state.hasError) {
       final message = state.error is EngineException
           ? (state.error as EngineException).message
@@ -85,7 +79,7 @@ class AgentProviderController extends _$AgentProviderController {
   Future<bool> deleteAgentTemplate(String id) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-        () => _client.sendCommand('delete_agent_template', {'id': id}));
+        () => _client.send(DeleteAgentTemplate(id: id)));
     if (state.hasError) {
       final message = state.error is EngineException
           ? (state.error as EngineException).message

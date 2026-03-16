@@ -4,6 +4,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../di/providers.dart';
 import '../../../engine_client/engine_client.dart';
+import '../../../models/commands/commands.dart';
 
 part 'api_key_controller.g.dart';
 
@@ -22,16 +23,9 @@ class ApiKeyController extends _$ApiKeyController {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       // Encrypt the key via the engine.
-      final encrypted = await _client.sendCommand('encrypt_string', {
-        'plaintext': plaintext,
-        'key_id': 'api_key',
-      });
-      final encryptedValue = encrypted['value'] as String? ?? plaintext;
-      await _client.sendCommand('create_api_key', {
-        'name': name,
-        'value': encryptedValue,
-        'provider_name': providerLabel,
-      });
+      final encrypted = await _client.send(EncryptString(plaintext: plaintext));
+      final encryptedValue = encrypted.ciphertext;
+      await _client.send(CreateApiKey(name: name, value: encryptedValue, providerName: providerLabel));
     });
     if (state.hasError) {
       toast('Failed to save API key', type: ToastType.error);
@@ -44,7 +38,7 @@ class ApiKeyController extends _$ApiKeyController {
   Future<bool> deleteApiKey(String id) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      await _client.sendCommand('delete_api_key', {'id': id});
+      await _client.send(DeleteApiKey(id: id));
     });
     if (state.hasError) {
       toast('Failed to delete API key', type: ToastType.error);
@@ -67,8 +61,8 @@ class ApiKeyController extends _$ApiKeyController {
 
   Future<String?> decryptApiKey(String encryptedValue) async {
     try {
-      final result = await _client.sendCommand('decrypt_string', {'value': encryptedValue});
-      return result['value'] as String?;
+      final result = await _client.send(DecryptString(ciphertext: encryptedValue));
+      return result.plaintext;
     } catch (e) {
       toast('Failed to decrypt API key', type: ToastType.error);
       return null;

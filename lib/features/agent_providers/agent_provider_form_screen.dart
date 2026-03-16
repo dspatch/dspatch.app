@@ -12,6 +12,7 @@ import '../../core/extensions/string_ext.dart';
 import '../../core/utils/agent_source_scanner.dart';
 import '../../core/utils/debouncer.dart';
 import '../../di/providers.dart';
+import '../../models/commands/commands.dart';
 import '../../models/hub_types.dart';
 import '../hub/hub_agent_browser.dart';
 import 'agent_provider_controller.dart';
@@ -541,11 +542,11 @@ class _AgentProviderFormScreenState
       // New template: create first to get filePath, then write YAML.
       try {
         final client = ref.read(engineClientProvider);
-        final result = await client.sendCommand('create_agent_template', {
+        final result = await client.send(CreateAgentTemplate(request: {
           'name': name,
           'source_uri': _sourceUri!,
-        });
-        await _writeTemplateYaml(result['file_path'] as String? ?? '');
+        }));
+        await _writeTemplateYaml(result.raw['file_path'] as String? ?? '');
         toast('Template created', type: ToastType.success);
         if (mounted) context.go('/agent-providers');
       } catch (e) {
@@ -707,26 +708,26 @@ class _AgentProviderFormScreenState
                 try {
                   final client = ref.read(engineClientProvider);
                   final author = result.author ?? 'unknown';
-                  final resolved = await client.sendCommand(
-                      'hub_resolve_agent', {'slug': '$author/${result.slug}'});
-                  await client.sendCommand('create_agent_provider', {
+                  final resolvedResp = await client.send(
+                      HubResolveAgent(agentId: '$author/${result.slug}'));
+                  await client.send(CreateAgentProvider(request: {
                     'name': result.name,
-                    'source_type': 'hub',
-                    'hub_slug': result.slug,
-                    'hub_author': result.author,
-                    'hub_category': result.category,
-                    'hub_tags': result.tags.map((t) => t.displayName).toList(),
-                    'hub_version': resolved['version'],
-                    'hub_repo_url': resolved['repo_url'],
-                    'hub_commit_hash': resolved['commit_hash'],
-                    'entry_point': resolved['entry_point'] ?? '',
-                    'git_url': resolved['repo_url'],
-                    'git_branch': resolved['branch'],
+                    'sourceType': 'hub',
+                    'hubSlug': result.slug,
+                    'hubAuthor': result.author,
+                    'hubCategory': result.category,
+                    'hubTags': result.tags.map((t) => t.displayName).toList(),
+                    'hubVersion': resolvedResp.raw['version'],
+                    'hubRepoUrl': resolvedResp.raw['repo_url'],
+                    'hubCommitHash': resolvedResp.raw['commit_hash'],
+                    'entryPoint': resolvedResp.raw['entry_point'] ?? '',
+                    'gitUrl': resolvedResp.raw['repo_url'],
+                    'gitBranch': resolvedResp.raw['branch'],
                     'description': result.description,
-                    'required_env': const [],
-                    'required_mounts': const [],
+                    'requiredEnv': const [],
+                    'requiredMounts': const [],
                     'fields': const {},
-                  });
+                  }));
                   if (mounted) {
                     setState(() {
                       _sourceUri = 'dspatch://agent/${result.author}/${result.slug}';

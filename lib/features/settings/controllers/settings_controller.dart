@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../di/providers.dart';
+import '../../../models/commands/commands.dart';
 
 part 'settings_controller.g.dart';
 
@@ -13,10 +14,7 @@ class SettingsController extends _$SettingsController {
 
   Future<void> updateThemeMode(ThemeMode mode) async {
     final client = ref.read(engineClientProvider);
-    await client.sendCommand('set_preference', {
-      'key': 'theme_mode',
-      'value': mode.name,
-    });
+    await client.send(SetPreference(key: 'theme_mode', value: mode.name));
     ref.read(themeModeProvider.notifier).state = mode;
   }
 }

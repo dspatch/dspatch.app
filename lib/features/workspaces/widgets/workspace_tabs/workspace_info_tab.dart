@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../database/engine_database.dart';
 import '../../../../di/providers.dart';
+import '../../../../models/commands/commands.dart';
+import '../../../../models/docker_types.dart';
 import '../workspace_run_history_dialog.dart';
 
 /// Workspace metadata, runtime info, agent summary, and Docker container stats.
@@ -128,10 +130,10 @@ class WorkspaceInfoTab extends ConsumerWidget {
               ),
             )
           else
-            FutureBuilder<Map<String, dynamic>>(
-              future: ref.read(engineClientProvider).sendCommand('container_stats', {
-                    'container_id': containerId,
-                  }),
+            FutureBuilder<ContainerStats>(
+              future: ref.read(engineClientProvider).send(GetContainerStats(
+                    runId: containerId,
+                  )),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Padding(
@@ -152,14 +154,16 @@ class WorkspaceInfoTab extends ConsumerWidget {
                   );
                 }
                 final stats = snapshot.data!;
+                final memUsageMB = (stats.memoryUsage / 1024 / 1024).toStringAsFixed(1);
+                final memLimitMB = (stats.memoryLimit / 1024 / 1024).toStringAsFixed(1);
+                final netRxKB = (stats.networkRx / 1024).toStringAsFixed(1);
+                final netTxKB = (stats.networkTx / 1024).toStringAsFixed(1);
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _KV('CPU', stats['cpu_perc'] as String? ?? '\u2014'),
-                    _KV('Memory', stats['mem_usage'] as String? ?? '\u2014'),
-                    _KV('Network I/O', stats['net_io'] as String? ?? '\u2014'),
-                    _KV('Block I/O', stats['block_io'] as String? ?? '\u2014'),
-                    _KV('PIDs', stats['pids'] as String? ?? '\u2014'),
+                    _KV('CPU', '${stats.cpuPercent.toStringAsFixed(1)}%'),
+                    _KV('Memory', '${memUsageMB}MB / ${memLimitMB}MB'),
+                    _KV('Network I/O', '${netRxKB}KB / ${netTxKB}KB'),
                   ],
                 );
               },

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../di/providers.dart';
+import '../../../../models/commands/commands.dart';
+import '../../../../models/engine_responses.dart';
 
 /// Dev-only terminal view showing raw WebSocket frames with roundtrip checks.
 class WorkspacePackagesTab extends ConsumerWidget {
@@ -13,8 +15,8 @@ class WorkspacePackagesTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: ref.read(engineClientProvider).sendCommand('package_inspector_entries', {'run_id': runId}),
+    return FutureBuilder<PackageInspectorResponse>(
+      future: ref.read(engineClientProvider).send(PackageInspectorEntries(runId: runId)),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: Spinner());
@@ -30,7 +32,7 @@ class WorkspacePackagesTab extends ConsumerWidget {
             ),
           );
         }
-        final result = snapshot.data!;
+        final result = snapshot.data!.raw;
         final entries =
             (result['entries'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
         if (entries.isEmpty) {

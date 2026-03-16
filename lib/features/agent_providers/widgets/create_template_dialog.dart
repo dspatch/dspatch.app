@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../database/engine_database.dart' show AgentProvider;
 import '../../../di/providers.dart';
+import '../../../models/commands/commands.dart';
 
 class CreateTemplateDialog extends ConsumerStatefulWidget {
   const CreateTemplateDialog({super.key});
@@ -143,13 +144,13 @@ class _CreateTemplateDialogState extends ConsumerState<CreateTemplateDialog> {
 
       final sourceUri = 'dspatch://agent/$author/$slug';
       final client = ref.read(engineClientProvider);
-      final result = await client.sendCommand('create_agent_template', {
+      final result = await client.send(CreateAgentTemplate(request: {
         'name': _nameController.text.trim(),
         'source_uri': sourceUri,
-      });
+      }));
       if (mounted) {
         Navigator.of(context).pop();
-        toast('Template created', description: result['file_path'] as String? ?? '');
+        toast('Template created', description: result.raw['file_path'] as String? ?? '');
       }
     } catch (e) {
       toast('Failed to create template: $e', type: ToastType.error);

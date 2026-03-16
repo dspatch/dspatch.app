@@ -63,9 +63,8 @@ class EngineClient {
   /// Throws [EngineException] if the engine returns an error response.
   /// Throws [StateError] if not connected.
   ///
-  // TODO: Migrate remaining callers (workspace_controller, setup_screen)
-  // to typed send() then make this private.
-  Future<Map<String, dynamic>> sendCommand(
+  /// Private — external callers must use [send] with typed commands.
+  Future<Map<String, dynamic>> _sendCommand(
     String method, [
     Map<String, dynamic> params = const {},
   ]) async {
@@ -91,10 +90,10 @@ class EngineClient {
 
   /// Sends a typed command and returns a typed response.
   ///
-  /// Prefer this over [sendCommand] for type safety. Once all callers
-  /// are migrated, [sendCommand] can become private.
+  /// All external callers must use this method with typed [EngineCommand]
+  /// subclasses instead of calling `_sendCommand` directly.
   Future<R> send<R extends EngineResponse>(EngineCommand<R> command) async {
-    final result = await sendCommand(command.method, command.params ?? const {});
+    final result = await _sendCommand(command.method, command.params ?? const {});
     return command.parseResponse(result);
   }
 
@@ -105,7 +104,7 @@ class EngineClient {
     required String projectPath,
     required String configYaml,
   }) {
-    return sendCommand('create_workspace', {
+    return _sendCommand('create_workspace', {
       'project_path': projectPath,
       'config_yaml': configYaml,
     });
@@ -113,17 +112,17 @@ class EngineClient {
 
   /// Launches a workspace container.
   Future<Map<String, dynamic>> launchWorkspace(String workspaceId) {
-    return sendCommand('launch_workspace', {'id': workspaceId});
+    return _sendCommand('launch_workspace', {'id': workspaceId});
   }
 
   /// Stops a running workspace container.
   Future<Map<String, dynamic>> stopWorkspace(String workspaceId) {
-    return sendCommand('stop_workspace', {'id': workspaceId});
+    return _sendCommand('stop_workspace', {'id': workspaceId});
   }
 
   /// Deletes a workspace by ID.
   Future<Map<String, dynamic>> deleteWorkspace(String workspaceId) {
-    return sendCommand('delete_workspace', {'id': workspaceId});
+    return _sendCommand('delete_workspace', {'id': workspaceId});
   }
 
   // ── Agent Interaction Commands ────────────────────────────────────────
@@ -134,7 +133,7 @@ class EngineClient {
     required String instanceId,
     required String text,
   }) {
-    return sendCommand('send_user_input_to_agent', {
+    return _sendCommand('send_user_input_to_agent', {
       'run_id': runId,
       'instance_id': instanceId,
       'text': text,
@@ -147,7 +146,7 @@ class EngineClient {
     required String response,
     int? choiceIndex,
   }) {
-    return sendCommand('respond_to_inquiry', {
+    return _sendCommand('respond_to_inquiry', {
       'inquiry_id': inquiryId,
       'response': response,
       'choice_index': ?choiceIndex,
@@ -162,7 +161,7 @@ class EngineClient {
     required String value,
     String? providerName,
   }) {
-    return sendCommand('create_api_key', {
+    return _sendCommand('create_api_key', {
       'name': name,
       'value': value,
       'provider_name': ?providerName,
@@ -171,19 +170,19 @@ class EngineClient {
 
   /// Deletes an API key by ID.
   Future<Map<String, dynamic>> deleteApiKey(String id) {
-    return sendCommand('delete_api_key', {'id': id});
+    return _sendCommand('delete_api_key', {'id': id});
   }
 
   // ── Preference Commands ───────────────────────────────────────────────
 
   /// Gets a preference value by key.
   Future<Map<String, dynamic>> getPreference(String key) {
-    return sendCommand('get_preference', {'key': key});
+    return _sendCommand('get_preference', {'key': key});
   }
 
   /// Sets a preference value.
   Future<Map<String, dynamic>> setPreference(String key, String value) {
-    return sendCommand('set_preference', {'key': key, 'value': value});
+    return _sendCommand('set_preference', {'key': key, 'value': value});
   }
 
   // ── Agent Provider Commands ───────────────────────────────────────
@@ -191,21 +190,21 @@ class EngineClient {
   Future<Map<String, dynamic>> createAgentProvider({
     required Map<String, dynamic> request,
   }) {
-    return sendCommand('create_agent_provider', request);
+    return _sendCommand('create_agent_provider', request);
   }
 
   Future<Map<String, dynamic>> updateAgentProvider({
     required String id,
     required Map<String, dynamic> request,
   }) {
-    return sendCommand('update_agent_provider', {
+    return _sendCommand('update_agent_provider', {
       'id': id,
       ...request,
     });
   }
 
   Future<Map<String, dynamic>> deleteAgentProvider(String id) {
-    return sendCommand('delete_agent_provider', {'id': id});
+    return _sendCommand('delete_agent_provider', {'id': id});
   }
 
   // ── Agent Template Commands ───────────────────────────────────────
@@ -213,7 +212,7 @@ class EngineClient {
   Future<Map<String, dynamic>> createAgentTemplate({
     required Map<String, dynamic> request,
   }) {
-    return sendCommand('create_agent_template', request);
+    return _sendCommand('create_agent_template', request);
   }
 
   Future<Map<String, dynamic>> updateAgentTemplate({
@@ -221,7 +220,7 @@ class EngineClient {
     required String name,
     required String sourceUri,
   }) {
-    return sendCommand('update_agent_template', {
+    return _sendCommand('update_agent_template', {
       'id': id,
       'name': name,
       'source_uri': sourceUri,
@@ -229,7 +228,7 @@ class EngineClient {
   }
 
   Future<Map<String, dynamic>> deleteAgentTemplate(String id) {
-    return sendCommand('delete_agent_template', {'id': id});
+    return _sendCommand('delete_agent_template', {'id': id});
   }
 
   // ── Workspace Instance Commands ───────────────────────────────────
@@ -238,7 +237,7 @@ class EngineClient {
     required String runId,
     required String agentKey,
   }) {
-    return sendCommand('start_root_instance', {
+    return _sendCommand('start_root_instance', {
       'run_id': runId,
       'agent_key': agentKey,
     });
@@ -249,7 +248,7 @@ class EngineClient {
     required String parentInstanceId,
     required String agentKey,
   }) {
-    return sendCommand('start_sub_instance', {
+    return _sendCommand('start_sub_instance', {
       'run_id': runId,
       'parent_instance_id': parentInstanceId,
       'agent_key': agentKey,
@@ -260,7 +259,7 @@ class EngineClient {
     required String runId,
     required String instanceId,
   }) {
-    return sendCommand('stop_instance', {
+    return _sendCommand('stop_instance', {
       'run_id': runId,
       'instance_id': instanceId,
     });
@@ -270,7 +269,7 @@ class EngineClient {
     required String runId,
     required String instanceId,
   }) {
-    return sendCommand('interrupt_instance', {
+    return _sendCommand('interrupt_instance', {
       'run_id': runId,
       'instance_id': instanceId,
     });
@@ -279,19 +278,19 @@ class EngineClient {
   Future<Map<String, dynamic>> cleanupStaleInstances({
     required String runId,
   }) {
-    return sendCommand('cleanup_stale_instances', {'run_id': runId});
+    return _sendCommand('cleanup_stale_instances', {'run_id': runId});
   }
 
   // ── Workspace Run Commands ────────────────────────────────────────
 
   Future<Map<String, dynamic>> deleteWorkspaceRun(String id) {
-    return sendCommand('delete_workspace_run', {'id': id});
+    return _sendCommand('delete_workspace_run', {'id': id});
   }
 
   Future<Map<String, dynamic>> deleteNonActiveRuns({
     required String workspaceId,
   }) {
-    return sendCommand('delete_non_active_runs', {
+    return _sendCommand('delete_non_active_runs', {
       'workspace_id': workspaceId,
     });
   }
@@ -299,11 +298,11 @@ class EngineClient {
   // ── Docker / Engine Commands ──────────────────────────────────────
 
   Future<Map<String, dynamic>> detectDockerStatus() {
-    return sendCommand('detect_docker_status');
+    return _sendCommand('detect_docker_status');
   }
 
   Stream<String> buildRuntimeImage() async* {
-    final result = await sendCommand('build_runtime_image');
+    final result = await _sendCommand('build_runtime_image');
     final lines = (result['lines'] as List<dynamic>?)?.cast<String>() ?? [];
     for (final line in lines) {
       yield line;
@@ -311,38 +310,38 @@ class EngineClient {
   }
 
   Future<Map<String, dynamic>> deleteRuntimeImage() {
-    return sendCommand('delete_runtime_image');
+    return _sendCommand('delete_runtime_image');
   }
 
   Future<List<Map<String, dynamic>>> listContainers() async {
-    final result = await sendCommand('list_containers');
+    final result = await _sendCommand('list_containers');
     return (result['containers'] as List<dynamic>?)
             ?.cast<Map<String, dynamic>>() ??
         [];
   }
 
   Future<Map<String, dynamic>> stopContainer({required String id}) {
-    return sendCommand('stop_container', {'id': id});
+    return _sendCommand('stop_container', {'id': id});
   }
 
   Future<Map<String, dynamic>> removeContainer({required String id}) {
-    return sendCommand('remove_container', {'id': id});
+    return _sendCommand('remove_container', {'id': id});
   }
 
   Future<Map<String, dynamic>> stopAllContainers() {
-    return sendCommand('stop_all_containers');
+    return _sendCommand('stop_all_containers');
   }
 
   Future<Map<String, dynamic>> deleteStoppedContainers() {
-    return sendCommand('delete_stopped_containers');
+    return _sendCommand('delete_stopped_containers');
   }
 
   Future<Map<String, dynamic>> cleanOrphanedContainers() {
-    return sendCommand('clean_orphaned_containers');
+    return _sendCommand('clean_orphaned_containers');
   }
 
   Future<Map<String, dynamic>> containerStats({required String containerId}) {
-    return sendCommand('container_stats', {'container_id': containerId});
+    return _sendCommand('container_stats', {'container_id': containerId});
   }
 
   // ── Config / Utility Commands ─────────────────────────────────────
@@ -350,45 +349,45 @@ class EngineClient {
   Future<Map<String, dynamic>> parseWorkspaceConfig({
     required String yaml,
   }) {
-    return sendCommand('parse_workspace_config', {'yaml': yaml});
+    return _sendCommand('parse_workspace_config', {'yaml': yaml});
   }
 
   Future<Map<String, dynamic>> encodeWorkspaceYaml({
     required Map<String, dynamic> config,
   }) {
-    return sendCommand('encode_workspace_yaml', {'config': config});
+    return _sendCommand('encode_workspace_yaml', {'config': config});
   }
 
   Future<Map<String, dynamic>> validateWorkspaceConfig({
     required Map<String, dynamic> config,
   }) {
-    return sendCommand('validate_workspace_config', {'config': config});
+    return _sendCommand('validate_workspace_config', {'config': config});
   }
 
   Future<Map<String, dynamic>> resolveWorkspaceTemplates({
     required Map<String, dynamic> config,
   }) {
-    return sendCommand('resolve_workspace_templates', {'config': config});
+    return _sendCommand('resolve_workspace_templates', {'config': config});
   }
 
   Future<Map<String, dynamic>> encryptString({
     required String plaintext,
     required String keyId,
   }) {
-    return sendCommand('encrypt_string', {
+    return _sendCommand('encrypt_string', {
       'plaintext': plaintext,
       'key_id': keyId,
     });
   }
 
   Future<Map<String, dynamic>> decryptString({required String value}) {
-    return sendCommand('decrypt_string', {'value': value});
+    return _sendCommand('decrypt_string', {'value': value});
   }
 
   Future<Map<String, dynamic>> packageInspectorEntries({
     required String runId,
   }) {
-    return sendCommand('package_inspector_entries', {'run_id': runId});
+    return _sendCommand('package_inspector_entries', {'run_id': runId});
   }
 
   // ── Hub Commands ──────────────────────────────────────────────────
@@ -399,7 +398,7 @@ class EngineClient {
     String? cursor,
     int? perPage,
   }) {
-    return sendCommand('hub_browse_agents', {
+    return _sendCommand('hub_browse_agents', {
       'search': ?search,
       'category': ?category,
       'cursor': ?cursor,
@@ -413,7 +412,7 @@ class EngineClient {
     String? cursor,
     int? perPage,
   }) {
-    return sendCommand('hub_browse_workspaces', {
+    return _sendCommand('hub_browse_workspaces', {
       'search': ?search,
       'category': ?category,
       'cursor': ?cursor,
@@ -422,71 +421,71 @@ class EngineClient {
   }
 
   Future<Map<String, dynamic>> hubAgentCategories() {
-    return sendCommand('hub_agent_categories');
+    return _sendCommand('hub_agent_categories');
   }
 
   Future<Map<String, dynamic>> hubWorkspaceCategories() {
-    return sendCommand('hub_workspace_categories');
+    return _sendCommand('hub_workspace_categories');
   }
 
   Future<Map<String, dynamic>> hubResolveAgent({required String slug}) {
-    return sendCommand('hub_resolve_agent', {'slug': slug});
+    return _sendCommand('hub_resolve_agent', {'slug': slug});
   }
 
   Future<Map<String, dynamic>> hubResolveWorkspaceDetails({
     required String slug,
   }) {
-    return sendCommand('hub_resolve_workspace_details', {'slug': slug});
+    return _sendCommand('hub_resolve_workspace_details', {'slug': slug});
   }
 
   Future<Map<String, dynamic>> hubSubmitAgent({
     required Map<String, dynamic> request,
   }) {
-    return sendCommand('hub_submit_agent', request);
+    return _sendCommand('hub_submit_agent', request);
   }
 
   Future<Map<String, dynamic>> hubSubmitTemplate({
     required Map<String, dynamic> request,
   }) {
-    return sendCommand('hub_submit_template', request);
+    return _sendCommand('hub_submit_template', request);
   }
 
   Future<Map<String, dynamic>> hubSubmitWorkspace({
     required Map<String, dynamic> request,
   }) {
-    return sendCommand('hub_submit_workspace', request);
+    return _sendCommand('hub_submit_workspace', request);
   }
 
   Future<Map<String, dynamic>> hubVoteAgent({
     required String slug,
     required bool like,
   }) {
-    return sendCommand('hub_vote_agent', {'slug': slug, 'like': like});
+    return _sendCommand('hub_vote_agent', {'slug': slug, 'like': like});
   }
 
   Future<Map<String, dynamic>> hubVoteWorkspace({
     required String slug,
     required bool like,
   }) {
-    return sendCommand('hub_vote_workspace', {'slug': slug, 'like': like});
+    return _sendCommand('hub_vote_workspace', {'slug': slug, 'like': like});
   }
 
   Future<Map<String, dynamic>> hubMyVotes({required String targetType}) {
-    return sendCommand('hub_my_votes', {'target_type': targetType});
+    return _sendCommand('hub_my_votes', {'target_type': targetType});
   }
 
   Future<Map<String, dynamic>> hubSearchTags({
     required String query,
     String? tagType,
   }) {
-    return sendCommand('hub_search_tags', {
+    return _sendCommand('hub_search_tags', {
       'query': query,
       'tag_type': ?tagType,
     });
   }
 
   Future<Map<String, dynamic>> hubPopularTags({String? tagType}) {
-    return sendCommand('hub_popular_tags', {'tag_type': ?tagType});
+    return _sendCommand('hub_popular_tags', {'tag_type': ?tagType});
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────

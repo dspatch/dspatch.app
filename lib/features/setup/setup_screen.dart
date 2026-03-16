@@ -10,7 +10,7 @@ import '../../di/providers.dart';
 import '../../engine_client/engine_auth.dart';
 import '../../engine_client/models/auth_token.dart';
 import '../../engine_client/models/db_state.dart';
-import '../../models/commands/database.dart';
+import '../../models/commands/commands.dart';
 import '../auth/auth_controller.dart';
 
 /// Gateway screen shown after authentication.
@@ -78,8 +78,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       debugPrint('[SETUP] Step 4: Loading theme preference...');
 
       try {
-        final pref = await client.sendCommand('get_preference', {'key': 'theme_mode'});
-        final value = pref['value'] as String?;
+        final pref = await client.send(GetPreference(key: 'theme_mode'));
+        final value = pref.value;
         debugPrint('[SETUP] Theme preference: $value');
         if (!mounted) return;
         if (value != null) {

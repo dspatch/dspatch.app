@@ -235,7 +235,7 @@ class EngineConnection {
   /// Registers a pending command with the given [id] and returns a future
   /// that completes when the engine sends the response.
   ///
-  /// Exposed for testing. In production, use [EngineClient.sendCommand].
+  /// Exposed for testing. In production, use [EngineClient.send].
   Future<ServerFrame> registerPendingCommand(String id) {
     final completer = Completer<ServerFrame>();
     _pendingCommands[id] = completer;

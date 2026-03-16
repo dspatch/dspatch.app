@@ -6,8 +6,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../di/providers.dart';
 import '../../engine_client/engine_client.dart';
-import '../../models/commands/agent.dart';
-import '../../models/commands/workspace.dart';
+import '../../models/commands/commands.dart';
 
 part 'workspace_controller.g.dart';
 
@@ -144,10 +143,7 @@ class WorkspaceController extends _$WorkspaceController {
     String instanceId,
   ) async {
     try {
-      await _client.sendCommand('interrupt_instance', {
-        'run_id': runId,
-        'instance_id': instanceId,
-      });
+      await _client.send(InterruptInstance(runId: runId, agentKey: '', instanceId: instanceId));
       return true;
     } catch (e) {
       toast('Failed to interrupt agent: $e', type: ToastType.error);

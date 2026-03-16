@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../database/engine_database.dart';
 import '../../../di/providers.dart';
+import '../../../models/commands/commands.dart';
 import 'workspace_run_viewer_dialog.dart';
 
 /// Dialog showing the list of past runs for a workspace.
@@ -55,9 +56,9 @@ class WorkspaceRunHistoryDialog extends ConsumerWidget {
                   icon: LucideIcons.trash_2,
                   onPressed: () async {
                     try {
-                      await ref.read(engineClientProvider).sendCommand('delete_non_active_runs', {
-                            'workspace_id': workspaceId,
-                          });
+                      await ref.read(engineClientProvider).send(DeleteNonActiveRuns(
+                            workspaceId: workspaceId,
+                          ));
                     } catch (e) {
                       if (context.mounted) {
                         toast('Failed to clear history: $e',
@@ -220,9 +221,9 @@ class _RunRow extends ConsumerWidget {
               size: ButtonSize.sm,
               onPressed: () async {
                 try {
-                  await ref.read(engineClientProvider).sendCommand('delete_workspace_run', {
-                        'id': run.id,
-                      });
+                  await ref.read(engineClientProvider).send(DeleteWorkspaceRun(
+                        runId: run.id,
+                      ));
                 } catch (e) {
                   if (context.mounted) {
                     toast('Failed to delete run: $e',

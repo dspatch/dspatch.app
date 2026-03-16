@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/utils/debouncer.dart';
 import '../../di/providers.dart';
+import '../../models/commands/commands.dart';
 import 'workspace_controller.dart';
 import 'widgets/hierarchy_preview.dart';
 import 'widgets/json_editor.dart';
@@ -82,9 +83,9 @@ class _WorkspaceCreateScreenState
   }
 
   Future<String> _configToYaml(WorkspaceConfig config) async {
-    final result = await ref.read(engineClientProvider).sendCommand(
-        'encode_workspace_yaml', {'config': _configToMap(config)});
-    return result['yaml'] as String? ?? '';
+    final response = await ref.read(engineClientProvider).send(
+        EncodeWorkspaceYaml(config: _configToMap(config)));
+    return response.yaml;
   }
 
   // ── FRB ↔ Map bridging helpers ──
@@ -185,9 +186,9 @@ class _WorkspaceCreateScreenState
     } else {
       // YAML → Visual: parse current YAML.
       try {
-        final result = await client.sendCommand(
-            'parse_workspace_config', {'yaml': _configYaml});
-        _parsedConfig = _configFromMap(result);
+        final result = await client.send(
+            RawEngineCommand(method: 'parse_workspace_config', params: {'yaml': _configYaml}));
+        _parsedConfig = _configFromMap(result.data);
         _parseError = null;
       } on FormatException catch (e) {
         toast('Cannot switch to Visual: ${e.message}',
@@ -231,9 +232,9 @@ class _WorkspaceCreateScreenState
 
     // 1. Parse YAML
     try {
-      final result = await client.sendCommand(
-          'parse_workspace_config', {'yaml': yaml});
-      config = _configFromMap(result);
+      final result = await client.send(
+          RawEngineCommand(method: 'parse_workspace_config', params: {'yaml': yaml}));
+      config = _configFromMap(result.data);
     } on FormatException catch (e) {
       parseError = e.message;
       errors.add(JsonEditorError(
@@ -251,10 +252,10 @@ class _WorkspaceCreateScreenState
     // 2. Validate config structure
     if (config != null) {
       try {
-        final validationResult = await client.sendCommand(
-            'validate_workspace_config', {'config': _configToMap(config)});
+        final validationResult = await client.send(
+            RawEngineCommand(method: 'validate_workspace_config', params: {'config': _configToMap(config)}));
         final validationErrors =
-            (validationResult['errors'] as List<dynamic>?) ?? [];
+            (validationResult.data['errors'] as List<dynamic>?) ?? [];
         for (final ve in validationErrors) {
           final veMap = ve as Map<String, dynamic>;
           errors.add(JsonEditorError(
@@ -270,18 +271,18 @@ class _WorkspaceCreateScreenState
     // 3. Resolve templates (checks template existence, env, mounts, API keys)
     if (config != null) {
       try {
-        final resolution = await client.sendCommand(
-            'resolve_workspace_templates', {'config': _configToMap(config)});
+        final resolution = await client.send(
+            RawEngineCommand(method: 'resolve_workspace_templates', params: {'config': _configToMap(config)}));
         final unresolvedTemplates =
-            (resolution['unresolved_templates'] as List<dynamic>?) ?? [];
+            (resolution.data['unresolved_templates'] as List<dynamic>?) ?? [];
         final missingApiKeys =
-            (resolution['missing_api_keys'] as List<dynamic>?) ?? [];
+            (resolution.data['missing_api_keys'] as List<dynamic>?) ?? [];
         final missingRequiredEnv =
-            (resolution['missing_required_env'] as List<dynamic>?) ?? [];
+            (resolution.data['missing_required_env'] as List<dynamic>?) ?? [];
         final emptyRequiredEnv =
-            (resolution['empty_required_env'] as List<dynamic>?) ?? [];
+            (resolution.data['empty_required_env'] as List<dynamic>?) ?? [];
         final missingRequiredMounts =
-            (resolution['missing_required_mounts'] as List<dynamic>?) ?? [];
+            (resolution.data['missing_required_mounts'] as List<dynamic>?) ?? [];
 
         for (final t in unresolvedTemplates) {
           final tMap = t as Map<String, dynamic>;

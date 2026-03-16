@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../di/providers.dart';
+import '../../models/commands/commands.dart';
 
 /// Notification preference key constants.
 class _NotifKeys {
@@ -58,8 +59,8 @@ final notificationPreferencesProvider =
   final result = <String, bool>{};
   for (final key in keys) {
     try {
-      final pref = await client.sendCommand('get_preference', {'key': key});
-      final value = pref['value'] as String?;
+      final pref = await client.send(GetPreference(key: key));
+      final value = pref.value;
       result[key] = value != null ? value == 'true' : true;
     } catch (_) {
       result[key] = true;
@@ -129,10 +130,10 @@ class NotificationsScreen extends ConsumerWidget {
                     onChanged: (value) {
                       ref
                           .read(engineClientProvider)
-                          .sendCommand('set_preference', {
-                        'key': event.key,
-                        'value': value.toString(),
-                      });
+                          .send(SetPreference(
+                        key: event.key,
+                        value: value.toString(),
+                      ));
                       // Refresh preferences to reflect the change.
                       ref.invalidate(notificationPreferencesProvider);
                     },

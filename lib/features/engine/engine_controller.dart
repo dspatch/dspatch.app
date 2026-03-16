@@ -7,7 +7,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../di/providers.dart';
 import '../../engine_client/engine_client.dart';
-import '../../models/commands/docker.dart';
+import '../../models/commands/commands.dart';
 import '../../models/docker_types.dart';
 import '../../shared/widgets/confirm_delete_dialog.dart';
 
@@ -36,16 +36,14 @@ class EngineController extends _$EngineController {
   ///
   // TODO: Rearchitect — build output should be written to a DB table and
   // read via Drift watch queries, not returned as a single WS response.
-  // Until then, this uses sendCommand directly instead of typed send().
   Future<void> buildRuntimeImage() async {
     state = const AsyncLoading();
     _setInProgress(true);
     _appendLog('─── Build started ───');
 
     try {
-      final result = await _client.sendCommand('build_runtime_image');
-      final lines = (result['lines'] as List<dynamic>?)?.cast<String>() ?? [];
-      for (final line in lines) {
+      final response = await _client.send(BuildRuntimeImage());
+      for (final line in response.lines) {
         _appendLog(line);
       }
       ref.invalidate(dockerStatusProvider);

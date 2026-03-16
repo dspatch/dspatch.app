@@ -187,9 +187,9 @@ final workspaceConfigProvider = FutureProvider.autoDispose
   try {
     final file = await _readFileAsString('$projectPath/dspatch.workspace.yml');
     if (file == null) return null;
-    final result = await ref.read(engineClientProvider)
-        .sendCommand('parse_workspace_config', {'yaml': file});
-    return result;
+    final response = await ref.read(engineClientProvider)
+        .send(RawEngineCommand(method: 'parse_workspace_config', params: {'yaml': file}));
+    return response.data;
   } catch (_) {
     return null;
   }
