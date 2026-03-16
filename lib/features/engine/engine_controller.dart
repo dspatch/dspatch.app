@@ -37,21 +37,44 @@ class EngineController extends _$EngineController {
 
   /// Builds the runtime image, streaming output to the operation console.
   ///
-  // TODO: Rearchitect — build output should be written to a DB table and
-  // read via Drift watch queries, not returned as a single WS response.
+  /// The engine streams build output as ephemeral events (`build_log_line`),
+  /// then emits `build_complete` or `build_failed` when done.
   Future<void> buildRuntimeImage() async {
     state = const AsyncLoading();
     _setInProgress(true);
     _appendLog('─── Build started ───');
 
     try {
-      final response = await _client.send(BuildRuntimeImage());
-      for (final line in response.lines) {
-        _appendLog(line);
+      // Send command — returns immediately, build runs in background.
+      await _client.send(BuildRuntimeImage());
+
+      // Listen for build events streamed from the engine.
+      final completer = Completer<bool>();
+      final subscription = _client.events.listen((event) {
+        if (event.name == 'build_log_line') {
+          final line = event.data['line'] as String?;
+          if (line != null) _appendLog(line);
+        } else if (event.name == 'build_complete') {
+          if (!completer.isCompleted) completer.complete(true);
+        } else if (event.name == 'build_failed') {
+          if (!completer.isCompleted) completer.complete(false);
+        }
+      });
+
+      final success = await completer.future;
+      await subscription.cancel();
+
+      if (success) {
+        _appendLog('─── Build complete ───');
+        ref.invalidate(dockerStatusProvider);
+        toast('Runtime image built successfully', type: ToastType.success);
+        state = const AsyncData(null);
+      } else {
+        final error = 'Build failed';
+        _appendLog('ERROR: $error');
+        toast('Image build failed', type: ToastType.error);
+        state = AsyncError(error, StackTrace.current);
       }
-      ref.invalidate(dockerStatusProvider);
-      toast('Runtime image built successfully', type: ToastType.success);
-      state = const AsyncData(null);
     } catch (e) {
       _appendLog('ERROR: $e');
       toast('Image build failed: $e', type: ToastType.error);

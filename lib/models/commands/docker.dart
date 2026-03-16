@@ -4,7 +4,6 @@
 library;
 
 import '../docker_types.dart';
-import '../engine_responses.dart';
 import 'command.dart';
 
 class DetectDockerStatus extends EngineCommand<DockerStatus> {
@@ -47,19 +46,14 @@ class GetContainerStats extends EngineCommand<ContainerStats> {
       ContainerStats.fromJson(result);
 }
 
-/// Build output needs architectural rework (should go through DB).
-// TODO: Rearchitect — build output should be written to a DB table
-// and read via Drift watch queries, not returned as a single response.
-class BuildRuntimeImage extends EngineCommand<BuildRuntimeImageResponse> {
+/// Starts a runtime image build. Returns immediately — build output is
+/// streamed as ephemeral events (`build_log_line`, `build_complete`).
+class BuildRuntimeImage extends VoidEngineCommand {
   @override
   String get method => 'build_runtime_image';
 
   @override
   Map<String, dynamic>? get params => null;
-
-  @override
-  BuildRuntimeImageResponse parseResponse(Map<String, dynamic> result) =>
-      BuildRuntimeImageResponse.fromJson(result);
 }
 
 class DeleteRuntimeImage extends VoidEngineCommand {

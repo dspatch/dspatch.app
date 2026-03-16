@@ -292,7 +292,7 @@ async fn handle_client_message(
                 }
             };
 
-            let response = match dispatch_command(&command, &services).await {
+            let response = match dispatch_command(&command, &services, runtime.ephemeral()).await {
                 Ok(data) => ServerFrame::Result { id, data },
                 Err(e) => error_to_frame(&id, &e),
             };

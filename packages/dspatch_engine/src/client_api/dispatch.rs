@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use futures::StreamExt;
 
 use crate::client_api::commands::Command;
+use crate::client_api::ephemeral::EphemeralEventEmitter;
 use crate::domain::models::CreateWorkspaceRequest;
 use crate::docker::{DSPATCH_CONTAINER_LABEL, RUNTIME_IMAGE_TAG};
 use crate::engine::service_registry::ServiceRegistry;
@@ -19,6 +20,7 @@ use crate::workspace_config::{parser, validation};
 pub async fn dispatch_command(
     command: &Command,
     services: &ServiceRegistry,
+    ephemeral: &EphemeralEventEmitter,
 ) -> Result<serde_json::Value> {
     match command {
         // ── Workspace Commands ──────────────────────────────────────
@@ -343,8 +345,15 @@ pub async fn dispatch_command(
 
         Command::BuildRuntimeImage => {
             let stream = services.docker_service().build_runtime_image();
-            let lines: Vec<String> = stream.collect().await;
-            Ok(serde_json::json!({ "lines": lines }))
+            let emitter = ephemeral.clone_sender();
+            tokio::spawn(async move {
+                let mut stream = std::pin::pin!(stream);
+                while let Some(line) = stream.next().await {
+                    emitter.emit("build_log_line", serde_json::json!({ "line": line }));
+                }
+                emitter.emit("build_complete", serde_json::json!({}));
+            });
+            Ok(serde_json::json!({ "started": true }))
         }
 
         Command::DeleteRuntimeImage => {
