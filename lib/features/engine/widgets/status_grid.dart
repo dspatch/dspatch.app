@@ -7,6 +7,7 @@ import '../../../core/utils/platform_info.dart';
 import '../../../di/providers.dart';
 import '../../../engine_client/engine_health.dart';
 import '../../../engine_client/models/db_state.dart';
+import '../../../models/docker_types.dart';
 
 /// Compact 4-column status grid at the top of the Engine dashboard.
 ///
@@ -113,7 +114,7 @@ class _EngineCard extends StatelessWidget {
 
 class _DockerCard extends StatelessWidget {
   const _DockerCard({required this.status});
-  final AsyncValue<dynamic> status;
+  final AsyncValue<DockerStatus> status;
 
   @override
   Widget build(BuildContext context) {
@@ -174,7 +175,7 @@ class _DatabaseCard extends StatelessWidget {
       ),
       value: Text(
         isReady
-            ? 'v12 Ready'
+            ? 'Ready'
             : isPending
                 ? 'Migration Pending'
                 : 'Unknown',
