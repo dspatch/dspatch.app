@@ -287,8 +287,7 @@ pub enum Command {
 
     #[serde(rename = "encode_workspace_yaml")]
     EncodeWorkspaceYaml {
-        #[serde(flatten)]
-        params: serde_json::Value,
+        config: serde_json::Value,
     },
 
     #[serde(rename = "resolve_workspace_templates")]

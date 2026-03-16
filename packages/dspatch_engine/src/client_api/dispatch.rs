@@ -548,9 +548,9 @@ pub async fn dispatch_command(
             }))
         }
 
-        Command::EncodeWorkspaceYaml { params } => {
+        Command::EncodeWorkspaceYaml { config } => {
             let config: crate::workspace_config::config::WorkspaceConfig =
-                serde_json::from_value(params.clone()).map_err(|e| {
+                serde_json::from_value(config.clone()).map_err(|e| {
                     AppError::Validation(format!("Invalid workspace config object: {e}"))
                 })?;
             let yaml = parser::encode_yaml(&config)
