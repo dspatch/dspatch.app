@@ -3,6 +3,7 @@
 /// Typed commands for API keys, preferences, agent providers, and templates.
 library;
 
+import '../engine_responses.dart';
 import 'command.dart';
 
 // ── API Keys ───────────────────────────────────────────────────────────────
@@ -52,7 +53,7 @@ class GetApiKeyByName extends VoidEngineCommand {
 
 /// Transitional: per the communication report, preference reads should go
 /// through Drift. This command exists for compatibility and may be removed.
-class GetPreference extends VoidEngineCommand {
+class GetPreference extends EngineCommand<PreferenceResponse> {
   GetPreference({required this.key});
   final String key;
 
@@ -61,6 +62,10 @@ class GetPreference extends VoidEngineCommand {
 
   @override
   Map<String, dynamic> get params => {'key': key};
+
+  @override
+  PreferenceResponse parseResponse(Map<String, dynamic> result) =>
+      PreferenceResponse.fromJson(result);
 }
 
 class SetPreference extends VoidEngineCommand {
@@ -137,7 +142,7 @@ class GetAgentProvider extends VoidEngineCommand {
 
 // ── Agent Templates ────────────────────────────────────────────────────────
 
-class CreateAgentTemplate extends VoidEngineCommand {
+class CreateAgentTemplate extends EngineCommand<CreateTemplateResponse> {
   CreateAgentTemplate({required this.request});
   final Map<String, dynamic> request;
 
@@ -146,6 +151,10 @@ class CreateAgentTemplate extends VoidEngineCommand {
 
   @override
   Map<String, dynamic> get params => request;
+
+  @override
+  CreateTemplateResponse parseResponse(Map<String, dynamic> result) =>
+      CreateTemplateResponse.fromJson(result);
 }
 
 class UpdateAgentTemplate extends VoidEngineCommand {

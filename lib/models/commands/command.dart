@@ -4,7 +4,7 @@
 ///
 /// `EngineCommand<R>` provides type-safe command dispatch over the existing
 /// WebSocket wire protocol. The wire protocol itself is unchanged — this is
-/// a Dart-side abstraction layered on top of `sendCommand`.
+/// a Dart-side abstraction layered on top of the engine's WebSocket protocol.
 library;
 
 
@@ -52,4 +52,33 @@ abstract class VoidEngineCommand extends EngineCommand<VoidResponse> {
   @override
   VoidResponse parseResponse(Map<String, dynamic> result) =>
       const VoidResponse();
+}
+
+/// Response wrapper that preserves the raw JSON map.
+///
+/// Used by [RawEngineCommand] and other commands where a fully-typed
+/// response isn't yet available.
+class RawResponse extends EngineResponse {
+  const RawResponse({required this.data});
+
+  final Map<String, dynamic> data;
+}
+
+/// Escape-hatch command for callers that need the raw JSON result.
+///
+/// Prefer typed commands where possible. This exists for cases where
+/// the typed command's parameters or response don't match what the
+/// caller needs (e.g., pre-creation validation flows).
+class RawEngineCommand extends EngineCommand<RawResponse> {
+  RawEngineCommand({required this.method, this.params});
+
+  @override
+  final String method;
+
+  @override
+  final Map<String, dynamic>? params;
+
+  @override
+  RawResponse parseResponse(Map<String, dynamic> result) =>
+      RawResponse(data: result);
 }

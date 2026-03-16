@@ -4,6 +4,7 @@
 library;
 
 import '../docker_types.dart';
+import '../engine_responses.dart';
 import 'command.dart';
 
 class DetectDockerStatus extends EngineCommand<DockerStatus> {
@@ -46,8 +47,10 @@ class GetContainerStats extends EngineCommand<ContainerStats> {
       ContainerStats.fromJson(result);
 }
 
-/// Stub — build output needs architectural rework (should go through DB).
-class BuildRuntimeImage extends VoidEngineCommand {
+/// Build output needs architectural rework (should go through DB).
+// TODO: Rearchitect — build output should be written to a DB table
+// and read via Drift watch queries, not returned as a single response.
+class BuildRuntimeImage extends EngineCommand<BuildRuntimeImageResponse> {
   @override
   String get method => 'build_runtime_image';
 
@@ -55,14 +58,8 @@ class BuildRuntimeImage extends VoidEngineCommand {
   Map<String, dynamic>? get params => null;
 
   @override
-  VoidResponse parseResponse(Map<String, dynamic> result) {
-    // TODO: Rearchitect — build output should be written to DB table
-    // and read via Drift watch queries, not returned as a single response.
-    throw UnimplementedError(
-      'BuildRuntimeImage needs rearchitecting. '
-      'Build output should flow through the database, not WebSocket responses.',
-    );
-  }
+  BuildRuntimeImageResponse parseResponse(Map<String, dynamic> result) =>
+      BuildRuntimeImageResponse.fromJson(result);
 }
 
 class DeleteRuntimeImage extends VoidEngineCommand {

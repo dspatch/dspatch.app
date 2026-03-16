@@ -91,3 +91,45 @@ class DatabaseStateResponse extends EngineResponse {
     return DatabaseStateResponse(raw: json);
   }
 }
+
+class PreferenceResponse extends EngineResponse {
+  const PreferenceResponse({this.value});
+
+  final String? value;
+
+  factory PreferenceResponse.fromJson(Map<String, dynamic> json) {
+    return PreferenceResponse(value: json['value'] as String?);
+  }
+}
+
+class CreateTemplateResponse extends EngineResponse {
+  const CreateTemplateResponse({required this.raw});
+
+  final Map<String, dynamic> raw;
+
+  factory CreateTemplateResponse.fromJson(Map<String, dynamic> json) {
+    return CreateTemplateResponse(raw: json);
+  }
+}
+
+class BuildRuntimeImageResponse extends EngineResponse {
+  const BuildRuntimeImageResponse({required this.lines});
+
+  final List<String> lines;
+
+  factory BuildRuntimeImageResponse.fromJson(Map<String, dynamic> json) {
+    return BuildRuntimeImageResponse(
+      lines: (json['lines'] as List<dynamic>?)?.cast<String>() ?? [],
+    );
+  }
+}
+
+class PackageInspectorResponse extends EngineResponse {
+  const PackageInspectorResponse({required this.raw});
+
+  final Map<String, dynamic> raw;
+
+  factory PackageInspectorResponse.fromJson(Map<String, dynamic> json) {
+    return PackageInspectorResponse(raw: json);
+  }
+}

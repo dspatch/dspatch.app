@@ -8,6 +8,7 @@
 /// - `cleanup_stale_instances`: adds missing `workspace_id`
 library;
 
+import '../engine_responses.dart';
 import 'command.dart';
 
 class SendAgentInput extends VoidEngineCommand {
@@ -151,7 +152,8 @@ class CleanupStaleInstances extends VoidEngineCommand {
       };
 }
 
-class PackageInspectorEntries extends VoidEngineCommand {
+class PackageInspectorEntries
+    extends EngineCommand<PackageInspectorResponse> {
   PackageInspectorEntries({required this.runId});
   final String runId;
 
@@ -160,4 +162,8 @@ class PackageInspectorEntries extends VoidEngineCommand {
 
   @override
   Map<String, dynamic> get params => {'run_id': runId};
+
+  @override
+  PackageInspectorResponse parseResponse(Map<String, dynamic> result) =>
+      PackageInspectorResponse.fromJson(result);
 }
