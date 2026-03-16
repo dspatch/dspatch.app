@@ -28,7 +28,10 @@ class EngineController extends _$EngineController {
   // ─── Status ──────────────────────────────────────────────────────────
 
   /// Refreshes Docker status by invalidating the status provider.
-  void refreshStatus() => ref.invalidate(dockerStatusProvider);
+  void refreshStatus() {
+    ref.invalidate(dockerStatusProvider);
+    ref.invalidate(engineHealthProvider);
+  }
 
   // ─── Image lifecycle ─────────────────────────────────────────────────
 

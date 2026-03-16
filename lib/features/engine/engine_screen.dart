@@ -7,6 +7,7 @@ import '../../core/utils/platform_info.dart';
 import 'engine_controller.dart';
 import 'widgets/container_table.dart';
 import 'widgets/docker_error_banner.dart';
+import 'widgets/engine_details_panel.dart';
 import 'widgets/operation_console.dart';
 import 'widgets/status_grid.dart';
 
@@ -24,7 +25,7 @@ class EngineScreen extends ConsumerWidget {
         icon: LucideIcons.monitor,
         title: 'Desktop Only',
         description:
-            'Docker engine management is only available on desktop platforms.',
+            'Engine management is only available on desktop platforms.',
       );
     }
 
@@ -37,7 +38,7 @@ class EngineScreen extends ConsumerWidget {
             children: [
               const Expanded(
                 child: Text(
-                  'Docker Engine',
+                  'Engine',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
@@ -65,6 +66,8 @@ class EngineScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: const [
                   StatusGrid(),
+                  SizedBox(height: Spacing.md),
+                  EngineDetailsPanel(),
                   SizedBox(height: Spacing.md),
                   OperationConsole(),
                   SizedBox(height: Spacing.md),
