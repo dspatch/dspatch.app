@@ -7,21 +7,14 @@ import 'engine_health.dart';
 
 /// Manages the lifecycle of the dspatch engine process on desktop.
 ///
-/// On startup:
-/// 1. Checks if the engine is already running via `/health`
-/// 2. If not running and [engineExternal] is false, spawns it as a detached process
-/// 3. Polls `/health` until the engine is ready
-///
-/// When [engineExternal] is true (set via `--dart-define=ENGINE_EXTERNAL=true`),
-/// spawning is skipped entirely — the developer is expected to run the engine
-/// manually via `cargo run --bin dspatch-engine`.
+/// Provides [start] and [stop] methods for on-demand engine control,
+/// and [checkRunning] to poll the engine's health endpoint.
 ///
 /// This class is pure Dart — no Flutter imports.
 class EngineProcessManager {
   final String engineBinaryPath;
   final String host;
   final int port;
-  final bool engineExternal;
 
   late final EngineHealth _health;
 
@@ -29,22 +22,22 @@ class EngineProcessManager {
     required this.engineBinaryPath,
     required this.host,
     required this.port,
-    required this.engineExternal,
     EngineHealth? health,
-  }) : _health = health ??
-            EngineHealth(host: host, port: port);
+  }) : _health = health ?? EngineHealth(host: host, port: port);
 
-  /// Whether the manager should attempt to spawn the engine binary.
-  bool get shouldSpawn => !engineExternal;
+  /// Returns the current [HealthStatus], or `null` if the engine is not
+  /// reachable.
+  Future<HealthStatus?> checkRunning() => _health.checkHealth();
 
-  /// Ensures the engine is running and ready.
+  /// Spawns the engine as a detached process and waits for it to become
+  /// healthy.
   ///
-  /// Returns [HealthStatus] from the running engine.
-  /// Throws if the engine cannot be started or doesn't become ready.
-  Future<HealthStatus> ensureRunning({
+  /// Returns [HealthStatus] on success.
+  /// Throws [EngineStartException] if the engine cannot be started.
+  Future<HealthStatus> start({
     Duration startupTimeout = const Duration(seconds: 30),
   }) async {
-    // Check if engine is already running.
+    // Check if already running.
     final existing = await _health.checkHealth();
     if (existing != null && existing.isRunning) {
       developer.log(
@@ -54,14 +47,6 @@ class EngineProcessManager {
       return existing;
     }
 
-    if (engineExternal) {
-      throw EngineStartException(
-        'ENGINE_EXTERNAL=true but engine is not running at $host:$port. '
-        'Start it manually with: cargo run --bin dspatch-engine',
-      );
-    }
-
-    // Spawn the engine.
     developer.log(
       'Spawning engine: $engineBinaryPath',
       name: 'EngineProcessManager',
@@ -83,11 +68,6 @@ class EngineProcessManager {
     }
 
     // Poll /health until ready.
-    developer.log(
-      'Waiting for engine to be ready...',
-      name: 'EngineProcessManager',
-    );
-
     final ready = await _health.waitForReady(timeout: startupTimeout);
     if (!ready) {
       throw EngineStartException(
@@ -102,11 +82,47 @@ class EngineProcessManager {
       );
     }
 
-    developer.log(
-      'Engine is ready',
-      name: 'EngineProcessManager',
-    );
+    developer.log('Engine is ready', name: 'EngineProcessManager');
     return status;
+  }
+
+  /// Stops the engine by finding its PID via port and sending SIGTERM.
+  ///
+  /// Returns `true` if the engine was stopped, `false` if it wasn't running
+  /// or couldn't be stopped.
+  Future<bool> stop() async {
+    final existing = await _health.checkHealth();
+    if (existing == null || !existing.isRunning) return false;
+
+    try {
+      // Find the PID of the process *listening* on the engine port.
+      // -sTCP:LISTEN ensures we only match the server, not connected clients
+      // (which would include this app).
+      final result = await Process.run(
+        'lsof',
+        ['-ti', 'tcp:$port', '-sTCP:LISTEN'],
+      );
+
+      final output = (result.stdout as String).trim();
+      if (output.isEmpty) return false;
+
+      // lsof may return multiple PIDs (one per line). Kill them all.
+      for (final pidStr in output.split('\n')) {
+        final pid = int.tryParse(pidStr.trim());
+        if (pid != null) {
+          Process.killPid(pid, ProcessSignal.sigterm);
+        }
+      }
+
+      developer.log('Sent SIGTERM to engine', name: 'EngineProcessManager');
+      return true;
+    } catch (e) {
+      developer.log(
+        'Failed to stop engine: $e',
+        name: 'EngineProcessManager',
+      );
+      return false;
+    }
   }
 
   /// Resolves the path to the engine binary based on the current platform
@@ -116,9 +132,8 @@ class EngineProcessManager {
   /// On macOS/Linux: `dspatch-engine` next to the app binary.
   static String resolveEngineBinaryPath() {
     final appDir = File(Platform.resolvedExecutable).parent.path;
-    final binaryName = Platform.isWindows
-        ? 'dspatch-engine.exe'
-        : 'dspatch-engine';
+    final binaryName =
+        Platform.isWindows ? 'dspatch-engine.exe' : 'dspatch-engine';
     return '$appDir/$binaryName';
   }
 

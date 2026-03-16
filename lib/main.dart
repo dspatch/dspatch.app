@@ -56,23 +56,19 @@ Future<void> main(List<String> args) async {
     NativeEngine.start(clientApiPort: kEnginePort, dbDir: dbDir);
   }
 
-  // Step 1: Ensure the engine process is running (spawn if needed).
-  // NO authentication, NO WebSocket — just verify the process is alive.
+  // Engine process manager — used by EngineStatusButton to start/stop
+  // the engine on demand. No auto-start; the user controls the engine.
   final processManager = EngineProcessManager(
     engineBinaryPath: EngineProcessManager.resolveEngineBinaryPath(),
     host: _kHost,
     port: kEnginePort,
-    engineExternal: const bool.fromEnvironment('ENGINE_EXTERNAL'),
   );
-  final healthStatus = await processManager.ensureRunning();
-  debugPrint('[BOOT] Engine process running');
 
-  // Derive backend URL from the engine health response.
-  final backendUrl =
-      healthStatus.backendUrl ??
-      (const bool.fromEnvironment('dart.vm.product')
-          ? 'https://backend.dspatch.dev'
-          : 'http://localhost:3000');
+  // Backend URL: use compile-time default. The engine may not be running
+  // yet, so we can't derive it from /health at boot time.
+  const backendUrl = bool.fromEnvironment('dart.vm.product')
+      ? 'https://backend.dspatch.dev'
+      : 'http://localhost:3000';
   debugPrint('[BOOT] backendUrl=$backendUrl');
 
   // Step 2: Create engine objects WITHOUT connecting.
@@ -107,6 +103,7 @@ Future<void> main(List<String> args) async {
       engineConnectionProvider.overrideWithValue(connection),
       backendAuthProvider.overrideWithValue(BackendAuth(baseUrl: backendUrl)),
       secureTokenStoreProvider.overrideWithValue(tokenStore),
+      engineProcessManagerProvider.overrideWithValue(processManager),
       themeModeProvider.overrideWith((_) => ThemeMode.system),
     ],
     observers: [AppProviderObserver()],
