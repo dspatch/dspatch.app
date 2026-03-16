@@ -47,6 +47,7 @@ pub struct ServiceRegistry {
     crypto: Arc<AesGcmCrypto>,
     file_browser: Arc<LocalFileBrowserService>,
     docker: Arc<DockerClient>,
+    docker_service: Arc<dyn DockerService>,
     hub_client: Option<Arc<HubApiClient>>,
 }
 
@@ -104,7 +105,7 @@ impl ServiceRegistry {
             Arc::clone(&api_keys) as Arc<dyn ApiKeyService>,
             Arc::clone(&crypto),
             Arc::clone(&docker),
-            docker_service,
+            Arc::clone(&docker_service),
             Arc::clone(&preference_dao),
         );
         let bridge = Arc::new(TokioMutex::new(Some(ws_bridge)));
@@ -129,6 +130,7 @@ impl ServiceRegistry {
             crypto,
             file_browser,
             docker,
+            docker_service,
             hub_client,
         }
     }
@@ -175,6 +177,10 @@ impl ServiceRegistry {
 
     pub fn docker(&self) -> &Arc<DockerClient> {
         &self.docker
+    }
+
+    pub fn docker_service(&self) -> &Arc<dyn DockerService> {
+        &self.docker_service
     }
 
     pub fn hub_client(&self) -> Option<&Arc<HubApiClient>> {
