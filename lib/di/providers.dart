@@ -36,12 +36,7 @@ final engineDatabaseProvider = StateProvider<EngineDatabase>(
 // ---------------------------------------------------------------------------
 
 /// The Engine Client for sending commands to the engine over WebSocket.
-/// Must be overridden in main.dart with the connected instance from EngineBootstrap.
-///
-/// Example:
-/// ```dart
-/// engineClientProvider.overrideWithValue(bootstrapResult.client)
-/// ```
+/// Must be overridden in main.dart with the connected instance.
 final engineClientProvider = Provider<EngineClient>(
   (_) => throw UnimplementedError('Override engineClientProvider in main.dart'),
 );
@@ -51,13 +46,13 @@ final engineClientProvider = Provider<EngineClient>(
 // ---------------------------------------------------------------------------
 
 /// EngineAuth for connect/refresh calls to the engine.
-/// Overridden in main.dart with the instance from EngineBootstrap.
+/// Overridden in main.dart.
 final engineAuthProvider = Provider<EngineAuth>(
   (_) => throw UnimplementedError('Override engineAuthProvider in main.dart'),
 );
 
 /// EngineConnection for reconnect support.
-/// Overridden in main.dart with the instance from EngineBootstrap.
+/// Overridden in main.dart.
 final engineConnectionProvider = Provider<EngineConnection>(
   (_) => throw UnimplementedError('Override engineConnectionProvider in main.dart'),
 );

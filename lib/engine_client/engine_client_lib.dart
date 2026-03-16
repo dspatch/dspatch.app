@@ -9,23 +9,23 @@
 /// ```dart
 /// import 'package:dspatch_app/engine_client/engine_client_lib.dart';
 ///
-/// final bootstrap = EngineBootstrap(EngineBootstrapConfig());
-/// final result = await bootstrap.initialize();
-/// final client = result.client;
+/// final auth = EngineAuth(host: '127.0.0.1', port: 9847);
+/// final result = await auth.authenticateAnonymous();
 ///
-/// // Send typed commands.
+/// final connection = EngineConnection(
+///   host: '127.0.0.1',
+///   port: 9847,
+///   token: result.sessionToken,
+/// );
+/// await connection.connect();
+///
+/// final client = EngineClient(connection);
 /// await client.send(LaunchWorkspace(id: 'workspace-id'));
-///
-/// // Listen for table invalidations.
-/// client.invalidations.listen((tables) {
-///   database.notifyUpdates(tables); // Drift re-queries
-/// });
 /// ```
 library;
 
 export 'backend_auth.dart';
 export 'engine_auth.dart';
-export 'engine_bootstrap.dart';
 export 'engine_client.dart';
 export 'engine_connection.dart';
 export 'engine_health.dart';
