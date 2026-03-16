@@ -11,6 +11,7 @@ import '../../engine_client/engine_auth.dart';
 import '../../engine_client/models/auth_token.dart';
 import '../../engine_client/models/db_state.dart';
 import '../../models/commands/commands.dart';
+import '../../engine_client/models/auth_phase.dart';
 import '../auth/auth_controller.dart';
 
 /// Gateway screen shown after authentication.
@@ -169,6 +170,74 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
     debugPrint('[SETUP] Got session token, connecting WS...');
     await connection.reconnect(authResult.sessionToken);
+
+    // Install token refresh callback for auto-reconnect.
+    // Reads authTokenProvider at call time so it always reflects
+    // the current auth state, not the state at install time.
+    connection.onTokenRefresh = () async {
+      final currentToken = ref.read(authTokenProvider);
+
+      if (currentToken == null) {
+        // No credentials at all — force logout.
+        debugPrint('[TOKEN_REFRESH] No auth token, logging out');
+        ref.read(authControllerProvider.notifier).logout();
+        return null;
+      }
+
+      if (currentToken is BackendToken) {
+        // Check if the backend JWT has expired.
+        final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        if (nowSec >= currentToken.expiresAt) {
+          debugPrint('[TOKEN_REFRESH] Backend token expired, logging out');
+          await ref.read(authControllerProvider.notifier).logout();
+          return null;
+        }
+
+        // Re-authenticate with the engine using the still-valid backend token.
+        try {
+          final deviceCreds = await tokenStore.loadDeviceCredentials(
+            currentToken.username,
+          );
+          final result = await engineAuth.connect(
+            backendToken: currentToken.token,
+            deviceId: deviceCreds?.deviceId,
+            identityKeySeed: deviceCreds?.identityKeyHex,
+          );
+
+          // Persist the new session token.
+          await tokenStore.saveSession(
+            backendToken: currentToken.token,
+            expiresAt: currentToken.expiresAt,
+            scope: currentToken.scope,
+            username: currentToken.username,
+            email: currentToken.email,
+            sessionToken: result.sessionToken,
+          );
+
+          debugPrint('[TOKEN_REFRESH] Re-authenticated (backend), new session token');
+          return result.sessionToken;
+        } catch (e) {
+          debugPrint('[TOKEN_REFRESH] Engine auth failed: $e');
+          // Engine is unreachable or rejecting us — redirect to setup.
+          ref.read(authPhaseProvider.notifier).state = AuthPhase.authenticated;
+          return null;
+        }
+      }
+
+      if (currentToken is AnonymousToken) {
+        try {
+          final result = await engineAuth.authenticateAnonymous();
+          debugPrint('[TOKEN_REFRESH] Re-authenticated (anonymous), new session token');
+          return result.sessionToken;
+        } catch (e) {
+          debugPrint('[TOKEN_REFRESH] Anonymous auth failed: $e');
+          ref.read(authPhaseProvider.notifier).state = AuthPhase.authenticated;
+          return null;
+        }
+      }
+
+      return null;
+    };
 
     // Update phase to connecting (via AuthController — single writer).
     ref.read(authControllerProvider.notifier).setConnecting();
