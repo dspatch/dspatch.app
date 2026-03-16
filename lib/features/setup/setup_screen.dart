@@ -5,6 +5,7 @@ import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/utils/display_error.dart';
 import '../../database/engine_database.dart';
 import '../../di/providers.dart';
 import '../../engine_client/engine_auth.dart';
@@ -32,6 +33,7 @@ class SetupScreen extends ConsumerStatefulWidget {
 class _SetupScreenState extends ConsumerState<SetupScreen> {
   bool _setupStarted = false;
   String? _error;
+  Object? _errorObject;
   String _status = 'Initializing...';
 
   @override
@@ -105,7 +107,12 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       debugPrint('[SETUP] Setup complete, phase=ready');
     } catch (e, st) {
       debugPrint('[SETUP] FATAL ERROR: $e\n$st');
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _errorObject = e;
+        });
+      }
     }
   }
 
@@ -397,33 +404,17 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     // Error state.
     if (_error != null) {
       return Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(Spacing.xl),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(LucideIcons.circle_alert, size: 48, color: AppColors.destructive),
-                const SizedBox(height: Spacing.md),
-                Text('Setup failed', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: Spacing.sm),
-                Text(_error!, textAlign: TextAlign.center),
-                const SizedBox(height: Spacing.xl),
-                Button(
-                  label: 'Retry',
-                  variant: ButtonVariant.primary,
-                  onPressed: () {
-                    setState(() {
-                      _error = null;
-                      _setupStarted = false;
-                      _status = 'Initializing...';
-                    });
-                    _startSetup();
-                  },
-                ),
-              ],
-            ),
-          ),
+        body: ErrorStateView(
+          message: 'Setup failed: ${displayError(_errorObject!)}',
+          onRetry: () {
+            setState(() {
+              _error = null;
+              _errorObject = null;
+              _setupStarted = false;
+              _status = 'Initializing...';
+            });
+            _startSetup();
+          },
         ),
       );
     }
