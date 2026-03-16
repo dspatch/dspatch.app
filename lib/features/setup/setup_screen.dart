@@ -119,6 +119,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   /// - Anonymous / no stored session:
   ///   call engineAuth.authenticateAnonymous() → get session token → connect WS.
   Future<void> _connectEngine() async {
+    // Capture the root ProviderContainer synchronously (before any await)
+    // so the token-refresh callback can use it after SetupScreen is disposed.
+    final container = ProviderScope.containerOf(context);
     final connection = ref.read(engineConnectionProvider);
 
     if (connection.isConnected) {
@@ -172,15 +175,16 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     await connection.reconnect(authResult.sessionToken);
 
     // Install token refresh callback for auto-reconnect.
-    // Reads authTokenProvider at call time so it always reflects
-    // the current auth state, not the state at install time.
+    // Uses ProviderContainer (captured above, before any await) so the
+    // callback remains valid after SetupScreen is disposed —
+    // EngineConnection is a long-lived singleton that outlives this widget.
     connection.onTokenRefresh = () async {
-      final currentToken = ref.read(authTokenProvider);
+      final currentToken = container.read(authTokenProvider);
 
       if (currentToken == null) {
         // No credentials at all — force logout.
         debugPrint('[TOKEN_REFRESH] No auth token, logging out');
-        await ref.read(authControllerProvider.notifier).logout();
+        await container.read(authControllerProvider.notifier).logout();
         return null;
       }
 
@@ -189,7 +193,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         if (nowSec >= currentToken.expiresAt) {
           debugPrint('[TOKEN_REFRESH] Backend token expired, logging out');
-          await ref.read(authControllerProvider.notifier).logout();
+          await container.read(authControllerProvider.notifier).logout();
           return null;
         }
 
@@ -219,7 +223,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         } catch (e) {
           debugPrint('[TOKEN_REFRESH] Engine auth failed: $e');
           // Engine is unreachable or rejecting us — redirect to setup.
-          ref.read(authPhaseProvider.notifier).state = AuthPhase.authenticated;
+          container.read(authPhaseProvider.notifier).state = AuthPhase.authenticated;
           return null;
         }
       }
@@ -231,7 +235,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           return result.sessionToken;
         } catch (e) {
           debugPrint('[TOKEN_REFRESH] Anonymous auth failed: $e');
-          ref.read(authPhaseProvider.notifier).state = AuthPhase.authenticated;
+          container.read(authPhaseProvider.notifier).state = AuthPhase.authenticated;
           return null;
         }
       }
