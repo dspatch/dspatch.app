@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
+import 'package:dspatch_app/models/commands/commands.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'community_hub_test.dart' show hubTest;
@@ -25,10 +26,10 @@ void main() {
 
     test('check_for_agent_updates with no local agents succeeds', () async {
       await hubTest(harness, () async {
-        final result = await harness.client.sendCommand(
-          'check_for_agent_updates',
-          {},
-        );
+        final result = (await harness.client.send(RawEngineCommand(
+          method: 'check_for_agent_updates',
+          params: {},
+        ))).data;
 
         expect(result, isA<Map<String, dynamic>>());
         // The response should indicate there are no updates when no agents
@@ -42,10 +43,10 @@ void main() {
     test('check_for_workspace_updates with no local workspaces succeeds',
         () async {
       await hubTest(harness, () async {
-        final result = await harness.client.sendCommand(
-          'check_for_workspace_updates',
-          {},
-        );
+        final result = (await harness.client.send(RawEngineCommand(
+          method: 'check_for_workspace_updates',
+          params: {},
+        ))).data;
 
         expect(result, isA<Map<String, dynamic>>());
         if (result.containsKey('updates')) {

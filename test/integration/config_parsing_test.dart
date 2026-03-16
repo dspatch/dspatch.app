@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
 import 'package:dspatch_app/engine_client/engine_client.dart';
+import 'package:dspatch_app/models/commands/commands.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
@@ -46,8 +47,9 @@ void main() {
   group('Config parsing', () {
     test('parse valid YAML returns config with name, agents, and details',
         () async {
-      final result =
-          await harness.client.parseWorkspaceConfig(yaml: _validYaml);
+      final result = (await harness.client.send(RawEngineCommand(
+              method: 'parse_workspace_config', params: {'yaml': _validYaml})))
+          .data;
 
       expect(result['name'], equals('parse-test'));
       expect(result['agents'], isA<Map>());
@@ -65,14 +67,16 @@ void main() {
 
     test('parse invalid YAML throws EngineException', () async {
       expect(
-        () => harness.client.parseWorkspaceConfig(yaml: _invalidYaml),
+        () => harness.client.send(RawEngineCommand(
+            method: 'parse_workspace_config', params: {'yaml': _invalidYaml})),
         throwsA(isA<EngineException>()),
       );
     });
 
     test('parse empty YAML throws EngineException', () async {
       expect(
-        () => harness.client.parseWorkspaceConfig(yaml: _emptyYaml),
+        () => harness.client.send(RawEngineCommand(
+            method: 'parse_workspace_config', params: {'yaml': _emptyYaml})),
         throwsA(isA<EngineException>()),
       );
     });
@@ -81,8 +85,10 @@ void main() {
       // Using raw sendCommand because the typed validateWorkspaceConfig()
       // wraps params under a `config` key, but the Rust command expects
       // `yaml: String` at the top level.
-      final result = await harness.client
-          .sendCommand('validate_workspace_config', {'yaml': _validYaml});
+      final result = (await harness.client.send(RawEngineCommand(
+              method: 'validate_workspace_config',
+              params: {'yaml': _validYaml})))
+          .data;
 
       final errors = (result['errors'] as List<dynamic>?) ?? [];
       expect(errors, isEmpty);
@@ -96,8 +102,9 @@ void main() {
       // We assert one specific outcome: a VALIDATION_ERROR exception,
       // because the engine's serde schema requires the agents field.
       expect(
-        () => harness.client
-            .sendCommand('validate_workspace_config', {'yaml': _incompleteYaml}),
+        () => harness.client.send(RawEngineCommand(
+            method: 'validate_workspace_config',
+            params: {'yaml': _incompleteYaml})),
         throwsA(
           isA<EngineException>().having(
             (e) => e.code,
@@ -110,23 +117,21 @@ void main() {
 
     test('validate YAML with only agents (no name) fails', () async {
       expect(
-        () => harness.client
-            .sendCommand('validate_workspace_config', {'yaml': _agentsOnlyYaml}),
+        () => harness.client.send(RawEngineCommand(
+            method: 'validate_workspace_config',
+            params: {'yaml': _agentsOnlyYaml})),
         throwsA(isA<EngineException>()),
       );
     });
 
     test('encode config to YAML returns non-empty string', () async {
-      final parsed =
-          await harness.client.parseWorkspaceConfig(yaml: _validYaml);
+      final parsed = (await harness.client.send(RawEngineCommand(
+              method: 'parse_workspace_config', params: {'yaml': _validYaml})))
+          .data;
 
-      // Using raw sendCommand because the typed encodeWorkspaceYaml()
-      // wraps params under a `config` key, but the Rust command uses
-      // #[serde(flatten)] and expects flat params at the top level.
-      final encoded = await harness.client.sendCommand(
-        'encode_workspace_yaml',
-        parsed,
-      );
+      final encoded = (await harness.client.send(
+              RawEngineCommand(method: 'encode_workspace_yaml', params: parsed)))
+          .data;
 
       expect(encoded['yaml'], isA<String>());
       expect((encoded['yaml'] as String), isNotEmpty);
@@ -134,18 +139,19 @@ void main() {
 
     test('round-trip: parse -> encode -> parse preserves full config',
         () async {
-      final first =
-          await harness.client.parseWorkspaceConfig(yaml: _validYaml);
+      final first = (await harness.client.send(RawEngineCommand(
+              method: 'parse_workspace_config', params: {'yaml': _validYaml})))
+          .data;
 
-      // Encode using raw sendCommand (see comment in encode test above).
-      final encoded = await harness.client.sendCommand(
-        'encode_workspace_yaml',
-        first,
-      );
+      final encoded = (await harness.client.send(
+              RawEngineCommand(method: 'encode_workspace_yaml', params: first)))
+          .data;
       final reEncodedYaml = encoded['yaml'] as String;
 
-      final second =
-          await harness.client.parseWorkspaceConfig(yaml: reEncodedYaml);
+      final second = (await harness.client.send(RawEngineCommand(
+              method: 'parse_workspace_config',
+              params: {'yaml': reEncodedYaml})))
+          .data;
 
       // Workspace name survives round-trip.
       expect(second['name'], equals(first['name']));
@@ -165,17 +171,19 @@ void main() {
     });
 
     test('round-trip preserves agent env vars', () async {
-      final first =
-          await harness.client.parseWorkspaceConfig(yaml: _validYaml);
+      final first = (await harness.client.send(RawEngineCommand(
+              method: 'parse_workspace_config', params: {'yaml': _validYaml})))
+          .data;
 
-      final encoded = await harness.client.sendCommand(
-        'encode_workspace_yaml',
-        first,
-      );
+      final encoded = (await harness.client.send(
+              RawEngineCommand(method: 'encode_workspace_yaml', params: first)))
+          .data;
       final reEncodedYaml = encoded['yaml'] as String;
 
-      final second =
-          await harness.client.parseWorkspaceConfig(yaml: reEncodedYaml);
+      final second = (await harness.client.send(RawEngineCommand(
+              method: 'parse_workspace_config',
+              params: {'yaml': reEncodedYaml})))
+          .data;
 
       final firstMain = (first['agents'] as Map)['main'] as Map;
       final secondMain = (second['agents'] as Map)['main'] as Map;
@@ -190,17 +198,19 @@ void main() {
     });
 
     test('round-trip preserves peer references', () async {
-      final first =
-          await harness.client.parseWorkspaceConfig(yaml: _validYaml);
+      final first = (await harness.client.send(RawEngineCommand(
+              method: 'parse_workspace_config', params: {'yaml': _validYaml})))
+          .data;
 
-      final encoded = await harness.client.sendCommand(
-        'encode_workspace_yaml',
-        first,
-      );
+      final encoded = (await harness.client.send(
+              RawEngineCommand(method: 'encode_workspace_yaml', params: first)))
+          .data;
       final reEncodedYaml = encoded['yaml'] as String;
 
-      final second =
-          await harness.client.parseWorkspaceConfig(yaml: reEncodedYaml);
+      final second = (await harness.client.send(RawEngineCommand(
+              method: 'parse_workspace_config',
+              params: {'yaml': reEncodedYaml})))
+          .data;
 
       final firstHelper = (first['agents'] as Map)['helper'] as Map;
       final secondHelper = (second['agents'] as Map)['helper'] as Map;

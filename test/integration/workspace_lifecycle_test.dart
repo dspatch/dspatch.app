@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dspatch_app/engine_client/engine_client.dart';
+import 'package:dspatch_app/models/commands/commands.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
@@ -72,12 +73,12 @@ void main() {
       final dir = makeTempDir();
       late final String id;
 
-      final result = await harness.client.createWorkspace(
-        projectPath: dir.path,
-        configYaml: _validConfigYaml,
-      );
+      final result = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {'project_path': dir.path, 'config_yaml': _validConfigYaml},
+      ))).data;
       id = result['id'] as String;
-      addTearDown(() => harness.client.deleteWorkspace(id));
+      addTearDown(() => harness.client.send(DeleteWorkspace(id: id)));
 
       expect(result, containsPair('id', isA<String>()));
       expect(result['id'], isNotEmpty);
@@ -89,17 +90,17 @@ void main() {
 
     test('get workspace by ID matches created workspace', () async {
       final dir = makeTempDir();
-      final created = await harness.client.createWorkspace(
-        projectPath: dir.path,
-        configYaml: _validConfigYaml,
-      );
+      final created = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {'project_path': dir.path, 'config_yaml': _validConfigYaml},
+      ))).data;
       final id = created['id'] as String;
-      addTearDown(() => harness.client.deleteWorkspace(id));
+      addTearDown(() => harness.client.send(DeleteWorkspace(id: id)));
 
-      final fetched = await harness.client.sendCommand(
-        'get_workspace',
-        {'id': id},
-      );
+      final fetched = (await harness.client.send(RawEngineCommand(
+        method: 'get_workspace',
+        params: {'id': id},
+      ))).data;
 
       expect(fetched['id'], equals(id));
       expect(fetched['name'], equals(created['name']));
@@ -108,18 +109,24 @@ void main() {
 
     test('delete workspace succeeds and get returns NOT_FOUND', () async {
       final dir = makeTempDir();
-      final created = await harness.client.createWorkspace(
-        projectPath: dir.path,
-        configYaml: _validConfigYaml,
-      );
+      final created = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {'project_path': dir.path, 'config_yaml': _validConfigYaml},
+      ))).data;
       final id = created['id'] as String;
 
-      final result = await harness.client.deleteWorkspace(id);
+      final result = (await harness.client.send(RawEngineCommand(
+        method: 'delete_workspace',
+        params: {'id': id},
+      ))).data;
       expect(result, isA<Map<String, dynamic>>());
 
       // Verify workspace is actually gone.
       expect(
-        () => harness.client.sendCommand('get_workspace', {'id': id}),
+        () => harness.client.send(RawEngineCommand(
+          method: 'get_workspace',
+          params: {'id': id},
+        )),
         throwsA(
           isA<EngineException>().having(
             (e) => e.code,
@@ -133,7 +140,10 @@ void main() {
     test('delete non-existent workspace succeeds silently', () async {
       // SQL DELETE on a non-existent row returns success (zero rows affected).
       // The workspace service does not check existence before deleting.
-      final result = await harness.client.deleteWorkspace('non-existent-id');
+      final result = (await harness.client.send(RawEngineCommand(
+        method: 'delete_workspace',
+        params: {'id': 'non-existent-id'},
+      ))).data;
       expect(result, isA<Map<String, dynamic>>());
     });
 
@@ -141,10 +151,10 @@ void main() {
       final dir = makeTempDir();
 
       expect(
-        () => harness.client.createWorkspace(
-          projectPath: dir.path,
-          configYaml: '{{{not: valid: yaml:::',
-        ),
+        () => harness.client.send(RawEngineCommand(
+          method: 'create_workspace',
+          params: {'project_path': dir.path, 'config_yaml': '{{{not: valid: yaml:::'},
+        )),
         throwsA(
           isA<EngineException>().having(
             (e) => e.code,
@@ -158,10 +168,10 @@ void main() {
     test('create with empty project path returns error', () async {
       // Empty project paths are invalid — the engine should reject them.
       expect(
-        () => harness.client.createWorkspace(
-          projectPath: '',
-          configYaml: _validConfigYaml,
-        ),
+        () => harness.client.send(RawEngineCommand(
+          method: 'create_workspace',
+          params: {'project_path': '', 'config_yaml': _validConfigYaml},
+        )),
         throwsA(isA<EngineException>()),
       );
     });
@@ -174,10 +184,10 @@ void main() {
       // We assert the engine rejects it. If the engine accepts it, this test
       // documents that behavior change.
       expect(
-        () => harness.client.createWorkspace(
-          projectPath: bogusPath,
-          configYaml: _validConfigYaml,
-        ),
+        () => harness.client.send(RawEngineCommand(
+          method: 'create_workspace',
+          params: {'project_path': bogusPath, 'config_yaml': _validConfigYaml},
+        )),
         throwsA(isA<EngineException>()),
       );
     });
@@ -193,14 +203,14 @@ void main() {
         }
       });
 
-      final created = await harness.client.createWorkspace(
-        projectPath: dir.path,
-        configYaml: _validConfigYaml,
-      );
+      final created = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {'project_path': dir.path, 'config_yaml': _validConfigYaml},
+      ))).data;
       final id = created['id'] as String;
       addTearDown(() async {
         await sub.cancel();
-        await harness.client.deleteWorkspace(id);
+        await harness.client.send(DeleteWorkspace(id: id));
       });
 
       final tables = await completer.future.timeout(
@@ -216,12 +226,12 @@ void main() {
     test('Drift read after create uses invalidation-driven wait', () async {
       final dir = makeTempDir();
 
-      final created = await harness.client.createWorkspace(
-        projectPath: dir.path,
-        configYaml: _validConfigYaml,
-      );
+      final created = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {'project_path': dir.path, 'config_yaml': _validConfigYaml},
+      ))).data;
       final id = created['id'] as String;
-      addTearDown(() => harness.client.deleteWorkspace(id));
+      addTearDown(() => harness.client.send(DeleteWorkspace(id: id)));
 
       // Wait for the invalidation event instead of sleeping — this signals
       // the engine has committed the write and WAL is flushed.
@@ -248,26 +258,26 @@ void main() {
       // Create two workspaces.
       final dir1 = makeTempDir();
       final dir2 = makeTempDir();
-      final ws1 = await harness.client.createWorkspace(
-        projectPath: dir1.path,
-        configYaml: _validConfigYaml,
-      );
+      final ws1 = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {'project_path': dir1.path, 'config_yaml': _validConfigYaml},
+      ))).data;
       final id1 = ws1['id'] as String;
       await waitForInvalidation(harness.client, 'workspaces');
 
-      final ws2 = await harness.client.createWorkspace(
-        projectPath: dir2.path,
-        configYaml: _validConfigYaml,
-      );
+      final ws2 = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {'project_path': dir2.path, 'config_yaml': _validConfigYaml},
+      ))).data;
       final id2 = ws2['id'] as String;
       await waitForInvalidation(harness.client, 'workspaces');
 
       addTearDown(() async {
         try {
-          await harness.client.deleteWorkspace(id1);
+          await harness.client.send(DeleteWorkspace(id: id1));
         } catch (_) {}
         try {
-          await harness.client.deleteWorkspace(id2);
+          await harness.client.send(DeleteWorkspace(id: id2));
         } catch (_) {}
       });
 
@@ -279,7 +289,7 @@ void main() {
       expect(newIds, containsAll([id1, id2]));
 
       // Delete one, verify only the other remains.
-      await harness.client.deleteWorkspace(id1);
+      await harness.client.send(DeleteWorkspace(id: id1));
       await waitForInvalidation(harness.client, 'workspaces');
 
       final afterDelete =
@@ -297,15 +307,15 @@ void main() {
       try {
         final results = await Future.wait(
           dirs.map(
-            (dir) => harness.client.createWorkspace(
-              projectPath: dir.path,
-              configYaml: _validConfigYaml,
-            ),
+            (dir) => harness.client.send(RawEngineCommand(
+              method: 'create_workspace',
+              params: {'project_path': dir.path, 'config_yaml': _validConfigYaml},
+            )),
           ),
         );
 
         for (final r in results) {
-          final id = r['id'] as String;
+          final id = r.data['id'] as String;
           expect(id, isNotEmpty);
           createdIds.add(id);
         }
@@ -316,7 +326,7 @@ void main() {
       } finally {
         for (final id in createdIds) {
           try {
-            await harness.client.deleteWorkspace(id);
+            await harness.client.send(DeleteWorkspace(id: id));
           } catch (_) {}
         }
       }

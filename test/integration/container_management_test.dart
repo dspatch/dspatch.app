@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dspatch_app/engine_client/engine_client.dart';
+import 'package:dspatch_app/models/commands/commands.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
@@ -66,7 +67,7 @@ void main() {
 
       testProviderName =
           'test-cm-${DateTime.now().millisecondsSinceEpoch}';
-      await harness.client.createAgentProvider(
+      await harness.client.send(CreateAgentProvider(
         request: {
           'name': testProviderName,
           'sourceType': 'local',
@@ -77,7 +78,7 @@ void main() {
           'fields': <String, String>{},
           'hubTags': <String>[],
         },
-      );
+      ));
     }
   });
 
@@ -97,7 +98,9 @@ void main() {
         return;
       }
 
-      final result = await harness.client.detectDockerStatus();
+      final result = (await harness.client.send(
+        RawEngineCommand(method: 'detect_docker_status'),
+      )).data;
       expect(result['available'], isTrue);
       // The response should contain meaningful Docker status information.
       expect(result, isA<Map<String, dynamic>>());
@@ -109,7 +112,12 @@ void main() {
         return;
       }
 
-      final result = await harness.client.listContainers();
+      final rawResult = (await harness.client.send(
+        RawEngineCommand(method: 'list_containers'),
+      )).data;
+      final result = (rawResult['containers'] as List?)
+              ?.cast<Map<String, dynamic>>() ??
+          [];
       expect(result, isA<List<Map<String, dynamic>>>());
 
       // If there are containers, each should have an id field.
@@ -124,7 +132,9 @@ void main() {
         return;
       }
 
-      final result = await harness.client.stopAllContainers();
+      final result = (await harness.client.send(
+        RawEngineCommand(method: 'stop_all_containers'),
+      )).data;
       expect(result, isA<Map<String, dynamic>>());
     });
 
@@ -134,7 +144,9 @@ void main() {
         return;
       }
 
-      final result = await harness.client.deleteStoppedContainers();
+      final result = (await harness.client.send(
+        RawEngineCommand(method: 'delete_stopped_containers'),
+      )).data;
       expect(result, isA<Map<String, dynamic>>());
     });
 
@@ -144,7 +156,9 @@ void main() {
         return;
       }
 
-      final result = await harness.client.cleanOrphanedContainers();
+      final result = (await harness.client.send(
+        RawEngineCommand(method: 'clean_orphaned_containers'),
+      )).data;
       expect(result, isA<Map<String, dynamic>>());
     });
   });
@@ -157,23 +171,26 @@ void main() {
       }
 
       final projectDir = createTempProjectDir();
-      final workspace = await harness.client.createWorkspace(
-        projectPath: projectDir.path,
-        configYaml: _testConfigYaml(testProviderName),
-      );
+      final workspace = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {
+          'project_path': projectDir.path,
+          'config_yaml': _testConfigYaml(testProviderName),
+        },
+      ))).data;
       final workspaceId = workspace['id'] as String;
 
       addTearDown(() async {
         try {
-          await harness.client.stopWorkspace(workspaceId);
+          await harness.client.send(StopWorkspace(id: workspaceId));
         } catch (_) {}
         try {
-          await harness.client.deleteWorkspace(workspaceId);
+          await harness.client.send(DeleteWorkspace(id: workspaceId));
         } catch (_) {}
       });
 
       // Launch workspace to create a container.
-      await harness.client.launchWorkspace(workspaceId);
+      await harness.client.send(LaunchWorkspace(id: workspaceId));
       await _waitForInvalidation(harness.client, 'workspace_runs');
 
       // Get the run record to find the container ID.
@@ -184,11 +201,16 @@ void main() {
       expect(run.id, isNotEmpty);
 
       // List containers and verify we get a list back.
-      final containers = await harness.client.listContainers();
+      final rawContainers = (await harness.client.send(
+        RawEngineCommand(method: 'list_containers'),
+      )).data;
+      final containers = (rawContainers['containers'] as List?)
+              ?.cast<Map<String, dynamic>>() ??
+          [];
       expect(containers, isA<List<Map<String, dynamic>>>());
 
       // Stop the workspace (which stops the container).
-      await harness.client.stopWorkspace(workspaceId);
+      await harness.client.send(StopWorkspace(id: workspaceId));
       await _waitForInvalidation(harness.client, 'workspace_runs');
 
       // Verify run status updated.
@@ -207,26 +229,31 @@ void main() {
       }
 
       final projectDir = createTempProjectDir();
-      final workspace = await harness.client.createWorkspace(
-        projectPath: projectDir.path,
-        configYaml: _testConfigYaml(testProviderName),
-      );
+      final workspace = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {
+          'project_path': projectDir.path,
+          'config_yaml': _testConfigYaml(testProviderName),
+        },
+      ))).data;
       final workspaceId = workspace['id'] as String;
 
       addTearDown(() async {
         try {
-          await harness.client.stopWorkspace(workspaceId);
+          await harness.client.send(StopWorkspace(id: workspaceId));
         } catch (_) {}
         try {
-          await harness.client.deleteWorkspace(workspaceId);
+          await harness.client.send(DeleteWorkspace(id: workspaceId));
         } catch (_) {}
       });
 
-      await harness.client.launchWorkspace(workspaceId);
+      await harness.client.send(LaunchWorkspace(id: workspaceId));
       await _waitForInvalidation(harness.client, 'workspace_runs');
 
       // Stop all containers via the bulk operation.
-      final result = await harness.client.stopAllContainers();
+      final result = (await harness.client.send(
+        RawEngineCommand(method: 'stop_all_containers'),
+      )).data;
       expect(result, isA<Map<String, dynamic>>());
     });
   });
@@ -239,7 +266,7 @@ void main() {
       }
 
       expect(
-        () => harness.client.stopContainer(id: 'nonexistent-container-id'),
+        () => harness.client.send(StopContainer(id: 'nonexistent-container-id')),
         throwsA(
           isA<EngineException>().having(
             (e) => e.code,
@@ -257,7 +284,7 @@ void main() {
       }
 
       expect(
-        () => harness.client.removeContainer(id: 'nonexistent-container-id'),
+        () => harness.client.send(RemoveContainer(id: 'nonexistent-container-id')),
         throwsA(
           isA<EngineException>().having(
             (e) => e.code,
@@ -275,9 +302,10 @@ void main() {
       }
 
       expect(
-        () => harness.client.containerStats(
-          containerId: 'nonexistent-container-id',
-        ),
+        () => harness.client.send(RawEngineCommand(
+          method: 'container_stats',
+          params: {'run_id': 'nonexistent-container-id'},
+        )),
         throwsA(
           isA<EngineException>().having(
             (e) => e.code,
@@ -296,7 +324,9 @@ void main() {
         return;
       }
 
-      final result = await harness.client.detectDockerStatus();
+      final result = (await harness.client.send(
+        RawEngineCommand(method: 'detect_docker_status'),
+      )).data;
       expect(result['available'], isFalse);
     });
   });

@@ -1,9 +1,22 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
 import 'package:dspatch_app/engine_client/engine_client.dart';
+import 'package:dspatch_app/models/commands/commands.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
+
+/// Sends a raw hub command and returns the response data as a map.
+Future<Map<String, dynamic>> _hubRaw(
+  TestHarness harness,
+  String method, [
+  Map<String, dynamic>? params,
+]) async {
+  final response = await harness.client.send(
+    RawEngineCommand(method: method, params: params),
+  );
+  return response.data;
+}
 
 /// Runs a hub API test, skipping if the backend or hub API is unavailable.
 Future<void> hubTest(
@@ -40,7 +53,11 @@ void main() {
   group('Community Hub browsing (requires localhost:3000)', () {
     test('browse agents returns paginated list', () async {
       await hubTest(harness, () async {
-        final result = await harness.client.hubBrowseAgents(perPage: 5);
+        final result = await _hubRaw(
+          harness,
+          'hub_browse_agents',
+          {'per_page': 5},
+        );
 
         expect(result, contains('items'));
         expect(result['items'], isA<List>());
@@ -52,9 +69,10 @@ void main() {
 
     test('browse agents with search filter', () async {
       await hubTest(harness, () async {
-        final result = await harness.client.hubBrowseAgents(
-          search: 'test',
-          perPage: 5,
+        final result = await _hubRaw(
+          harness,
+          'hub_browse_agents',
+          {'search': 'test', 'per_page': 5},
         );
 
         expect(result, contains('items'));
@@ -65,7 +83,10 @@ void main() {
     test('browse agents with category filter', () async {
       await hubTest(harness, () async {
         // First get a valid category, then filter by it.
-        final categories = await harness.client.hubAgentCategories();
+        final categories = await _hubRaw(
+          harness,
+          'hub_agent_categories',
+        );
         expect(categories, contains('categories'));
         final categoryList = categories['categories'] as List;
 
@@ -74,9 +95,10 @@ void main() {
           final categorySlug = firstCategory['slug'] as String? ??
               firstCategory['name'] as String;
 
-          final result = await harness.client.hubBrowseAgents(
-            category: categorySlug,
-            perPage: 5,
+          final result = await _hubRaw(
+            harness,
+            'hub_browse_agents',
+            {'category': categorySlug, 'per_page': 5},
           );
 
           expect(result, contains('items'));
@@ -88,16 +110,21 @@ void main() {
     test('browse agents pagination workflow', () async {
       await hubTest(harness, () async {
         // Fetch page 1 with a small page size.
-        final page1 = await harness.client.hubBrowseAgents(perPage: 1);
+        final page1 = await _hubRaw(
+          harness,
+          'hub_browse_agents',
+          {'per_page': 1},
+        );
 
         expect(page1, contains('items'));
         final items1 = page1['items'] as List;
 
         // If there is a cursor, fetch page 2 and verify it returns results.
         if (page1['cursor'] != null) {
-          final page2 = await harness.client.hubBrowseAgents(
-            perPage: 1,
-            cursor: page1['cursor'] as String,
+          final page2 = await _hubRaw(
+            harness,
+            'hub_browse_agents',
+            {'per_page': 1, 'cursor': page1['cursor'] as String},
           );
 
           expect(page2, contains('items'));
@@ -113,7 +140,11 @@ void main() {
 
     test('browse workspaces returns paginated list', () async {
       await hubTest(harness, () async {
-        final result = await harness.client.hubBrowseWorkspaces(perPage: 5);
+        final result = await _hubRaw(
+          harness,
+          'hub_browse_workspaces',
+          {'per_page': 5},
+        );
 
         expect(result, contains('items'));
         expect(result['items'], isA<List>());
@@ -125,7 +156,10 @@ void main() {
 
     test('get agent categories', () async {
       await hubTest(harness, () async {
-        final result = await harness.client.hubAgentCategories();
+        final result = await _hubRaw(
+          harness,
+          'hub_agent_categories',
+        );
 
         expect(result, contains('categories'));
         expect(result['categories'], isA<List>());
@@ -134,7 +168,10 @@ void main() {
 
     test('get workspace categories', () async {
       await hubTest(harness, () async {
-        final result = await harness.client.hubWorkspaceCategories();
+        final result = await _hubRaw(
+          harness,
+          'hub_workspace_categories',
+        );
 
         expect(result, contains('categories'));
         expect(result['categories'], isA<List>());
@@ -144,8 +181,11 @@ void main() {
     test('resolve non-existent agent returns error', () async {
       await hubTest(harness, () async {
         expect(
-          () => harness.client.hubResolveAgent(
-            slug: 'nonexistent/agent-slug-xyz',
+          () => harness.client.send(
+            RawEngineCommand(
+              method: 'hub_resolve_agent',
+              params: {'agent_id': 'nonexistent/agent-slug-xyz'},
+            ),
           ),
           throwsA(
             isA<EngineException>().having(
@@ -161,8 +201,11 @@ void main() {
     test('resolve non-existent workspace returns error', () async {
       await hubTest(harness, () async {
         expect(
-          () => harness.client.hubResolveWorkspaceDetails(
-            slug: 'nonexistent/workspace-slug-xyz',
+          () => harness.client.send(
+            RawEngineCommand(
+              method: 'hub_resolve_workspace_details',
+              params: {'slug': 'nonexistent/workspace-slug-xyz'},
+            ),
           ),
           throwsA(
             isA<EngineException>().having(
@@ -177,7 +220,10 @@ void main() {
 
     test('popular tags returns tag list', () async {
       await hubTest(harness, () async {
-        final result = await harness.client.hubPopularTags();
+        final result = await _hubRaw(
+          harness,
+          'hub_popular_tags',
+        );
 
         expect(result, contains('tags'));
         expect(result['tags'], isA<List>());
@@ -186,7 +232,11 @@ void main() {
 
     test('search tags returns results', () async {
       await hubTest(harness, () async {
-        final result = await harness.client.hubSearchTags(query: 'test');
+        final result = await _hubRaw(
+          harness,
+          'hub_search_tags',
+          {'query': 'test'},
+        );
 
         expect(result, contains('tags'));
         expect(result['tags'], isA<List>());
@@ -195,9 +245,14 @@ void main() {
 
     test('search with nonsense query returns empty items', () async {
       await hubTest(harness, () async {
-        final result = await harness.client.hubBrowseAgents(
-          search: 'zzz-no-match-guaranteed-${DateTime.now().millisecondsSinceEpoch}',
-          perPage: 5,
+        final result = await _hubRaw(
+          harness,
+          'hub_browse_agents',
+          {
+            'search':
+                'zzz-no-match-guaranteed-${DateTime.now().millisecondsSinceEpoch}',
+            'per_page': 5,
+          },
         );
 
         expect(result, contains('items'));

@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:dspatch_app/engine_client/engine_auth.dart';
 import 'package:dspatch_app/engine_client/engine_client.dart';
 import 'package:dspatch_app/engine_client/engine_connection.dart';
+import 'package:dspatch_app/models/commands/commands.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
@@ -37,38 +38,38 @@ void main() {
   group('Unknown and malformed commands', () {
     test('unknown method returns error, engine stays alive', () async {
       expect(
-        () => harness.client.sendCommand('totally_fake_method'),
+        () => harness.client.send(RawEngineCommand(method: 'totally_fake_method')),
         throwsA(isA<EngineException>()),
       );
 
       // Engine should still respond after the error.
       final ts = DateTime.now().millisecondsSinceEpoch;
-      await harness.client.setPreference('edge_alive_$ts', 'ok');
-      final result = await harness.client.getPreference('edge_alive_$ts');
+      await harness.client.send(SetPreference(key: 'edge_alive_$ts', value: 'ok'));
+      final result = (await harness.client.send(RawEngineCommand(method: 'get_preference', params: {'key': 'edge_alive_$ts'}))).data;
       expect(result, isA<Map<String, dynamic>>());
     });
 
     test('empty params for command requiring params', () async {
       expect(
-        () => harness.client.sendCommand('get_workspace', {}),
+        () => harness.client.send(RawEngineCommand(method: 'get_workspace', params: {})),
         throwsA(isA<EngineException>()),
       );
     });
 
     test('extra unknown params handled gracefully', () async {
       final ts = DateTime.now().millisecondsSinceEpoch;
-      await harness.client.setPreference('edge_extra_$ts', 'hello');
+      await harness.client.send(SetPreference(key: 'edge_extra_$ts', value: 'hello'));
 
-      final result = await harness.client.sendCommand('set_preference', {
+      final result = (await harness.client.send(RawEngineCommand(method: 'set_preference', params: {
         'key': 'edge_extra_$ts',
         'value': 'world',
         'unknown_field': 'ignored',
-      });
+      }))).data;
 
       expect(result, isA<Map<String, dynamic>>());
 
       // Verify the value was actually updated.
-      final readBack = await harness.client.getPreference('edge_extra_$ts');
+      final readBack = (await harness.client.send(RawEngineCommand(method: 'get_preference', params: {'key': 'edge_extra_$ts'}))).data;
       expect(readBack['value'], equals('world'));
     });
   });
@@ -76,10 +77,10 @@ void main() {
   group('Concurrent commands', () {
     test('100 rapid-fire set_preference all persisted', () async {
       final ts = DateTime.now().millisecondsSinceEpoch;
-      final futures = <Future<Map<String, dynamic>>>[];
+      final futures = <Future>[];
       for (var i = 0; i < 100; i++) {
         futures.add(
-          harness.client.setPreference('edge_rapid_${ts}_$i', 'value_$i'),
+          harness.client.send(SetPreference(key: 'edge_rapid_${ts}_$i', value: 'value_$i')),
         );
       }
 
@@ -96,26 +97,29 @@ void main() {
     test('concurrent create and delete on different resources', () async {
       // Create two providers up front so we have distinct IDs.
       final ts = DateTime.now().millisecondsSinceEpoch;
-      final created1 = await harness.client.createAgentProvider(
-        request: validProviderRequest(name: 'edge-conc-1-$ts'),
-      );
-      final created2 = await harness.client.createAgentProvider(
-        request: validProviderRequest(name: 'edge-conc-2-$ts'),
-      );
+      final created1 = (await harness.client.send(RawEngineCommand(
+        method: 'create_agent_provider',
+        params: validProviderRequest(name: 'edge-conc-1-$ts'),
+      ))).data;
+      final created2 = (await harness.client.send(RawEngineCommand(
+        method: 'create_agent_provider',
+        params: validProviderRequest(name: 'edge-conc-2-$ts'),
+      ))).data;
       final id1 = created1['id'] as String;
       final id2 = created2['id'] as String;
 
       // Fire a create and two deletes concurrently.
       final results = await Future.wait([
-        harness.client.createAgentProvider(
-          request: validProviderRequest(name: 'edge-conc-3-$ts'),
-        ),
-        harness.client.deleteAgentProvider(id1),
-        harness.client.deleteAgentProvider(id2),
+        harness.client.send(RawEngineCommand(
+          method: 'create_agent_provider',
+          params: validProviderRequest(name: 'edge-conc-3-$ts'),
+        )),
+        harness.client.send(DeleteAgentProvider(id: id1)),
+        harness.client.send(DeleteAgentProvider(id: id2)),
       ]);
 
       // The create should have returned a valid id.
-      final newId = results[0]['id'] as String;
+      final newId = (results[0] as RawResponse).data['id'] as String;
       expect(newId, isNotEmpty);
 
       // Verify the deleted providers are gone and the new one exists
@@ -150,14 +154,13 @@ void main() {
 
       try {
         // Client 1 writes, client 2 reads.
-        await harness.client
-            .setPreference('edge_conn1_$ts', 'from_client1');
-        final read1 = await client2.getPreference('edge_conn1_$ts');
+        await harness.client.send(SetPreference(key: 'edge_conn1_$ts', value: 'from_client1'));
+        final read1 = (await client2.send(RawEngineCommand(method: 'get_preference', params: {'key': 'edge_conn1_$ts'}))).data;
         expect(read1['value'], equals('from_client1'));
 
         // Client 2 writes, client 1 reads.
-        await client2.setPreference('edge_conn2_$ts', 'from_client2');
-        final read2 = await harness.client.getPreference('edge_conn2_$ts');
+        await client2.send(SetPreference(key: 'edge_conn2_$ts', value: 'from_client2'));
+        final read2 = (await harness.client.send(RawEngineCommand(method: 'get_preference', params: {'key': 'edge_conn2_$ts'}))).data;
         expect(read2['value'], equals('from_client2'));
       } finally {
         client2.dispose();
@@ -170,10 +173,10 @@ void main() {
       final ts = DateTime.now().millisecondsSinceEpoch;
       final largeValue = 'x' * (1024 * 1024); // 1 MB
 
-      await harness.client.setPreference('edge_1mb_$ts', largeValue);
+      await harness.client.send(SetPreference(key: 'edge_1mb_$ts', value: largeValue));
 
       // Read back and verify the full value survived.
-      final result = await harness.client.getPreference('edge_1mb_$ts');
+      final result = (await harness.client.send(RawEngineCommand(method: 'get_preference', params: {'key': 'edge_1mb_$ts'}))).data;
       expect(result['value'], equals(largeValue));
     });
   });
@@ -193,10 +196,8 @@ void main() {
 
       try {
         // Set a preference twice rapidly -- each triggers an invalidation.
-        await harness.client
-            .setPreference('edge_inval_$ts', 'first');
-        await harness.client
-            .setPreference('edge_inval_$ts', 'second');
+        await harness.client.send(SetPreference(key: 'edge_inval_$ts', value: 'first'));
+        await harness.client.send(SetPreference(key: 'edge_inval_$ts', value: 'second'));
 
         // Wait for invalidation events to actually arrive.
         await completer.future.timeout(const Duration(seconds: 5));
@@ -204,8 +205,7 @@ void main() {
         expect(invalidationCount, greaterThanOrEqualTo(2));
 
         // Verify the final value is correct (commands were not blocked).
-        final result =
-            await harness.client.getPreference('edge_inval_$ts');
+        final result = (await harness.client.send(RawEngineCommand(method: 'get_preference', params: {'key': 'edge_inval_$ts'}))).data;
         expect(result['value'], equals('second'));
       } finally {
         await subscription.cancel();

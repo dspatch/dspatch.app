@@ -2,6 +2,7 @@
 
 import 'dart:async';
 
+import 'package:dspatch_app/models/commands/commands.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
@@ -23,14 +24,11 @@ void main() {
       final ts = DateTime.now().millisecondsSinceEpoch;
       final name = 'test_key_create_$ts';
 
-      final result = await harness.client.createApiKey(
+      await harness.client.send(CreateApiKey(
         name: name,
         value: 'sk-test-1234',
         providerName: 'openai',
-      );
-
-      // create_api_key returns null data (empty map on Dart side).
-      expect(result, isA<Map<String, dynamic>>());
+      ));
 
       // Verify the key exists in the Drift database.
       final rows =
@@ -44,7 +42,7 @@ void main() {
       expect(storedKey, isNotEmpty);
 
       addTearDown(() async {
-        await harness.client.deleteApiKey(match.first.id);
+        await harness.client.send(DeleteApiKey(id: match.first.id));
       });
     });
 
@@ -52,23 +50,23 @@ void main() {
       final ts = DateTime.now().millisecondsSinceEpoch;
       final name = 'test_key_lookup_$ts';
 
-      await harness.client.createApiKey(
+      await harness.client.send(CreateApiKey(
         name: name,
         value: 'sk-test-5678',
         providerName: 'openai',
-      );
+      ));
 
-      final result = await harness.client.sendCommand(
-        'get_api_key_by_name',
-        {'name': name},
-      );
+      final result = (await harness.client.send(RawEngineCommand(
+        method: 'get_api_key_by_name',
+        params: {'name': name},
+      ))).data;
 
       expect(result['name'], equals(name));
 
       // Clean up via the fetched ID.
       addTearDown(() async {
         final id = result['id'] as String;
-        await harness.client.deleteApiKey(id);
+        await harness.client.send(DeleteApiKey(id: id));
       });
     });
 
@@ -76,25 +74,25 @@ void main() {
       final ts = DateTime.now().millisecondsSinceEpoch;
       final name = 'test_key_delete_$ts';
 
-      await harness.client.createApiKey(
+      await harness.client.send(CreateApiKey(
         name: name,
         value: 'sk-test-delete',
         providerName: 'openai',
-      );
+      ));
 
-      final fetched = await harness.client.sendCommand(
-        'get_api_key_by_name',
-        {'name': name},
-      );
+      final fetched = (await harness.client.send(RawEngineCommand(
+        method: 'get_api_key_by_name',
+        params: {'name': name},
+      ))).data;
       final id = fetched['id'] as String;
 
-      await harness.client.deleteApiKey(id);
+      await harness.client.send(DeleteApiKey(id: id));
 
       // Verify via engine command: get_api_key_by_name returns null.
-      final afterDelete = await harness.client.sendCommand(
-        'get_api_key_by_name',
-        {'name': name},
-      );
+      final afterDelete = (await harness.client.send(RawEngineCommand(
+        method: 'get_api_key_by_name',
+        params: {'name': name},
+      ))).data;
       expect(afterDelete['value'], isNull);
 
       // Verify via Drift: row is gone.
@@ -111,13 +109,11 @@ void main() {
       final ts = DateTime.now().millisecondsSinceEpoch;
       final name = 'test_key_empty_$ts';
 
-      final result = await harness.client.createApiKey(
+      await harness.client.send(CreateApiKey(
         name: name,
         value: '',
         providerName: 'openai',
-      );
-
-      expect(result, isA<Map<String, dynamic>>());
+      ));
 
       // Verify it was stored.
       final rows =
@@ -126,7 +122,7 @@ void main() {
       expect(match, hasLength(1));
 
       addTearDown(() async {
-        await harness.client.deleteApiKey(match.first.id);
+        await harness.client.send(DeleteApiKey(id: match.first.id));
       });
     });
 
@@ -134,12 +130,10 @@ void main() {
       final ts = DateTime.now().millisecondsSinceEpoch;
       final name = 'test_key_no_provider_$ts';
 
-      final result = await harness.client.createApiKey(
+      await harness.client.send(CreateApiKey(
         name: name,
         value: 'sk-test-no-provider',
-      );
-
-      expect(result, isA<Map<String, dynamic>>());
+      ));
 
       // Verify it was stored and has a non-empty provider label.
       final rows =
@@ -149,7 +143,7 @@ void main() {
       expect(match.first.providerLabel, isNotEmpty);
 
       addTearDown(() async {
-        await harness.client.deleteApiKey(match.first.id);
+        await harness.client.send(DeleteApiKey(id: match.first.id));
       });
     });
 
@@ -163,20 +157,20 @@ void main() {
       });
 
       final name = 'test_key_inv_$ts';
-      await harness.client.createApiKey(
+      await harness.client.send(CreateApiKey(
         name: name,
         value: 'sk-test-inv',
         providerName: 'openai',
-      );
+      ));
 
       addTearDown(() async {
         await sub.cancel();
-        final fetched = await harness.client.sendCommand(
-          'get_api_key_by_name',
-          {'name': name},
-        );
+        final fetched = (await harness.client.send(RawEngineCommand(
+          method: 'get_api_key_by_name',
+          params: {'name': name},
+        ))).data;
         if (fetched['id'] != null) {
-          await harness.client.deleteApiKey(fetched['id'] as String);
+          await harness.client.send(DeleteApiKey(id: fetched['id'] as String));
         }
       });
 
@@ -193,16 +187,16 @@ void main() {
       final ts = DateTime.now().millisecondsSinceEpoch;
       final name = 'test_key_inv_del_$ts';
 
-      await harness.client.createApiKey(
+      await harness.client.send(CreateApiKey(
         name: name,
         value: 'sk-test-inv-del',
         providerName: 'openai',
-      );
+      ));
 
-      final fetched = await harness.client.sendCommand(
-        'get_api_key_by_name',
-        {'name': name},
-      );
+      final fetched = (await harness.client.send(RawEngineCommand(
+        method: 'get_api_key_by_name',
+        params: {'name': name},
+      ))).data;
       final id = fetched['id'] as String;
 
       final completer = Completer<List<String>>();
@@ -214,7 +208,7 @@ void main() {
 
       addTearDown(() => sub.cancel());
 
-      await harness.client.deleteApiKey(id);
+      await harness.client.send(DeleteApiKey(id: id));
 
       final tables = await completer.future.timeout(
         const Duration(seconds: 5),

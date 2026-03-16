@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
 import 'package:dspatch_app/engine_client/engine_client.dart';
+import 'package:dspatch_app/models/commands/commands.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
@@ -20,10 +21,10 @@ void main() {
   group('Inquiry response', () {
     test('respond to non-existent inquiry returns NOT_FOUND', () async {
       expect(
-        () => harness.client.respondToInquiry(
+        () => harness.client.send(RespondToInquiry(
           inquiryId: 'nonexistent-inquiry-id',
           response: 'yes',
-        ),
+        )),
         throwsA(
           isA<EngineException>().having(
             (e) => e.code,
@@ -36,10 +37,10 @@ void main() {
 
     test('empty response to non-existent inquiry returns NOT_FOUND', () async {
       expect(
-        () => harness.client.respondToInquiry(
+        () => harness.client.send(RespondToInquiry(
           inquiryId: 'nonexistent-inquiry-id',
           response: '',
-        ),
+        )),
         throwsA(
           isA<EngineException>().having(
             (e) => e.code,
@@ -53,11 +54,11 @@ void main() {
     test('negative choice index to non-existent inquiry returns NOT_FOUND',
         () async {
       expect(
-        () => harness.client.respondToInquiry(
+        () => harness.client.send(RespondToInquiry(
           inquiryId: 'nonexistent-inquiry-id',
           response: 'pick',
           choiceIndex: -1,
-        ),
+        )),
         throwsA(
           isA<EngineException>().having(
             (e) => e.code,

@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:dspatch_app/engine_client/engine_client.dart';
+import 'package:dspatch_app/models/commands/commands.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
@@ -41,12 +42,15 @@ void main() {
     test('create returns provider with all fields populated', () async {
       final ts = DateTime.now().millisecondsSinceEpoch;
       final name = 'create-test-$ts';
-      final result = await harness.client.createAgentProvider(
-        request: validProviderRequest(name: name),
-      );
+      final result = (await harness.client.send(RawEngineCommand(
+        method: 'create_agent_provider',
+        params: validProviderRequest(name: name),
+      )))
+          .data;
 
       addTearDown(
-        () => harness.client.deleteAgentProvider(result['id'] as String),
+        () => harness.client
+            .send(DeleteAgentProvider(id: result['id'] as String)),
       );
 
       // Verify response fields.
@@ -71,17 +75,20 @@ void main() {
     test('get returns created provider with correct fields', () async {
       final ts = DateTime.now().millisecondsSinceEpoch;
       final name = 'get-test-$ts';
-      final created = await harness.client.createAgentProvider(
-        request: validProviderRequest(name: name),
-      );
+      final created = (await harness.client.send(RawEngineCommand(
+        method: 'create_agent_provider',
+        params: validProviderRequest(name: name),
+      )))
+          .data;
       final id = created['id'] as String;
 
-      addTearDown(() => harness.client.deleteAgentProvider(id));
+      addTearDown(() => harness.client.send(DeleteAgentProvider(id: id)));
 
-      final fetched = await harness.client.sendCommand(
-        'get_agent_provider',
-        {'id': id},
-      );
+      final fetched = (await harness.client.send(RawEngineCommand(
+        method: 'get_agent_provider',
+        params: {'id': id},
+      )))
+          .data;
 
       expect(fetched['id'], equals(id));
       expect(fetched['name'], equals(name));
@@ -92,17 +99,20 @@ void main() {
 
     test('update changes fields and persists to DB', () async {
       final ts = DateTime.now().millisecondsSinceEpoch;
-      final created = await harness.client.createAgentProvider(
-        request: validProviderRequest(name: 'before-update-$ts'),
-      );
+      final created = (await harness.client.send(RawEngineCommand(
+        method: 'create_agent_provider',
+        params: validProviderRequest(name: 'before-update-$ts'),
+      )))
+          .data;
       final id = created['id'] as String;
 
-      addTearDown(() => harness.client.deleteAgentProvider(id));
+      addTearDown(() => harness.client.send(DeleteAgentProvider(id: id)));
 
-      final updated = await harness.client.updateAgentProvider(
-        id: id,
-        request: validProviderRequest(name: 'after-update-$ts'),
-      );
+      final updated = (await harness.client.send(RawEngineCommand(
+        method: 'update_agent_provider',
+        params: {'id': id, ...validProviderRequest(name: 'after-update-$ts')},
+      )))
+          .data;
 
       expect(updated['name'], equals('after-update-$ts'));
 
@@ -115,16 +125,21 @@ void main() {
     });
 
     test('delete succeeds, then get throws NOT_FOUND', () async {
-      final created = await harness.client.createAgentProvider(
-        request: validProviderRequest(),
-      );
+      final created = (await harness.client.send(RawEngineCommand(
+        method: 'create_agent_provider',
+        params: validProviderRequest(),
+      )))
+          .data;
       final id = created['id'] as String;
 
-      await harness.client.deleteAgentProvider(id);
+      await harness.client.send(DeleteAgentProvider(id: id));
 
       // Verify via engine command.
       expect(
-        () => harness.client.sendCommand('get_agent_provider', {'id': id}),
+        () => harness.client.send(RawEngineCommand(
+          method: 'get_agent_provider',
+          params: {'id': id},
+        )),
         throwsA(
           isA<EngineException>().having((e) => e.code, 'code', 'NOT_FOUND'),
         ),
@@ -139,16 +154,20 @@ void main() {
 
     test('delete non-existent succeeds silently', () async {
       // SQL DELETE on a non-existent row returns success (zero rows affected).
-      final result = await harness.client
-          .deleteAgentProvider('00000000-0000-0000-0000-000000000000');
+      final result = (await harness.client.send(RawEngineCommand(
+        method: 'delete_agent_provider',
+        params: {'id': '00000000-0000-0000-0000-000000000000'},
+      )))
+          .data;
       expect(result, isA<Map<String, dynamic>>());
     });
 
     test('create with empty request returns VALIDATION_ERROR', () async {
       expect(
-        () => harness.client.createAgentProvider(
-          request: <String, dynamic>{},
-        ),
+        () => harness.client.send(RawEngineCommand(
+          method: 'create_agent_provider',
+          params: <String, dynamic>{},
+        )),
         throwsA(
           isA<EngineException>()
               .having((e) => e.code, 'code', 'VALIDATION_ERROR'),
@@ -158,10 +177,13 @@ void main() {
 
     test('update non-existent returns error', () async {
       expect(
-        () => harness.client.updateAgentProvider(
-          id: '00000000-0000-0000-0000-000000000000',
-          request: validProviderRequest(),
-        ),
+        () => harness.client.send(RawEngineCommand(
+          method: 'update_agent_provider',
+          params: {
+            'id': '00000000-0000-0000-0000-000000000000',
+            ...validProviderRequest(),
+          },
+        )),
         throwsA(isA<EngineException>()),
       );
     });
@@ -174,13 +196,16 @@ void main() {
         }
       });
 
-      final result = await harness.client.createAgentProvider(
-        request: validProviderRequest(),
-      );
+      final result = (await harness.client.send(RawEngineCommand(
+        method: 'create_agent_provider',
+        params: validProviderRequest(),
+      )))
+          .data;
 
       addTearDown(() async {
         await sub.cancel();
-        await harness.client.deleteAgentProvider(result['id'] as String);
+        await harness.client
+            .send(DeleteAgentProvider(id: result['id'] as String));
       });
 
       final tables = await completer.future.timeout(
@@ -197,24 +222,27 @@ void main() {
       final ids = <String>[];
 
       for (var i = 0; i < 3; i++) {
-        final result = await harness.client.createAgentProvider(
-          request: validProviderRequest(name: 'multi-$ts-$i'),
-        );
+        final result = (await harness.client.send(RawEngineCommand(
+          method: 'create_agent_provider',
+          params: validProviderRequest(name: 'multi-$ts-$i'),
+        )))
+            .data;
         ids.add(result['id'] as String);
       }
 
       addTearDown(() async {
         for (final id in ids) {
-          await harness.client.deleteAgentProvider(id);
+          await harness.client.send(DeleteAgentProvider(id: id));
         }
       });
 
       // Verify each is retrievable via engine command.
       for (var i = 0; i < ids.length; i++) {
-        final fetched = await harness.client.sendCommand(
-          'get_agent_provider',
-          {'id': ids[i]},
-        );
+        final fetched = (await harness.client.send(RawEngineCommand(
+          method: 'get_agent_provider',
+          params: {'id': ids[i]},
+        )))
+            .data;
         expect(fetched['id'], equals(ids[i]));
         expect(fetched['name'], equals('multi-$ts-$i'));
       }

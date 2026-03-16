@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:dspatch_app/database/invalidation_bridge.dart';
+import 'package:dspatch_app/models/commands/commands.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
@@ -47,7 +48,7 @@ void main() {
         });
 
         try {
-          await harness.client.setPreference(key, 'reactive_value');
+          await harness.client.send(SetPreference(key: key, value: 'reactive_value'));
           await completer.future.timeout(const Duration(seconds: 5));
           expect(emissionCount, greaterThanOrEqualTo(2));
         } finally {
@@ -69,7 +70,7 @@ void main() {
       });
 
       try {
-        await harness.client.createAgentProvider(
+        await harness.client.send(CreateAgentProvider(
           request: {
             'name':
                 'reactive-test-${DateTime.now().millisecondsSinceEpoch}',
@@ -81,7 +82,7 @@ void main() {
             'fields': <String, String>{},
             'hubTags': <String>[],
           },
-        );
+        ));
 
         // Wait for the invalidation event with a timeout instead of
         // a fixed delay -- eliminates the race condition.
@@ -129,7 +130,7 @@ void main() {
 
         try {
           for (var i = 0; i < 10; i++) {
-            await harness.client.setPreference('${prefix}_$i', 'value_$i');
+            await harness.client.send(SetPreference(key: '${prefix}_$i', value: 'value_$i'));
           }
 
           // Wait for the watch query to reflect all 10 written values.

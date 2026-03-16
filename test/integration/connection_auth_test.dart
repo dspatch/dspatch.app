@@ -3,6 +3,7 @@
 import 'package:dspatch_app/engine_client/engine_auth.dart';
 import 'package:dspatch_app/engine_client/engine_connection.dart';
 import 'package:dspatch_app/engine_client/engine_health.dart';
+import 'package:dspatch_app/models/commands/commands.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
@@ -77,7 +78,10 @@ void main() {
       // Prove the connection is functional by sending a real command.
       // get_preference for a nonexistent key should return a result
       // (possibly with a null value) rather than throwing.
-      final result = await harness.client.getPreference('_test_nonexistent');
+      final result = (await harness.client.send(RawEngineCommand(
+        method: 'get_preference',
+        params: {'key': '_test_nonexistent'},
+      ))).data;
       expect(result, isA<Map<String, dynamic>>());
     });
 

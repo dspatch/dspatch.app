@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dspatch_app/engine_client/engine_client.dart';
+import 'package:dspatch_app/models/commands/commands.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'test_harness.dart';
@@ -67,7 +68,7 @@ void main() {
 
       testProviderName =
           'test-echo-${DateTime.now().millisecondsSinceEpoch}';
-      await harness.client.createAgentProvider(
+      await harness.client.send(CreateAgentProvider(
         request: {
           'name': testProviderName,
           'sourceType': 'local',
@@ -78,7 +79,7 @@ void main() {
           'fields': <String, String>{},
           'hubTags': <String>[],
         },
-      );
+      ));
     }
   });
 
@@ -99,22 +100,28 @@ void main() {
       }
 
       final projectDir = createTempProjectDir();
-      final workspace = await harness.client.createWorkspace(
-        projectPath: projectDir.path,
-        configYaml: testConfigYaml(testProviderName),
-      );
+      final workspace = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {
+          'project_path': projectDir.path,
+          'config_yaml': testConfigYaml(testProviderName),
+        },
+      ))).data;
       final workspaceId = workspace['id'] as String;
 
       addTearDown(() async {
         try {
-          await harness.client.stopWorkspace(workspaceId);
+          await harness.client.send(StopWorkspace(id: workspaceId));
         } catch (_) {}
         try {
-          await harness.client.deleteWorkspace(workspaceId);
+          await harness.client.send(DeleteWorkspace(id: workspaceId));
         } catch (_) {}
       });
 
-      final launchResult = await harness.client.launchWorkspace(workspaceId);
+      final launchResult = (await harness.client.send(RawEngineCommand(
+        method: 'launch_workspace',
+        params: {'id': workspaceId},
+      ))).data;
       expect(launchResult, isA<Map<String, dynamic>>());
 
       // Wait for workspace_runs table invalidation instead of sleeping.
@@ -143,25 +150,31 @@ void main() {
       }
 
       final projectDir = createTempProjectDir();
-      final workspace = await harness.client.createWorkspace(
-        projectPath: projectDir.path,
-        configYaml: testConfigYaml(testProviderName),
-      );
+      final workspace = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {
+          'project_path': projectDir.path,
+          'config_yaml': testConfigYaml(testProviderName),
+        },
+      ))).data;
       final workspaceId = workspace['id'] as String;
 
       addTearDown(() async {
         try {
-          await harness.client.stopWorkspace(workspaceId);
+          await harness.client.send(StopWorkspace(id: workspaceId));
         } catch (_) {}
         try {
-          await harness.client.deleteWorkspace(workspaceId);
+          await harness.client.send(DeleteWorkspace(id: workspaceId));
         } catch (_) {}
       });
 
-      await harness.client.launchWorkspace(workspaceId);
+      await harness.client.send(LaunchWorkspace(id: workspaceId));
       await _waitForInvalidation(harness.client, 'workspace_runs');
 
-      final stopResult = await harness.client.stopWorkspace(workspaceId);
+      final stopResult = (await harness.client.send(RawEngineCommand(
+        method: 'stop_workspace',
+        params: {'id': workspaceId},
+      ))).data;
       expect(stopResult, isA<Map<String, dynamic>>());
 
       // Wait for the stop to be reflected in the DB.
@@ -188,27 +201,30 @@ void main() {
       }
 
       final projectDir = createTempProjectDir();
-      final workspace = await harness.client.createWorkspace(
-        projectPath: projectDir.path,
-        configYaml: testConfigYaml(testProviderName),
-      );
+      final workspace = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {
+          'project_path': projectDir.path,
+          'config_yaml': testConfigYaml(testProviderName),
+        },
+      ))).data;
       final workspaceId = workspace['id'] as String;
 
       addTearDown(() async {
         try {
-          await harness.client.deleteWorkspace(workspaceId);
+          await harness.client.send(DeleteWorkspace(id: workspaceId));
         } catch (_) {}
       });
 
-      await harness.client.launchWorkspace(workspaceId);
+      await harness.client.send(LaunchWorkspace(id: workspaceId));
       await _waitForInvalidation(harness.client, 'workspace_runs');
 
-      await harness.client.stopWorkspace(workspaceId);
+      await harness.client.send(StopWorkspace(id: workspaceId));
       await _waitForInvalidation(harness.client, 'workspace_runs');
 
       // Second stop should error — workspace is already stopped.
       expect(
-        () => harness.client.stopWorkspace(workspaceId),
+        () => harness.client.send(StopWorkspace(id: workspaceId)),
         throwsA(
           isA<EngineException>().having(
             (e) => e.code,
@@ -226,7 +242,9 @@ void main() {
       }
 
       expect(
-        () => harness.client.launchWorkspace('non-existent-workspace-id'),
+        () => harness.client.send(
+          LaunchWorkspace(id: 'non-existent-workspace-id'),
+        ),
         throwsA(
           isA<EngineException>().having(
             (e) => e.code,
@@ -244,26 +262,34 @@ void main() {
       }
 
       final projectDir = createTempProjectDir();
-      final workspace = await harness.client.createWorkspace(
-        projectPath: projectDir.path,
-        configYaml: testConfigYaml(testProviderName),
-      );
+      final workspace = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {
+          'project_path': projectDir.path,
+          'config_yaml': testConfigYaml(testProviderName),
+        },
+      ))).data;
       final workspaceId = workspace['id'] as String;
 
       addTearDown(() async {
         try {
-          await harness.client.stopWorkspace(workspaceId);
+          await harness.client.send(StopWorkspace(id: workspaceId));
         } catch (_) {}
         try {
-          await harness.client.deleteWorkspace(workspaceId);
+          await harness.client.send(DeleteWorkspace(id: workspaceId));
         } catch (_) {}
       });
 
-      await harness.client.launchWorkspace(workspaceId);
+      await harness.client.send(LaunchWorkspace(id: workspaceId));
       await _waitForInvalidation(harness.client, 'workspace_runs');
 
       // The launched workspace should have produced a container.
-      final containers = await harness.client.listContainers();
+      final rawContainers = (await harness.client.send(
+        RawEngineCommand(method: 'list_containers'),
+      )).data;
+      final containers = (rawContainers['containers'] as List?)
+              ?.cast<Map<String, dynamic>>() ??
+          [];
       // Note: the container may have already exited (the agent is a no-op),
       // but we verify the list call succeeds and returns a list.
       expect(containers, isA<List<Map<String, dynamic>>>());
@@ -276,22 +302,25 @@ void main() {
       }
 
       final projectDir = createTempProjectDir();
-      final workspace = await harness.client.createWorkspace(
-        projectPath: projectDir.path,
-        configYaml: testConfigYaml(testProviderName),
-      );
+      final workspace = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {
+          'project_path': projectDir.path,
+          'config_yaml': testConfigYaml(testProviderName),
+        },
+      ))).data;
       final workspaceId = workspace['id'] as String;
 
       addTearDown(() async {
         try {
-          await harness.client.deleteWorkspace(workspaceId);
+          await harness.client.send(DeleteWorkspace(id: workspaceId));
         } catch (_) {}
       });
 
       // Launch then stop to produce a non-active run.
-      await harness.client.launchWorkspace(workspaceId);
+      await harness.client.send(LaunchWorkspace(id: workspaceId));
       await _waitForInvalidation(harness.client, 'workspace_runs');
-      await harness.client.stopWorkspace(workspaceId);
+      await harness.client.send(StopWorkspace(id: workspaceId));
       await _waitForInvalidation(harness.client, 'workspace_runs');
 
       // Verify there is at least one run before cleanup.
@@ -304,9 +333,10 @@ void main() {
           reason: 'Should have at least one stopped run');
 
       // Delete non-active runs.
-      final result = await harness.client.deleteNonActiveRuns(
-        workspaceId: workspaceId,
-      );
+      final result = (await harness.client.send(RawEngineCommand(
+        method: 'delete_non_active_runs',
+        params: {'workspace_id': workspaceId},
+      ))).data;
       expect(result, isA<Map<String, dynamic>>());
 
       // Wait for the DB update.
@@ -334,27 +364,32 @@ void main() {
       }
 
       final projectDir = createTempProjectDir();
-      final workspace = await harness.client.createWorkspace(
-        projectPath: projectDir.path,
-        configYaml: testConfigYaml(testProviderName),
-      );
+      final workspace = (await harness.client.send(RawEngineCommand(
+        method: 'create_workspace',
+        params: {
+          'project_path': projectDir.path,
+          'config_yaml': testConfigYaml(testProviderName),
+        },
+      ))).data;
       final workspaceId = workspace['id'] as String;
 
       addTearDown(() async {
         try {
-          await harness.client.stopWorkspace(workspaceId);
+          await harness.client.send(StopWorkspace(id: workspaceId));
         } catch (_) {}
         try {
-          await harness.client.deleteWorkspace(workspaceId);
+          await harness.client.send(DeleteWorkspace(id: workspaceId));
         } catch (_) {}
       });
 
-      await harness.client.launchWorkspace(workspaceId);
+      await harness.client.send(LaunchWorkspace(id: workspaceId));
       await _waitForInvalidation(harness.client, 'workspace_runs');
 
       // Second launch should fail — workspace already has an active run.
       expect(
-        () => harness.client.launchWorkspace(workspaceId),
+        () => harness.client.send(
+          LaunchWorkspace(id: workspaceId),
+        ),
         throwsA(isA<EngineException>()),
       );
     });
