@@ -56,7 +56,7 @@ check:
 _build-and-run:
     cargo build --bin dspatch-daemon
     @just _codesign debug
-    cargo run --bin dspatch-daemon
+    ./target/debug/dspatch-daemon
 
 [private]
 [unix]
