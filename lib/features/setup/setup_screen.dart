@@ -137,7 +137,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       // Authenticated — connect with backend token + device credentials.
       debugPrint('[SETUP] Connecting engine (authenticated, user=${token.username})...');
 
-      final deviceCreds = await tokenStore.loadDeviceCredentials();
+      final deviceCreds = await tokenStore.loadDeviceCredentials(token.username);
       authResult = await engineAuth.connect(
         backendToken: token.token,
         deviceId: deviceCreds?.deviceId,
@@ -182,59 +182,72 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     final client = ref.read(engineClientProvider);
     debugPrint('[SETUP] _waitForDatabase: checking current state...');
 
-    // Check if the state is already set (event arrived before we got here).
-    final currentState = ref.read(dbStateProvider);
-    if (currentState == DbState.ready) {
-      debugPrint('[SETUP] DB already ready');
-      return;
-    }
-
-    if (currentState == DbState.migrationPending) {
-      if (!mounted) return;
-      ref.read(authControllerProvider.notifier).setMigrating();
-      await _showMigrationDialog();
-    }
-
-    // Also query the engine directly (handles case where WS event listener
-    // hasn't received the event yet but the engine already has a state).
-    try {
+    // Query the engine for the authoritative database state. This handles
+    // the common case where the WS event arrived before we subscribed (the
+    // MigrationPending event is sent during /auth/connect, before the WS
+    // handler's select loop is running).
+    Future<DbState> queryEngineState() async {
       final dbResponse = await client.send(GetDatabaseState());
       final stateStr = dbResponse.raw['state'] as String?;
-      final parsedState = DbState.fromString(stateStr);
+      final parsed = DbState.fromString(stateStr);
       debugPrint('[SETUP] GetDatabaseState returned: state=$stateStr');
-      if (parsedState == DbState.ready) {
-        ref.read(authControllerProvider.notifier).setDbState(DbState.ready);
+      ref.read(authControllerProvider.notifier).setDbState(parsed);
+      return parsed;
+    }
+
+    // Poll: check provider first (fast), then query the engine (authoritative).
+    Future<DbState> resolveState() async {
+      final cached = ref.read(dbStateProvider);
+      if (cached == DbState.ready || cached == DbState.migrationPending) {
+        return cached;
+      }
+      return queryEngineState();
+    }
+
+    // Loop until ready. Each iteration handles one state transition.
+    while (true) {
+      if (!mounted) return;
+
+      final state = await resolveState();
+
+      if (state == DbState.ready) {
+        debugPrint('[SETUP] DB ready');
         return;
-      } else if (parsedState == DbState.migrationPending) {
-        ref.read(authControllerProvider.notifier).setDbState(DbState.migrationPending);
+      }
+
+      if (state == DbState.migrationPending) {
         if (!mounted) return;
         ref.read(authControllerProvider.notifier).setMigrating();
         await _showMigrationDialog();
+        // Migration command sent — re-query to confirm it's ready.
+        // Don't rely solely on the WS event (it can be lost if the
+        // broadcast fires while the WS handler is processing our command).
+        continue;
       }
-    } catch (e) {
-      debugPrint('[SETUP] GetDatabaseState failed (waiting for events): $e');
-    }
 
-    // Wait for dbStateProvider to become ready.
-    if (ref.read(dbStateProvider) == DbState.ready) return;
-
-    final completer = Completer<void>();
-    late final ProviderSubscription<DbState> sub;
-    sub = ref.listenManual(dbStateProvider, (prev, next) {
-      if (completer.isCompleted) return;
-      debugPrint('[SETUP] dbStateProvider changed: $prev -> $next');
-      if (next == DbState.ready) {
+      // State is unknown/closed — wait for the next dbStateProvider change,
+      // then loop again.
+      debugPrint('[SETUP] DB state is $state, waiting for change...');
+      final completer = Completer<void>();
+      late final ProviderSubscription<DbState> sub;
+      sub = ref.listenManual(dbStateProvider, (prev, next) {
+        if (completer.isCompleted) return;
+        debugPrint('[SETUP] dbStateProvider changed: $prev -> $next');
         sub.close();
         completer.complete();
-      } else if (next == DbState.migrationPending && prev != DbState.migrationPending) {
-        if (mounted) {
-          ref.read(authControllerProvider.notifier).setMigrating();
-          _showMigrationDialog();
-        }
-      }
-    });
+      });
 
-    return completer.future;
+      // Also poll the engine periodically in case the WS event is lost.
+      final timer = Timer(const Duration(seconds: 2), () {
+        if (!completer.isCompleted) {
+          sub.close();
+          completer.complete();
+        }
+      });
+
+      await completer.future;
+      timer.cancel();
+    }
   }
 
   /// Fetches the current DB path from `/engine-info` and swaps the Drift
