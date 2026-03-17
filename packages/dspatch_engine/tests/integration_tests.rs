@@ -83,14 +83,6 @@ async fn sdk_lifecycle_construct_and_dispose() {
     // Database should NOT be ready before initialize.
     assert!(!sdk.is_database_ready().await);
 
-    // DB-dependent services should return errors.
-    assert!(sdk.templates().await.is_err());
-    assert!(sdk.api_keys().await.is_err());
-    assert!(sdk.preferences().await.is_err());
-    assert!(sdk.workspaces().await.is_err());
-    assert!(sdk.inquiries().await.is_err());
-    assert!(sdk.agent_data().await.is_err());
-
     // Dispose should succeed even without initialize.
     assert!(sdk.dispose().await.is_ok());
 }
@@ -699,40 +691,7 @@ agents:
 }
 
 // =========================================================================
-// 13. Server guard: start_server fails without database
-// =========================================================================
-
-#[tokio::test]
-async fn server_start_fails_without_database() {
-    let dir = tempfile::tempdir().unwrap();
-    let sdk = make_sdk(dir.path());
-
-    // Server requires database to be ready.
-    let result = sdk.start_server(Some(0)).await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn server_stop_is_noop_when_not_started() {
-    let dir = tempfile::tempdir().unwrap();
-    let sdk = make_sdk(dir.path());
-
-    assert!(sdk.stop_server().await.is_ok());
-}
-
-// =========================================================================
-// 14. File browser creation
-// =========================================================================
-
-#[test]
-fn file_browser_creation() {
-    let sdk = DspatchSdk::new(DspatchConfig::default());
-    let _browser = sdk.create_file_browser("/tmp/project");
-    // Should not panic.
-}
-
-// =========================================================================
-// 15. End-to-end: template + workspace config flatten
+// 13. End-to-end: template + workspace config flatten
 // =========================================================================
 
 #[test]

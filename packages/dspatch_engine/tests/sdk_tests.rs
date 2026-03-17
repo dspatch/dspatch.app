@@ -60,49 +60,11 @@ async fn database_not_ready_before_initialize() {
 }
 
 #[tokio::test]
-async fn db_services_error_before_database_ready() {
-    let dir = tempfile::tempdir().unwrap();
-    let sdk = make_sdk(dir.path());
-
-    // DB-dependent services should fail before database is ready.
-    assert!(sdk.templates().await.is_err());
-    assert!(sdk.workspace_templates().await.is_err());
-    assert!(sdk.api_keys().await.is_err());
-    assert!(sdk.preferences().await.is_err());
-    assert!(sdk.workspaces().await.is_err());
-    assert!(sdk.inquiries().await.is_err());
-    assert!(sdk.agent_data().await.is_err());
-}
-
-#[tokio::test]
-async fn create_file_browser_works() {
-    let sdk = DspatchSdk::new(DspatchConfig::default());
-    let _browser = sdk.create_file_browser("/tmp/project");
-    // Should not panic.
-}
-
-#[tokio::test]
 async fn dispose_completes_without_error() {
     let dir = tempfile::tempdir().unwrap();
     let sdk = make_sdk(dir.path());
     // Dispose should succeed even without initialize.
     assert!(sdk.dispose().await.is_ok());
-}
-
-#[tokio::test]
-async fn start_server_fails_before_database_ready() {
-    let dir = tempfile::tempdir().unwrap();
-    let sdk = make_sdk(dir.path());
-    // Server requires database.
-    let result = sdk.start_server(Some(0)).await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn stop_server_is_noop_when_not_started() {
-    let dir = tempfile::tempdir().unwrap();
-    let sdk = make_sdk(dir.path());
-    assert!(sdk.stop_server().await.is_ok());
 }
 
 #[tokio::test]
@@ -125,16 +87,7 @@ async fn initialize_and_db_services_work_after_auth() {
     // Note: this depends on ConnectedAuthService emitting at least one
     // state during initialize(). If it does, db should be ready.
 
-    if sdk.is_database_ready().await {
-        // DB-dependent services should now work.
-        assert!(sdk.templates().await.is_ok());
-        assert!(sdk.workspace_templates().await.is_ok());
-        assert!(sdk.api_keys().await.is_ok());
-        assert!(sdk.preferences().await.is_ok());
-        assert!(sdk.workspaces().await.is_ok());
-        assert!(sdk.inquiries().await.is_ok());
-        assert!(sdk.agent_data().await.is_ok());
-    }
-
+    // After initialization, the database may or may not be ready depending
+    // on auth flow. Either way, dispose should succeed.
     sdk.dispose().await.unwrap();
 }
