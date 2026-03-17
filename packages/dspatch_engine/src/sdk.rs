@@ -24,6 +24,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex as TokioMutex, RwLock};
 
 use crate::api::HttpApiClient;
+use crate::client_api::invalidation::{InvalidationBroadcaster, InvalidationHandle};
 use crate::config::DspatchConfig;
 use crate::crypto::aes_gcm::AesGcmCrypto;
 use crate::crypto::secure_storage::KeyringSecretStore;
@@ -36,6 +37,9 @@ use crate::db::manager::{DatabaseManager, DatabaseState};
 use crate::db::Database;
 use crate::docker::{DockerCli, DockerClient};
 use crate::domain::services::{AgentProviderService, ApiKeyService};
+use crate::engine::config::EngineConfig;
+use crate::engine::service_registry::ServiceRegistry;
+use crate::engine::startup::ClientApiRuntime;
 use crate::hub::{HubApiClient, HubVersionChecker};
 use crate::server::agent_server::EmbeddedAgentServer;
 use crate::server::workspace_bridge::WorkspaceBridge;
@@ -147,6 +151,19 @@ pub struct DspatchSdk {
     server: Arc<RwLock<Option<Arc<TokioMutex<EmbeddedAgentServer>>>>>,
     bridge: Arc<TokioMutex<Option<WorkspaceBridge>>>,
 
+    // Data directory for ServiceRegistry (same as db_manager.base_path).
+    data_dir: PathBuf,
+
+    /// ServiceRegistry — created when DB is ready, cleared on DB close.
+    services: Arc<RwLock<Option<Arc<ServiceRegistry>>>>,
+
+    /// Invalidation broadcaster handle — created when DB opens, rebound on DB change.
+    invalidation_handle: Arc<RwLock<Option<InvalidationHandle>>>,
+    invalidation_debounce_ms: u64,
+
+    /// Client API runtime — created during initialize().
+    runtime: Arc<RwLock<Option<Arc<ClientApiRuntime>>>>,
+
     // Initialization guards
     initialized: std::sync::atomic::AtomicBool,
     recovery_spawned: std::sync::atomic::AtomicBool,
@@ -183,6 +200,7 @@ impl DspatchSdk {
         let api_client = Arc::new(HttpApiClient::new(&backend_url));
         let hub_client = Arc::new(RwLock::new(HubApiClient::new(&backend_url, None)));
 
+        let data_dir_clone = data_dir.clone();
         let db_manager = Arc::new(DatabaseManager::new(
             DatabaseKeyManager::new(Box::new(ArcSecretStoreAdapter(Arc::clone(&store_arc)))),
             data_dir,
@@ -219,6 +237,11 @@ impl DspatchSdk {
             pending_migration: Arc::new(RwLock::new(None)),
             server: Arc::new(RwLock::new(None)),
             bridge: Arc::new(TokioMutex::new(None)),
+            data_dir: data_dir_clone,
+            services: Arc::new(RwLock::new(None)),
+            invalidation_handle: Arc::new(RwLock::new(None)),
+            invalidation_debounce_ms: 50,
+            runtime: Arc::new(RwLock::new(None)),
             initialized: std::sync::atomic::AtomicBool::new(false),
             recovery_spawned: std::sync::atomic::AtomicBool::new(false),
         }
@@ -484,6 +507,9 @@ impl DspatchSdk {
             *path_guard = None;
         }
 
+        // Clear ServiceRegistry (releases its Arc<Database>).
+        self.clear_services().await;
+
         // Notify database state listeners, then wait for external holders
         // (e.g. the daemon's ServiceRegistry) to drop their Arc<Database>.
         // Without this, file handles stay open and rename fails on Windows.
@@ -583,12 +609,104 @@ impl DspatchSdk {
             *path_guard = Some(db_path.to_string_lossy().into_owned());
         }
         let _ = self.db_state_tx.send(DatabaseReadyState::Ready);
+        self.rebuild_services().await;
     }
 
     /// Returns the file path of the currently open database, or `None` if
     /// no database is open.
     pub async fn database_path(&self) -> Option<String> {
         self.current_db_path.read().await.clone()
+    }
+
+    // ── ServiceRegistry / Invalidation / Runtime ───────────────────────
+
+    /// Returns the SDK configuration.
+    pub fn config(&self) -> &DspatchConfig {
+        &self.config
+    }
+
+    /// Returns the current ServiceRegistry, if the database is ready.
+    pub async fn services(&self) -> Option<Arc<ServiceRegistry>> {
+        self.services.read().await.clone()
+    }
+
+    /// Synchronous non-blocking variant — returns None if lock is held or DB not ready.
+    pub fn services_sync(&self) -> Option<Arc<ServiceRegistry>> {
+        self.services.try_read().ok().and_then(|g| g.clone())
+    }
+
+    /// Returns a subscription to table invalidation events, if available.
+    pub async fn subscribe_invalidation(&self) -> Option<broadcast::Receiver<Vec<String>>> {
+        let guard = self.invalidation_handle.read().await;
+        guard.as_ref().map(|h| h.subscribe())
+    }
+
+    /// Creates the ClientApiRuntime. Must be called before starting the client API.
+    pub async fn create_runtime(&self, config: EngineConfig) -> Arc<ClientApiRuntime> {
+        let runtime = Arc::new(ClientApiRuntime::new(config));
+
+        // Wire hub client to session store for backend token forwarding.
+        let hub = self.hub_client.read().await;
+        runtime.session_store().set_hub_client(Arc::new(
+            HubApiClient::new(hub.base_url(), hub.auth_token()),
+        ));
+
+        *self.runtime.write().await = Some(Arc::clone(&runtime));
+        runtime
+    }
+
+    /// Returns the ClientApiRuntime, if created.
+    pub async fn runtime(&self) -> Option<Arc<ClientApiRuntime>> {
+        self.runtime.read().await.clone()
+    }
+
+    /// Rebuilds the ServiceRegistry from the current database.
+    /// Called internally when the database transitions to Ready.
+    async fn rebuild_services(&self) {
+        let db = match self.database.read().await.clone() {
+            Some(db) => db,
+            None => {
+                tracing::error!("Cannot rebuild ServiceRegistry — no database open");
+                return;
+            }
+        };
+
+        // Create or rebind invalidation broadcaster.
+        let broadcaster = InvalidationBroadcaster::new(
+            db.tracker().clone(),
+            self.invalidation_debounce_ms,
+        );
+        let handle = broadcaster.start();
+        *self.invalidation_handle.write().await = Some(handle);
+
+        let hub_client = {
+            let guard = self.hub_client.read().await;
+            Some(Arc::new(HubApiClient::new(guard.base_url(), guard.auth_token())))
+        };
+
+        let registry = Arc::new(ServiceRegistry::new(
+            db,
+            self.data_dir.clone(),
+            hub_client,
+        ));
+        *self.services.write().await = Some(registry);
+        tracing::info!("ServiceRegistry built from database");
+
+        // Recover any workspaces that were running before engine restart.
+        {
+            let guard = self.services.read().await;
+            if let Some(ref services) = *guard {
+                if let Err(e) = services.workspaces().recover_active_workspaces().await {
+                    tracing::warn!(%e, "Workspace recovery encountered errors");
+                }
+            }
+        }
+    }
+
+    /// Clears the ServiceRegistry, releasing the Arc<Database>.
+    async fn clear_services(&self) {
+        *self.services.write().await = None;
+        tracing::info!("ServiceRegistry cleared");
     }
 
     // ── Core service accessors ─────────────────────────────────────────
@@ -721,6 +839,7 @@ impl DspatchSdk {
                     docker_client2,
                     Arc::clone(&docker_service) as Arc<dyn crate::domain::services::DockerService>,
                     Arc::new(PreferenceDao::new(Arc::clone(&db))),
+                    Arc::clone(&agent_data),
                 );
                 *self.bridge.lock().await = Some(bridge);
             }
