@@ -2,18 +2,14 @@
 
 //! Engine runtime state and initialization helpers.
 
-use std::sync::Arc;
 use std::time::Instant;
 
 use tokio::sync::broadcast;
 use tracing_subscriber::EnvFilter;
 
 use super::config::EngineConfig;
-use super::service_registry::ServiceRegistry;
 use crate::client_api::ephemeral::EphemeralEventEmitter;
-use crate::client_api::invalidation::InvalidationHandle;
 use crate::client_api::session::SessionStore;
-use crate::sdk::DspatchSdk;
 
 /// Core runtime state for the engine daemon.
 pub struct ClientApiRuntime {
@@ -21,10 +17,7 @@ pub struct ClientApiRuntime {
     started_at: Instant,
     shutdown_tx: broadcast::Sender<()>,
     session_store: SessionStore,
-    services: Arc<tokio::sync::RwLock<Option<Arc<ServiceRegistry>>>>,
-    invalidation: tokio::sync::Mutex<Option<InvalidationHandle>>,
     ephemeral: EphemeralEventEmitter,
-    sdk: Option<Arc<DspatchSdk>>,
 }
 
 impl ClientApiRuntime {
@@ -35,58 +28,7 @@ impl ClientApiRuntime {
             started_at: Instant::now(),
             shutdown_tx,
             session_store: SessionStore::new(),
-            services: Arc::new(tokio::sync::RwLock::new(None)),
-            invalidation: tokio::sync::Mutex::new(None),
             ephemeral: EphemeralEventEmitter::new(),
-            sdk: None,
-        }
-    }
-
-    pub fn with_services(config: EngineConfig, services: Arc<ServiceRegistry>) -> Self {
-        let (shutdown_tx, _) = broadcast::channel(1);
-        Self {
-            config,
-            started_at: Instant::now(),
-            shutdown_tx,
-            session_store: SessionStore::new(),
-            services: Arc::new(tokio::sync::RwLock::new(Some(services))),
-            invalidation: tokio::sync::Mutex::new(None),
-            ephemeral: EphemeralEventEmitter::new(),
-            sdk: None,
-        }
-    }
-
-    /// Creates a runtime with an InvalidationHandle.
-    pub fn with_invalidation(config: EngineConfig, invalidation: InvalidationHandle) -> Self {
-        let (shutdown_tx, _) = broadcast::channel(1);
-        Self {
-            config,
-            started_at: Instant::now(),
-            shutdown_tx,
-            session_store: SessionStore::new(),
-            services: Arc::new(tokio::sync::RwLock::new(None)),
-            invalidation: tokio::sync::Mutex::new(Some(invalidation)),
-            ephemeral: EphemeralEventEmitter::new(),
-            sdk: None,
-        }
-    }
-
-    /// Creates a runtime with both services and invalidation.
-    pub fn with_services_and_invalidation(
-        config: EngineConfig,
-        services: Arc<ServiceRegistry>,
-        invalidation: InvalidationHandle,
-    ) -> Self {
-        let (shutdown_tx, _) = broadcast::channel(1);
-        Self {
-            config,
-            started_at: Instant::now(),
-            shutdown_tx,
-            session_store: SessionStore::new(),
-            services: Arc::new(tokio::sync::RwLock::new(Some(services))),
-            invalidation: tokio::sync::Mutex::new(Some(invalidation)),
-            ephemeral: EphemeralEventEmitter::new(),
-            sdk: None,
         }
     }
 
@@ -108,60 +50,6 @@ impl ClientApiRuntime {
 
     pub fn trigger_shutdown(&self) {
         let _ = self.shutdown_tx.send(());
-    }
-
-    pub fn services(&self) -> Option<Arc<ServiceRegistry>> {
-        self.services.try_read().ok().and_then(|g| g.clone())
-    }
-
-    pub async fn services_async(&self) -> Option<Arc<ServiceRegistry>> {
-        self.services.read().await.clone()
-    }
-
-    pub async fn replace_services(&self, services: Arc<ServiceRegistry>) {
-        *self.services.write().await = Some(services);
-    }
-
-    /// Drops the current ServiceRegistry so its `Arc<Database>` is released.
-    /// Must be called before any operation that needs exclusive file access
-    /// (e.g. database rename on Windows).
-    pub async fn clear_services(&self) {
-        *self.services.write().await = None;
-    }
-
-    pub fn sdk(&self) -> Option<&Arc<DspatchSdk>> {
-        self.sdk.as_ref()
-    }
-
-    pub fn set_sdk(&mut self, sdk: Arc<DspatchSdk>) {
-        self.sdk = Some(sdk);
-    }
-
-    /// Subscribes to invalidation batches. Returns `None` if the broadcaster
-    /// hasn't been started yet. Safe to call from WS handlers — the
-    /// subscription survives `rebind_invalidation` calls because the
-    /// underlying broadcast channel is reused.
-    pub async fn subscribe_invalidation(&self) -> Option<broadcast::Receiver<Vec<String>>> {
-        self.invalidation.lock().await.as_ref().map(|h| h.subscribe())
-    }
-
-    /// Rebinds the invalidation broadcaster to a new database tracker.
-    /// Existing WS subscribers continue to receive notifications because
-    /// the outbound broadcast channel is reused.
-    pub async fn rebind_invalidation(
-        &self,
-        tracker: std::sync::Arc<crate::db::reactive::TableChangeTracker>,
-        debounce_ms: u64,
-    ) {
-        let mut guard = self.invalidation.lock().await;
-        if let Some(handle) = guard.as_mut() {
-            handle.rebind(tracker, debounce_ms);
-        }
-    }
-
-    /// Sets the invalidation handle on an existing runtime.
-    pub fn set_invalidation(&mut self, handle: InvalidationHandle) {
-        self.invalidation = tokio::sync::Mutex::new(Some(handle));
     }
 
     /// Returns the ephemeral event emitter.
