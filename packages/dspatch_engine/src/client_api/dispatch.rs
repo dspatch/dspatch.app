@@ -508,6 +508,12 @@ pub async fn dispatch_command(
                 .ok_or_else(|| AppError::Validation("Missing 'config_yaml' field".into()))?;
             let source_uri = params["source_uri"].as_str()
                 .ok_or_else(|| AppError::Validation("Missing 'source_uri' field".into()))?;
+            // Reject local:// URIs — source provider must be published to the hub first.
+            if source_uri.starts_with("local://") {
+                return Err(AppError::Validation(
+                    "Source provider must be published to the hub before submitting a template".into(),
+                ));
+            }
             let description = params.get("description").and_then(|v| v.as_str());
             let category = params.get("category").and_then(|v| v.as_str());
             let tags = params.get("tags").and_then(|v| v.as_array());
