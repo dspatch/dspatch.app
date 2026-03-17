@@ -18,6 +18,7 @@ pub mod signal;
 pub mod api;
 pub mod client_api;
 pub mod docker;
+pub mod git;
 pub mod hub;
 pub mod sdk;
 pub mod sync;
