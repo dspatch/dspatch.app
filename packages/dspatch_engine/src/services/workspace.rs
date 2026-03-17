@@ -143,6 +143,17 @@ impl LocalWorkspaceService {
         bridge.stop_workspace(id).await
     }
 
+    /// Recovers active workspaces after engine restart.
+    ///
+    /// Delegates to the workspace bridge. No-op if bridge is not wired.
+    pub async fn recover_active_workspaces(&self) -> Result<()> {
+        let guard = self.bridge.lock().await;
+        let bridge = guard.as_ref().ok_or_else(|| {
+            AppError::Server("Workspace bridge not wired up yet".to_string())
+        })?;
+        bridge.recover_active_workspaces().await
+    }
+
     // ── Reactive Streams ──
 
     /// Returns a stream of workspace runs for `workspace_id`.
