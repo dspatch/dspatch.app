@@ -11,6 +11,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
 use crate::engine::startup::ClientApiRuntime;
+use crate::sdk::DspatchSdk;
 
 use super::session::AuthMode;
 
@@ -68,6 +69,7 @@ pub async fn anonymous_handler(
 }
 
 pub async fn connect_handler(
+    State(sdk): State<Arc<DspatchSdk>>,
     State(runtime): State<Arc<ClientApiRuntime>>,
     Json(body): Json<ConnectRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<AuthErrorResponse>)> {
@@ -114,16 +116,14 @@ pub async fn connect_handler(
 
     // Switch to per-user database. May signal migration-pending via
     // ephemeral event if an anonymous DB exists without a user DB.
-    if let Some(sdk) = runtime.sdk() {
-        if let Err(e) = sdk.open_user_database(&status.username).await {
-            tracing::error!(
-                error = %e,
-                username = %status.username,
-                "failed to switch to per-user database"
-            );
-            // Non-fatal: session is created, client can retry via
-            // get_database_state or re-connect.
-        }
+    if let Err(e) = sdk.open_user_database(&status.username).await {
+        tracing::error!(
+            error = %e,
+            username = %status.username,
+            "failed to switch to per-user database"
+        );
+        // Non-fatal: session is created, client can retry via
+        // get_database_state or re-connect.
     }
 
     Ok(Json(AuthResponse {

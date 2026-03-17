@@ -9,6 +9,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::engine::startup::ClientApiRuntime;
+use crate::sdk::DspatchSdk;
 
 /// JSON response for `GET /health`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,20 +52,17 @@ pub struct EngineInfoResponse {
 /// Clients should call this after receiving `database_state_changed` → `ready`
 /// to open their read-only Drift connection at the correct path.
 pub async fn engine_info_handler(
+    State(sdk): State<Arc<DspatchSdk>>,
     State(runtime): State<Arc<ClientApiRuntime>>,
 ) -> Json<EngineInfoResponse> {
     let config = runtime.config();
 
     // Resolve the actual DB path from the SDK (reflects current auth state
     // and any migration that occurred). Falls back to the anonymous DB path
-    // if the SDK isn't available or no database is currently open.
-    let db_path = if let Some(sdk) = runtime.sdk() {
-        sdk.database_path().await.unwrap_or_else(|| {
-            config.db_dir.join("dspatch").join("dspatch.db").to_string_lossy().into_owned()
-        })
-    } else {
+    // if no database is currently open.
+    let db_path = sdk.database_path().await.unwrap_or_else(|| {
         config.db_dir.join("dspatch").join("dspatch.db").to_string_lossy().into_owned()
-    };
+    });
 
     Json(EngineInfoResponse {
         db_path,

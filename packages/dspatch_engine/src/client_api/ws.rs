@@ -12,6 +12,7 @@ use serde::Deserialize;
 
 use crate::db::schema::TABLE_NAMES;
 use crate::engine::startup::ClientApiRuntime;
+use crate::sdk::DspatchSdk;
 
 use super::protocol::{ClientFrame, ServerFrame};
 use super::session::{AuthMode, Session};
@@ -25,6 +26,7 @@ pub struct WsQuery {
 }
 
 pub async fn ws_handler(
+    State(sdk): State<Arc<DspatchSdk>>,
     State(runtime): State<Arc<ClientApiRuntime>>,
     Query(query): Query<WsQuery>,
     ws: WebSocketUpgrade,
@@ -44,7 +46,7 @@ pub async fn ws_handler(
     );
 
     let token = query.token.clone();
-    ws.on_upgrade(move |socket| handle_ws_connection(socket, session, token, runtime))
+    ws.on_upgrade(move |socket| handle_ws_connection(socket, session, token, sdk, runtime))
         .into_response()
 }
 
@@ -52,6 +54,7 @@ async fn handle_ws_connection(
     mut socket: WebSocket,
     session: Session,
     session_token: String,
+    sdk: Arc<DspatchSdk>,
     runtime: Arc<ClientApiRuntime>,
 ) {
     let welcome = ServerFrame::welcome();
@@ -76,7 +79,7 @@ async fn handle_ws_connection(
     let mut shutdown_rx = runtime.subscribe_shutdown();
 
     // Subscribe to table invalidation broadcasts (if available).
-    let mut invalidation_rx = runtime.subscribe_invalidation().await;
+    let mut invalidation_rx = sdk.subscribe_invalidation().await;
 
     // Subscribe to ephemeral engine events.
     let mut ephemeral_rx = runtime.ephemeral().subscribe();
@@ -158,7 +161,7 @@ async fn handle_ws_connection(
             msg = recv_message(&mut socket) => {
                 match msg {
                     Some(Ok(text)) => {
-                        let should_close = handle_client_message(&mut socket, &text, &session_token, &runtime).await;
+                        let should_close = handle_client_message(&mut socket, &text, &session_token, &sdk, &runtime).await;
                         if should_close {
                             tracing::info!("WebSocket closing: client logged out");
                             break;
@@ -188,6 +191,7 @@ async fn handle_client_message(
     socket: &mut WebSocket,
     text: &str,
     session_token: &str,
+    sdk: &Arc<DspatchSdk>,
     runtime: &Arc<ClientApiRuntime>,
 ) -> bool {
     let frame: ClientFrame = match serde_json::from_str(text) {
@@ -266,7 +270,7 @@ async fn handle_client_message(
             // Database lifecycle commands route to the SDK directly,
             // bypassing ServiceRegistry — they must work even when the DB
             // is not yet open (e.g. migration-pending state).
-            if let Some(response) = handle_sdk_command(&command, runtime).await {
+            if let Some(response) = handle_sdk_command(&command, sdk).await {
                 let frame = match response {
                     Ok(data) => ServerFrame::Result { id, data },
                     Err(e) => error_to_frame(&id, &e),
@@ -275,7 +279,7 @@ async fn handle_client_message(
                 return false;
             }
 
-            let services = match runtime.services() {
+            let services = match sdk.services_sync() {
                 Some(s) => s,
                 None => {
                     let err = ServerFrame::Error {
@@ -304,14 +308,10 @@ async fn handle_client_message(
 /// fall through to the normal dispatch path.
 async fn handle_sdk_command(
     command: &Command,
-    runtime: &Arc<ClientApiRuntime>,
+    sdk: &Arc<DspatchSdk>,
 ) -> Option<crate::util::result::Result<serde_json::Value>> {
     match command {
         Command::GetDatabaseState => {
-            let sdk = match runtime.sdk() {
-                Some(s) => s,
-                None => return Some(Ok(serde_json::json!({ "state": "ready" }))),
-            };
             let state = if sdk.is_migration_pending().await {
                 "migration_pending"
             } else if sdk.is_database_ready().await {
@@ -322,25 +322,9 @@ async fn handle_sdk_command(
             Some(Ok(serde_json::json!({ "state": state })))
         }
         Command::PerformMigration => {
-            let sdk = match runtime.sdk() {
-                Some(s) => s,
-                None => {
-                    return Some(Err(crate::util::error::AppError::Internal(
-                        "Database migration not available in this mode".into(),
-                    )))
-                }
-            };
             Some(sdk.perform_migration().await.map(|()| serde_json::json!({})))
         }
         Command::SkipMigration => {
-            let sdk = match runtime.sdk() {
-                Some(s) => s,
-                None => {
-                    return Some(Err(crate::util::error::AppError::Internal(
-                        "Database migration not available in this mode".into(),
-                    )))
-                }
-            };
             Some(sdk.skip_migration().await.map(|()| serde_json::json!({})))
         }
         _ => None,

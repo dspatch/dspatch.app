@@ -8,6 +8,7 @@ use axum::Router;
 use tokio::net::TcpListener;
 
 use crate::engine::startup::ClientApiRuntime;
+use crate::sdk::DspatchSdk;
 use crate::util::error::AppError;
 use crate::util::result::Result;
 
@@ -15,8 +16,27 @@ use super::auth::{anonymous_handler, connect_handler, refresh_handler};
 use super::health::{engine_info_handler, health_handler};
 use super::ws::ws_handler;
 
+/// Shared application state for Axum handlers.
+#[derive(Clone)]
+pub struct AppState {
+    pub sdk: Arc<DspatchSdk>,
+    pub runtime: Arc<ClientApiRuntime>,
+}
+
+impl axum::extract::FromRef<AppState> for Arc<DspatchSdk> {
+    fn from_ref(state: &AppState) -> Self {
+        Arc::clone(&state.sdk)
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<ClientApiRuntime> {
+    fn from_ref(state: &AppState) -> Self {
+        Arc::clone(&state.runtime)
+    }
+}
+
 /// Builds the axum router with all client API routes.
-pub fn build_router(runtime: Arc<ClientApiRuntime>) -> Router {
+pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health", axum::routing::get(health_handler))
         .route("/engine-info", axum::routing::get(engine_info_handler))
@@ -24,7 +44,7 @@ pub fn build_router(runtime: Arc<ClientApiRuntime>) -> Router {
         .route("/auth/connect", axum::routing::post(connect_handler))
         .route("/auth/refresh", axum::routing::post(refresh_handler))
         .route("/ws", axum::routing::get(ws_handler))
-        .with_state(runtime)
+        .with_state(state)
 }
 
 /// Starts the client API server on the configured port.
@@ -33,11 +53,11 @@ pub fn build_router(runtime: Arc<ClientApiRuntime>) -> Router {
 /// If `port_tx` is provided, the actual bound port is sent through the channel
 /// immediately after binding (before the server starts accepting connections).
 pub async fn start_client_api(
-    runtime: Arc<ClientApiRuntime>,
+    state: AppState,
     mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
 ) -> Result<u16> {
-    let port = runtime.config().client_api_port;
+    let port = state.runtime.config().client_api_port;
     let addr = format!("127.0.0.1:{port}");
 
     let listener = TcpListener::bind(&addr).await.map_err(|e| {
@@ -54,7 +74,7 @@ pub async fn start_client_api(
         let _ = tx.send(actual_port);
     }
 
-    let app = build_router(runtime);
+    let app = build_router(state);
 
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
