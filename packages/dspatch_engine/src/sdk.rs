@@ -92,6 +92,7 @@ struct PendingMigration {
 
 /// All services that require an open database. Rebuilt whenever the database
 /// changes (e.g. after sign-in switches from anonymous to per-user DB).
+#[deprecated(note = "Use sdk.services() -> ServiceRegistry instead")]
 struct DbServices {
     providers: Arc<LocalAgentProviderService>,
     templates: Arc<LocalAgentTemplateService>,
@@ -112,7 +113,7 @@ struct DbServices {
 /// ready. Authentication is handled by the Dart client; the engine opens
 /// the anonymous database on initialization and can switch to a per-user
 /// database when requested via `open_user_database()`.
-#[allow(dead_code)] // Fields held for Arc ownership / future use
+#[allow(dead_code, deprecated)] // Fields held for Arc ownership / future use
 pub struct DspatchSdk {
     config: DspatchConfig,
 
@@ -130,6 +131,7 @@ pub struct DspatchSdk {
 
     // Database + DB-dependent services
     database: Arc<RwLock<Option<Arc<Database>>>>,
+    // TODO: remove in follow-up PR — replaced by ServiceRegistry
     db_services: Arc<RwLock<Option<DbServices>>>,
 
     // Current database file path (set when a database is installed, cleared on teardown).
@@ -148,7 +150,9 @@ pub struct DspatchSdk {
     pending_migration: Arc<RwLock<Option<PendingMigration>>>,
 
     // Server (created when DB services are first built; started/stopped separately)
+    // TODO: remove in follow-up PR — replaced by ServiceRegistry
     server: Arc<RwLock<Option<Arc<TokioMutex<EmbeddedAgentServer>>>>>,
+    // TODO: remove in follow-up PR — replaced by ServiceRegistry
     bridge: Arc<TokioMutex<Option<WorkspaceBridge>>>,
 
     // Data directory for ServiceRegistry (same as db_manager.base_path).
@@ -166,9 +170,11 @@ pub struct DspatchSdk {
 
     // Initialization guards
     initialized: std::sync::atomic::AtomicBool,
+    // TODO: remove in follow-up PR — replaced by ServiceRegistry
     recovery_spawned: std::sync::atomic::AtomicBool,
 }
 
+#[allow(deprecated)]
 impl DspatchSdk {
     /// Creates a new SDK instance with default `KeyringSecretStore` and
     /// platform data directory. Call [`initialize`](Self::initialize) to
@@ -277,6 +283,7 @@ impl DspatchSdk {
     ///
     /// Must be called once from the bridge layer which owns `Arc<DspatchSdk>`.
     /// Idempotent — only spawns the listener once.
+    #[deprecated(note = "Recovery now runs via rebuild_services() -> ServiceRegistry")]
     pub fn spawn_recovery_listener(self: &Arc<Self>) {
         if self.recovery_spawned.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
@@ -302,6 +309,7 @@ impl DspatchSdk {
 
     /// Runs after the database becomes ready: recovers active workspaces
     /// (starts server, reconnects running containers) and wires callbacks.
+    #[deprecated(note = "Recovery now runs via rebuild_services() -> ServiceRegistry")]
     async fn post_db_ready(&self) -> Result<()> {
         // Ensure DB-dependent services (DAOs, server, bridge) are built.
         self.ensure_db_services().await?;
@@ -755,6 +763,7 @@ impl DspatchSdk {
 
     /// Ensures DB-dependent services are built. Returns an error if the
     /// database is not yet ready.
+    #[deprecated(note = "Use sdk.services() -> ServiceRegistry instead")]
     async fn ensure_db_services(&self) -> Result<()> {
         // Fast path: already built (read lock).
         {
@@ -862,6 +871,7 @@ impl DspatchSdk {
     }
 
     /// Returns the agent provider service.
+    #[deprecated(note = "Use sdk.services() -> ServiceRegistry instead")]
     pub async fn providers(&self) -> Result<Arc<LocalAgentProviderService>> {
         self.ensure_db_services().await?;
         let guard = self.db_services.read().await;
@@ -869,6 +879,7 @@ impl DspatchSdk {
     }
 
     /// Returns the agent template service.
+    #[deprecated(note = "Use sdk.services() -> ServiceRegistry instead")]
     pub async fn templates(&self) -> Result<Arc<LocalAgentTemplateService>> {
         self.ensure_db_services().await?;
         let guard = self.db_services.read().await;
@@ -876,6 +887,7 @@ impl DspatchSdk {
     }
 
     /// Returns the workspace template service.
+    #[deprecated(note = "Use sdk.services() -> ServiceRegistry instead")]
     pub async fn workspace_templates(&self) -> Result<Arc<LocalWorkspaceTemplateService>> {
         self.ensure_db_services().await?;
         let guard = self.db_services.read().await;
@@ -883,6 +895,7 @@ impl DspatchSdk {
     }
 
     /// Returns the API key service.
+    #[deprecated(note = "Use sdk.services() -> ServiceRegistry instead")]
     pub async fn api_keys(&self) -> Result<Arc<LocalApiKeyService>> {
         self.ensure_db_services().await?;
         let guard = self.db_services.read().await;
@@ -890,6 +903,7 @@ impl DspatchSdk {
     }
 
     /// Returns the preference service.
+    #[deprecated(note = "Use sdk.services() -> ServiceRegistry instead")]
     pub async fn preferences(&self) -> Result<Arc<LocalPreferenceService>> {
         self.ensure_db_services().await?;
         let guard = self.db_services.read().await;
@@ -897,6 +911,7 @@ impl DspatchSdk {
     }
 
     /// Returns the workspace service.
+    #[deprecated(note = "Use sdk.services() -> ServiceRegistry instead")]
     pub async fn workspaces(&self) -> Result<Arc<LocalWorkspaceService>> {
         self.ensure_db_services().await?;
         let guard = self.db_services.read().await;
@@ -904,6 +919,7 @@ impl DspatchSdk {
     }
 
     /// Returns the inquiry service.
+    #[deprecated(note = "Use sdk.services() -> ServiceRegistry instead")]
     pub async fn inquiries(&self) -> Result<Arc<LocalInquiryService>> {
         self.ensure_db_services().await?;
         let guard = self.db_services.read().await;
@@ -911,6 +927,7 @@ impl DspatchSdk {
     }
 
     /// Returns the agent data service.
+    #[deprecated(note = "Use sdk.services() -> ServiceRegistry instead")]
     pub async fn agent_data(&self) -> Result<Arc<LocalAgentDataService>> {
         self.ensure_db_services().await?;
         let guard = self.db_services.read().await;
@@ -918,6 +935,7 @@ impl DspatchSdk {
     }
 
     /// Returns the hub version checker (DB-dependent).
+    #[deprecated(note = "Use sdk.services() -> ServiceRegistry instead")]
     pub async fn hub_version_checker(&self) -> Result<Arc<HubVersionChecker>> {
         self.ensure_db_services().await?;
         let guard = self.db_services.read().await;
@@ -925,6 +943,7 @@ impl DspatchSdk {
     }
 
     /// Creates a file browser for the given project path.
+    #[deprecated(note = "Use sdk.services() -> ServiceRegistry instead")]
     pub fn create_file_browser(&self, project_path: &str) -> LocalFileBrowserService {
         LocalFileBrowserService::new(project_path.to_string())
     }
@@ -935,6 +954,7 @@ impl DspatchSdk {
     ///
     /// Ensures DB services (and the server instance) are created before
     /// starting the server.
+    #[deprecated(note = "Server lifecycle managed by WorkspaceBridge inside ServiceRegistry")]
     pub async fn start_server(&self, preferred_port: Option<u16>) -> Result<u16> {
         // Ensure DB services + server + bridge are created.
         self.ensure_db_services().await?;
@@ -963,6 +983,7 @@ impl DspatchSdk {
     ///
     /// Idempotent — safe to call multiple times. Requires the server to be
     /// running (called automatically by `start_server` and `post_db_ready`).
+    #[deprecated(note = "Server lifecycle managed by WorkspaceBridge inside ServiceRegistry")]
     pub async fn ensure_send_user_input_wired(&self) -> Result<()> {
         let agent_data = self.agent_data().await?;
 
@@ -1066,6 +1087,7 @@ impl DspatchSdk {
     // table invalidation. Consumers use watch_* streams instead.
 
     /// Stops the embedded agent server.
+    #[deprecated(note = "Server lifecycle managed by WorkspaceBridge inside ServiceRegistry")]
     pub async fn stop_server(&self) -> Result<()> {
         let server_arc = {
             let guard = self.server.read().await;
