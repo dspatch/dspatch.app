@@ -711,9 +711,11 @@ impl DspatchSdk {
         }
     }
 
-    /// Clears the ServiceRegistry, releasing the Arc<Database>.
+    /// Clears the ServiceRegistry and invalidation broadcaster,
+    /// releasing the Arc<Database>.
     async fn clear_services(&self) {
         *self.services.write().await = None;
+        *self.invalidation_handle.write().await = None;
         tracing::info!("ServiceRegistry cleared");
     }
 
