@@ -26,7 +26,7 @@ const CHANNEL_CAPACITY: usize = 32;
 
 /// Broadcast emitter for ephemeral engine lifecycle events.
 ///
-/// Created once per engine, stored in `EngineRuntime`. Any subsystem can call
+/// Created once per engine, stored in `ClientApiRuntime`. Any subsystem can call
 /// [`emit`](Self::emit) to broadcast an event. WebSocket handlers call
 /// [`subscribe`](Self::subscribe) to receive events.
 pub struct EphemeralEventEmitter {

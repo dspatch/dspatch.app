@@ -7,7 +7,7 @@ use std::sync::Arc;
 use axum::Router;
 use tokio::net::TcpListener;
 
-use crate::engine::startup::EngineRuntime;
+use crate::engine::startup::ClientApiRuntime;
 use crate::util::error::AppError;
 use crate::util::result::Result;
 
@@ -16,7 +16,7 @@ use super::health::{engine_info_handler, health_handler};
 use super::ws::ws_handler;
 
 /// Builds the axum router with all client API routes.
-pub fn build_router(runtime: Arc<EngineRuntime>) -> Router {
+pub fn build_router(runtime: Arc<ClientApiRuntime>) -> Router {
     Router::new()
         .route("/health", axum::routing::get(health_handler))
         .route("/engine-info", axum::routing::get(engine_info_handler))
@@ -33,7 +33,7 @@ pub fn build_router(runtime: Arc<EngineRuntime>) -> Router {
 /// If `port_tx` is provided, the actual bound port is sent through the channel
 /// immediately after binding (before the server starts accepting connections).
 pub async fn start_client_api(
-    runtime: Arc<EngineRuntime>,
+    runtime: Arc<ClientApiRuntime>,
     mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
 ) -> Result<u16> {

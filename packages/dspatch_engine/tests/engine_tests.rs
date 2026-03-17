@@ -1,12 +1,12 @@
 //! Tests for the engine startup module.
 
 use dspatch_engine::engine::config::EngineConfig;
-use dspatch_engine::engine::startup::EngineRuntime;
+use dspatch_engine::engine::startup::ClientApiRuntime;
 
 #[test]
 fn engine_runtime_creation_records_start_time() {
     let config = EngineConfig::default();
-    let runtime = EngineRuntime::new(config);
+    let runtime = ClientApiRuntime::new(config);
     assert!(runtime.uptime_seconds() < 2);
 }
 
@@ -14,7 +14,7 @@ fn engine_runtime_creation_records_start_time() {
 fn engine_runtime_exposes_config() {
     let mut config = EngineConfig::default();
     config.client_api_port = 12345;
-    let runtime = EngineRuntime::new(config);
+    let runtime = ClientApiRuntime::new(config);
     assert_eq!(runtime.config().client_api_port, 12345);
 }
 
@@ -56,7 +56,7 @@ fn engine_open_database_is_idempotent() {
 async fn health_endpoint_returns_running_status() {
     use std::sync::Arc;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::client_api::health::HealthResponse;
     use dspatch_engine::client_api::server::build_router;
 
@@ -64,7 +64,7 @@ async fn health_endpoint_returns_running_status() {
     use http::Request;
     use tower::ServiceExt;
 
-    let app = build_router(Arc::new(EngineRuntime::new(EngineConfig::default())));
+    let app = build_router(Arc::new(ClientApiRuntime::new(EngineConfig::default())));
     let req = Request::builder()
         .uri("/health")
         .body(Body::empty())
@@ -86,12 +86,12 @@ async fn health_endpoint_returns_running_status() {
 async fn client_api_server_starts_and_responds_to_health() {
     use std::sync::Arc;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::client_api::health::HealthResponse;
 
     let mut config = EngineConfig::default();
     config.client_api_port = 0; // OS-assigned port
-    let runtime = Arc::new(EngineRuntime::new(config));
+    let runtime = Arc::new(ClientApiRuntime::new(config));
 
     let runtime_clone = runtime.clone();
 
@@ -175,10 +175,10 @@ async fn auth_anonymous_returns_session_token() {
     use http::Request;
     use tower::ServiceExt;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::client_api::server::build_router;
 
-    let runtime = Arc::new(EngineRuntime::new(EngineConfig::default()));
+    let runtime = Arc::new(ClientApiRuntime::new(EngineConfig::default()));
     let app = build_router(runtime);
 
     let req = Request::builder()
@@ -205,10 +205,10 @@ async fn auth_login_without_backend_returns_error() {
     use http::Request;
     use tower::ServiceExt;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::client_api::server::build_router;
 
-    let runtime = Arc::new(EngineRuntime::new(EngineConfig::default()));
+    let runtime = Arc::new(ClientApiRuntime::new(EngineConfig::default()));
     let app = build_router(runtime);
 
     let req = Request::builder()
@@ -233,10 +233,10 @@ async fn auth_register_without_backend_returns_error() {
     use http::Request;
     use tower::ServiceExt;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::client_api::server::build_router;
 
-    let runtime = Arc::new(EngineRuntime::new(EngineConfig::default()));
+    let runtime = Arc::new(ClientApiRuntime::new(EngineConfig::default()));
     let app = build_router(runtime);
 
     let req = Request::builder()
@@ -347,11 +347,11 @@ fn protocol_welcome_event() {
 async fn ws_rejects_unauthenticated_connection() {
     use std::sync::Arc;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
 
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
-    let runtime = Arc::new(EngineRuntime::new(config));
+    let runtime = Arc::new(ClientApiRuntime::new(config));
 
     let runtime_clone = runtime.clone();
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
@@ -381,13 +381,13 @@ async fn ws_rejects_unauthenticated_connection() {
 async fn ws_accepts_authenticated_connection_and_sends_welcome() {
     use std::sync::Arc;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::client_api::session::AuthMode;
     use futures::StreamExt;
 
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
-    let runtime = Arc::new(EngineRuntime::new(config));
+    let runtime = Arc::new(ClientApiRuntime::new(config));
     let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 
     let runtime_clone = runtime.clone();
@@ -434,14 +434,14 @@ async fn ws_accepts_authenticated_connection_and_sends_welcome() {
 async fn ws_command_returns_not_implemented() {
     use std::sync::Arc;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::client_api::session::AuthMode;
     use futures::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite;
 
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
-    let runtime = Arc::new(EngineRuntime::new(config));
+    let runtime = Arc::new(ClientApiRuntime::new(config));
     let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 
     let runtime_clone = runtime.clone();
@@ -487,14 +487,14 @@ async fn ws_command_returns_not_implemented() {
 async fn ws_invalid_frame_returns_parse_error() {
     use std::sync::Arc;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::client_api::session::AuthMode;
     use futures::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite;
 
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
-    let runtime = Arc::new(EngineRuntime::new(config));
+    let runtime = Arc::new(ClientApiRuntime::new(config));
     let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 
     let runtime_clone = runtime.clone();
@@ -535,13 +535,13 @@ async fn ws_invalid_frame_returns_parse_error() {
 async fn ws_connection_stays_alive_during_idle_period() {
     use std::sync::Arc;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::client_api::session::AuthMode;
     use futures::StreamExt;
 
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
-    let runtime = Arc::new(EngineRuntime::new(config));
+    let runtime = Arc::new(ClientApiRuntime::new(config));
     let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 
     let runtime_clone = runtime.clone();
@@ -606,11 +606,11 @@ async fn health_reflects_auth_state_after_anonymous_login() {
     use http::Request;
     use tower::ServiceExt;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::client_api::health::HealthResponse;
     use dspatch_engine::client_api::server::build_router;
 
-    let runtime = Arc::new(EngineRuntime::new(EngineConfig::default()));
+    let runtime = Arc::new(ClientApiRuntime::new(EngineConfig::default()));
 
     // Before auth: authenticated should be false.
     let app = build_router(runtime.clone());
@@ -861,7 +861,7 @@ fn error_to_server_frame_preserves_message_and_id() {
 async fn ws_command_dispatches_to_service() {
     use std::sync::Arc;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::engine::service_registry::ServiceRegistry;
     use dspatch_engine::client_api::session::AuthMode;
     use futures::{SinkExt, StreamExt};
@@ -873,7 +873,7 @@ async fn ws_command_dispatches_to_service() {
 
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
-    let runtime = Arc::new(EngineRuntime::with_services(config, registry));
+    let runtime = Arc::new(ClientApiRuntime::with_services(config, registry));
 
     let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 
@@ -1058,7 +1058,7 @@ async fn invalidation_broadcaster_sends_separate_batches_across_windows() {
 async fn engine_runtime_exposes_invalidation_handle() {
     use std::sync::Arc;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::db::reactive::TableChangeTracker;
     use dspatch_engine::client_api::invalidation::{InvalidationBroadcaster, InvalidationHandle};
 
@@ -1067,7 +1067,7 @@ async fn engine_runtime_exposes_invalidation_handle() {
     let handle = broadcaster.start();
 
     let config = EngineConfig::default();
-    let runtime = EngineRuntime::with_invalidation(config, handle);
+    let runtime = ClientApiRuntime::with_invalidation(config, handle);
 
     // Should be able to subscribe via the runtime.
     let _rx = runtime.invalidation_handle().subscribe();
@@ -1077,7 +1077,7 @@ async fn engine_runtime_exposes_invalidation_handle() {
 async fn ws_receives_invalidation_on_table_change() {
     use std::sync::Arc;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::engine::service_registry::ServiceRegistry;
     use dspatch_engine::client_api::session::AuthMode;
     use dspatch_engine::client_api::invalidation::InvalidationBroadcaster;
@@ -1098,7 +1098,7 @@ async fn ws_receives_invalidation_on_table_change() {
 
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
-    let runtime = Arc::new(EngineRuntime::with_services_and_invalidation(
+    let runtime = Arc::new(ClientApiRuntime::with_services_and_invalidation(
         config, registry, handle,
     ));
 
@@ -1188,13 +1188,13 @@ async fn ephemeral_event_emitter_silent_when_no_subscribers() {
 async fn ws_receives_ephemeral_events() {
     use std::sync::Arc;
     use dspatch_engine::engine::config::EngineConfig;
-    use dspatch_engine::engine::startup::EngineRuntime;
+    use dspatch_engine::engine::startup::ClientApiRuntime;
     use dspatch_engine::client_api::session::AuthMode;
     use futures::StreamExt;
 
     let mut config = EngineConfig::default();
     config.client_api_port = 0;
-    let runtime = Arc::new(EngineRuntime::new(config));
+    let runtime = Arc::new(ClientApiRuntime::new(config));
 
     let token = runtime.session_store().create_session(AuthMode::Anonymous, None, None, None, None, None);
 

@@ -12,7 +12,7 @@ use dspatch_engine::client_api::invalidation::InvalidationBroadcaster;
 use dspatch_engine::client_api::server::start_client_api;
 use dspatch_engine::engine::config::EngineConfig;
 use dspatch_engine::engine::service_registry::ServiceRegistry;
-use dspatch_engine::engine::startup::{open_database, EngineRuntime};
+use dspatch_engine::engine::startup::{open_database, ClientApiRuntime};
 
 use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
@@ -30,7 +30,7 @@ fn find_free_port() -> u16 {
 async fn start_engine_on_port(
     tmp_dir: &std::path::Path,
     port: u16,
-) -> Arc<EngineRuntime> {
+) -> Arc<ClientApiRuntime> {
     let config = EngineConfig {
         client_api_port: port,
         db_dir: tmp_dir.to_path_buf(),
@@ -47,7 +47,7 @@ async fn start_engine_on_port(
     let invalidation_handle = broadcaster.start();
 
     let registry = Arc::new(ServiceRegistry::new(db, config.db_dir.clone(), None));
-    let runtime = Arc::new(EngineRuntime::with_services_and_invalidation(
+    let runtime = Arc::new(ClientApiRuntime::with_services_and_invalidation(
         config,
         registry,
         invalidation_handle,

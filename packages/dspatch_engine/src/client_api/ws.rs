@@ -11,7 +11,7 @@ use axum::response::IntoResponse;
 use serde::Deserialize;
 
 use crate::db::schema::TABLE_NAMES;
-use crate::engine::startup::EngineRuntime;
+use crate::engine::startup::ClientApiRuntime;
 
 use super::protocol::{ClientFrame, ServerFrame};
 use super::session::{AuthMode, Session};
@@ -25,7 +25,7 @@ pub struct WsQuery {
 }
 
 pub async fn ws_handler(
-    State(runtime): State<Arc<EngineRuntime>>,
+    State(runtime): State<Arc<ClientApiRuntime>>,
     Query(query): Query<WsQuery>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
@@ -52,7 +52,7 @@ async fn handle_ws_connection(
     mut socket: WebSocket,
     session: Session,
     session_token: String,
-    runtime: Arc<EngineRuntime>,
+    runtime: Arc<ClientApiRuntime>,
 ) {
     let welcome = ServerFrame::welcome();
     if let Err(e) = send_frame(&mut socket, &welcome).await {
@@ -188,7 +188,7 @@ async fn handle_client_message(
     socket: &mut WebSocket,
     text: &str,
     session_token: &str,
-    runtime: &Arc<EngineRuntime>,
+    runtime: &Arc<ClientApiRuntime>,
 ) -> bool {
     let frame: ClientFrame = match serde_json::from_str(text) {
         Ok(f) => f,
@@ -304,7 +304,7 @@ async fn handle_client_message(
 /// fall through to the normal dispatch path.
 async fn handle_sdk_command(
     command: &Command,
-    runtime: &Arc<EngineRuntime>,
+    runtime: &Arc<ClientApiRuntime>,
 ) -> Option<crate::util::result::Result<serde_json::Value>> {
     match command {
         Command::GetDatabaseState => {

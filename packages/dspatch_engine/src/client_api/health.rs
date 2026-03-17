@@ -8,7 +8,7 @@ use axum::extract::State;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::engine::startup::EngineRuntime;
+use crate::engine::startup::ClientApiRuntime;
 
 /// JSON response for `GET /health`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,7 +23,7 @@ pub struct HealthResponse {
 
 /// Handler for `GET /health`.
 pub async fn health_handler(
-    State(runtime): State<Arc<EngineRuntime>>,
+    State(runtime): State<Arc<ClientApiRuntime>>,
 ) -> Json<HealthResponse> {
     let docker_available = check_docker_available().await;
 
@@ -51,7 +51,7 @@ pub struct EngineInfoResponse {
 /// Clients should call this after receiving `database_state_changed` → `ready`
 /// to open their read-only Drift connection at the correct path.
 pub async fn engine_info_handler(
-    State(runtime): State<Arc<EngineRuntime>>,
+    State(runtime): State<Arc<ClientApiRuntime>>,
 ) -> Json<EngineInfoResponse> {
     let config = runtime.config();
 

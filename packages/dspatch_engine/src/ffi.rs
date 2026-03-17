@@ -16,13 +16,13 @@ use crate::config::DspatchConfig;
 use crate::crypto::KeyringSecretStore;
 use crate::engine::config::EngineConfig;
 use crate::engine::service_registry::ServiceRegistry;
-use crate::engine::startup::{init_tracing, EngineRuntime};
+use crate::engine::startup::{init_tracing, ClientApiRuntime};
 use crate::sdk::{DatabaseReadyState, DspatchSdk};
 
 /// Holds the tokio runtime and engine runtime so we can shut down later.
 struct EngineHandle {
     runtime: tokio::runtime::Runtime,
-    engine_runtime: Arc<EngineRuntime>,
+    engine_runtime: Arc<ClientApiRuntime>,
 }
 
 static ENGINE: Lazy<Mutex<Option<EngineHandle>>> = Lazy::new(|| Mutex::new(None));
@@ -84,7 +84,7 @@ pub unsafe extern "C" fn start_engine(config_json: *const c_char) -> i32 {
         std::fs::create_dir_all(&config.db_dir)
             .map_err(|e| format!("failed to create db_dir: {e}"))?;
 
-        // Clone values before config is moved into EngineRuntime.
+        // Clone values before config is moved into ClientApiRuntime.
         let db_dir = config.db_dir.clone();
         let invalidation_debounce_ms = config.invalidation_debounce_ms;
 
@@ -113,7 +113,7 @@ pub unsafe extern "C" fn start_engine(config_json: *const c_char) -> i32 {
         let invalidation_handle = broadcaster.start();
 
         let registry = Arc::new(ServiceRegistry::new(db, db_dir.clone(), None));
-        let mut runtime = Arc::new(EngineRuntime::with_services_and_invalidation(
+        let mut runtime = Arc::new(ClientApiRuntime::with_services_and_invalidation(
             config,
             registry,
             invalidation_handle,

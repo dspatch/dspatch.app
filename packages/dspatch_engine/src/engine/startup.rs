@@ -16,7 +16,7 @@ use crate::client_api::session::SessionStore;
 use crate::sdk::DspatchSdk;
 
 /// Core runtime state for the engine daemon.
-pub struct EngineRuntime {
+pub struct ClientApiRuntime {
     config: EngineConfig,
     started_at: Instant,
     shutdown_tx: broadcast::Sender<()>,
@@ -27,7 +27,7 @@ pub struct EngineRuntime {
     sdk: Option<Arc<DspatchSdk>>,
 }
 
-impl EngineRuntime {
+impl ClientApiRuntime {
     pub fn new(config: EngineConfig) -> Self {
         let (shutdown_tx, _) = broadcast::channel(1);
         Self {

@@ -10,7 +10,7 @@ use axum::Json;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
-use crate::engine::startup::EngineRuntime;
+use crate::engine::startup::ClientApiRuntime;
 
 use super::session::AuthMode;
 
@@ -53,7 +53,7 @@ struct BackendStatusResponse {
 }
 
 pub async fn anonymous_handler(
-    State(runtime): State<Arc<EngineRuntime>>,
+    State(runtime): State<Arc<ClientApiRuntime>>,
 ) -> Json<AuthResponse> {
     let token = runtime
         .session_store()
@@ -68,7 +68,7 @@ pub async fn anonymous_handler(
 }
 
 pub async fn connect_handler(
-    State(runtime): State<Arc<EngineRuntime>>,
+    State(runtime): State<Arc<ClientApiRuntime>>,
     Json(body): Json<ConnectRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<AuthErrorResponse>)> {
     let backend_url = runtime.config().backend_url.as_ref().ok_or_else(|| {
@@ -135,7 +135,7 @@ pub async fn connect_handler(
 }
 
 pub async fn refresh_handler(
-    State(runtime): State<Arc<EngineRuntime>>,
+    State(runtime): State<Arc<ClientApiRuntime>>,
     Json(body): Json<RefreshRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<AuthErrorResponse>)> {
     let session = runtime

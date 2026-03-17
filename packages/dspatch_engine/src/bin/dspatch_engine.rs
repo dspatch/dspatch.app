@@ -15,7 +15,7 @@ use dspatch_engine::client_api::server::start_client_api;
 use dspatch_engine::engine::config::EngineConfig;
 use dspatch_engine::engine::service_registry::ServiceRegistry;
 use dspatch_engine::engine::startup::{
-    init_tracing, wait_for_shutdown_signal, EngineRuntime,
+    init_tracing, wait_for_shutdown_signal, ClientApiRuntime,
 };
 use dspatch_engine::hub::HubApiClient;
 use dspatch_engine::sdk::DspatchSdk;
@@ -56,7 +56,7 @@ async fn main() {
         "dspatch engine starting"
     );
 
-    // Clone values from config before it gets moved into EngineRuntime.
+    // Clone values from config before it gets moved into ClientApiRuntime.
     let db_dir = config.db_dir.clone();
     let invalidation_debounce_ms = config.invalidation_debounce_ms;
     let backend_url_for_hub = config.backend_url.clone();
@@ -108,7 +108,7 @@ async fn main() {
         db_dir.clone(),
         Some(hub_client.clone()),
     ));
-    let mut runtime = Arc::new(EngineRuntime::with_services_and_invalidation(
+    let mut runtime = Arc::new(ClientApiRuntime::with_services_and_invalidation(
         config, registry, invalidation_handle,
     ));
 
