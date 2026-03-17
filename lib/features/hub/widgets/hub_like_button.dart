@@ -13,12 +13,16 @@ class HubLikeButton extends ConsumerStatefulWidget {
   const HubLikeButton({
     super.key,
     required this.slug,
+    this.author,
     required this.targetType,
     required this.initialLikes,
     required this.initialLiked,
   });
 
   final String slug;
+
+  /// Required for agents (backend route includes author). Null for workspaces.
+  final String? author;
 
   /// Either `'agent'` or `'workspace'`.
   final String targetType;
@@ -70,9 +74,14 @@ class _HubLikeButtonState extends ConsumerState<HubLikeButton> {
     try {
       final client = ref.read(engineClientProvider);
       if (widget.targetType == 'agent') {
-        await client.send(HubVoteAgent(agentId: widget.slug, vote: _liked ? 1 : -1));
+        await client.send(HubVoteAgent(
+          author: widget.author ?? '',
+          slug: widget.slug,
+          vote: _liked ? 1 : -1,
+        ));
       } else {
-        await client.send(HubVoteWorkspace(workspaceId: widget.slug, vote: _liked ? 1 : -1));
+        await client.send(
+            HubVoteWorkspace(workspaceId: widget.slug, vote: _liked ? 1 : -1));
       }
     } catch (e) {
       // Revert optimistic update

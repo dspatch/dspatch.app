@@ -89,6 +89,7 @@ class HubStripCard extends StatelessWidget {
               children: [
                 HubLikeButton(
                   slug: slug,
+                  author: author,
                   targetType: targetType,
                   initialLikes: likes,
                   initialLiked: userLiked,
@@ -222,6 +223,7 @@ class HubTile extends StatelessWidget {
                 children: [
                   HubLikeButton(
                     slug: slug,
+                    author: author,
                     targetType: targetType,
                     initialLikes: likes,
                     initialLiked: userLiked,

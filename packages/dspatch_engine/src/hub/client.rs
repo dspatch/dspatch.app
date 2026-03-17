@@ -247,9 +247,10 @@ impl HubApiClient {
     /// Toggle like on an agent. Returns `{liked: bool, stars: int}`.
     pub async fn vote_agent(
         &self,
+        author: &str,
         slug: &str,
     ) -> Result<serde_json::Value, HubApiException> {
-        self.post(&format!("/api/hub/agents/{slug}/vote"), &serde_json::json!({}))
+        self.post(&format!("/api/hub/agents/{author}/{slug}/vote"), &serde_json::json!({}))
             .await
     }
 

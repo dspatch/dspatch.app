@@ -533,9 +533,9 @@ pub async fn dispatch_command(
             Ok(serde_json::Value::Null)
         }
 
-        Command::HubVoteAgent { agent_id, .. } => {
+        Command::HubVoteAgent { author, slug, .. } => {
             let hub = require_hub(services)?;
-            let result = hub.vote_agent(agent_id).await.map_err(hub_err)?;
+            let result = hub.vote_agent(author, slug).await.map_err(hub_err)?;
             Ok(result)
         }
 

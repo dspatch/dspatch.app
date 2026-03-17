@@ -275,7 +275,7 @@ pub enum Command {
     },
 
     #[serde(rename = "hub_vote_agent")]
-    HubVoteAgent { agent_id: String, vote: i32 },
+    HubVoteAgent { author: String, slug: String, vote: i32 },
 
     #[serde(rename = "hub_vote_workspace")]
     HubVoteWorkspace { workspace_id: String, vote: i32 },

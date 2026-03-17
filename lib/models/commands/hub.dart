@@ -321,17 +321,21 @@ class HubSubmitWorkspace extends VoidEngineCommand {
       };
 }
 
-/// Bug fix: Rust expects `agent_id` + `vote: i32`, not `slug` + `like: bool`.
 class HubVoteAgent extends VoidEngineCommand {
-  HubVoteAgent({required this.agentId, required this.vote});
-  final String agentId;
+  HubVoteAgent({required this.author, required this.slug, required this.vote});
+  final String author;
+  final String slug;
   final int vote;
 
   @override
   String get method => 'hub_vote_agent';
 
   @override
-  Map<String, dynamic> get params => {'agent_id': agentId, 'vote': vote};
+  Map<String, dynamic> get params => {
+        'author': author,
+        'slug': slug,
+        'vote': vote,
+      };
 }
 
 /// Bug fix: Rust expects `workspace_id` + `vote: i32`, not `slug` + `like: bool`.

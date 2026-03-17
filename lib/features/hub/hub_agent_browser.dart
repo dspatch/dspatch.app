@@ -431,6 +431,7 @@ class _HubAgentCard extends StatelessWidget {
             children: [
               HubLikeButton(
                 slug: agent.slug,
+                author: agent.author,
                 targetType: 'agent',
                 initialLikes: agent.likes,
                 initialLiked: agent.userLiked,
