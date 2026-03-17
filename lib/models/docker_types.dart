@@ -26,13 +26,13 @@ class DockerStatus extends EngineResponse {
 
   factory DockerStatus.fromJson(Map<String, dynamic> json) {
     return DockerStatus(
-      isInstalled: json['isInstalled'] as bool? ?? false,
-      isRunning: json['isRunning'] as bool? ?? false,
-      hasSysbox: json['hasSysbox'] as bool? ?? false,
-      hasNvidiaRuntime: json['hasNvidiaRuntime'] as bool? ?? false,
-      hasRuntimeImage: json['hasRuntimeImage'] as bool? ?? false,
-      runtimeImageSize: json['runtimeImageSize'] as String?,
-      dockerVersion: json['dockerVersion'] as String?,
+      isInstalled: json['is_installed'] as bool? ?? false,
+      isRunning: json['is_running'] as bool? ?? false,
+      hasSysbox: json['has_sysbox'] as bool? ?? false,
+      hasNvidiaRuntime: json['has_nvidia_runtime'] as bool? ?? false,
+      hasRuntimeImage: json['has_runtime_image'] as bool? ?? false,
+      runtimeImageSize: json['runtime_image_size'] as String?,
+      dockerVersion: json['docker_version'] as String?,
     );
   }
 }

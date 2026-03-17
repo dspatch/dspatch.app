@@ -13,7 +13,7 @@ use crate::domain::enums::SourceType;
 /// [`git_url`]), the process [`entry_point`], and a list of environment variable
 /// key names ([`required_env`]) that must be provided at the workspace level.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct AgentProvider {
     pub id: String,
     pub name: String,

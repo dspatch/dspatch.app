@@ -6,7 +6,7 @@ use super::workspace_inquiry::WorkspaceInquiry;
 
 /// An inquiry paired with its parent workspace's display name and ID.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct InquiryWithWorkspace {
     pub inquiry: WorkspaceInquiry,
     pub workspace_name: String,

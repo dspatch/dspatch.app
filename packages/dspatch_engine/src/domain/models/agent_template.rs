@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// The actual configuration lives in a `dspatch.agent.yml` file at `file_path`.
 /// This DB record is just a pointer to that file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct AgentTemplate {
     pub id: String,
     pub name: String,

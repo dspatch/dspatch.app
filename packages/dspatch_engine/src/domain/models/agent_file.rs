@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Tracks file reads, writes, and deletes for audit and display
 /// in the workspace files tab.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct AgentFile {
     pub id: String,
     pub run_id: String,

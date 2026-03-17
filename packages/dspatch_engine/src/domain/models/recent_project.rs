@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Enables quick re-selection of previous project paths. [`is_git_repo`]
 /// indicates whether the path contained a `.git` directory at last use.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct RecentProject {
     pub id: String,
     pub path: String,

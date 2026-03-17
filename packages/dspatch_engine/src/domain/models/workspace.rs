@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// A workspace defines the project and its agent configuration.
 /// Runtime state (containers, ports) is tracked by [`WorkspaceRun`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct Workspace {
     pub id: String,
     pub name: String,

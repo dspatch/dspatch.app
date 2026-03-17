@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Tracks the container, server port, and lifecycle timestamps.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct WorkspaceRun {
     pub id: String,
     pub workspace_id: String,

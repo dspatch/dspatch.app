@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// provide the raw YAML string and the service handles parsing, validation,
 /// and persistence.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct CreateWorkspaceRequest {
     /// Filesystem path to the project directory where `dspatch.workspace.yml` will
     /// be written and `.dspatch/templates/` created.

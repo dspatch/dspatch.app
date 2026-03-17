@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// [`is_running`] reflects whether the daemon is reachable. [`has_sysbox`] and
 /// [`has_runtime_image`] indicate prerequisite checks completed at startup.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct DockerStatus {
     #[serde(default)]
     pub is_installed: bool,

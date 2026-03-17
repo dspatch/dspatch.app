@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Usage records track per-call costs and token counts, enabling
 /// workspace-level cost dashboards and per-agent spend analysis.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct AgentUsage {
     pub id: String,
     pub run_id: String,

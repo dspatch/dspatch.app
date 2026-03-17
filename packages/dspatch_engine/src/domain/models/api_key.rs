@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// The [`provider_label`] is a human-readable tag indicating which LLM provider
 /// (e.g. 'OpenAI', 'Anthropic') this key belongs to.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ApiKey {
     pub id: String,
     pub name: String,

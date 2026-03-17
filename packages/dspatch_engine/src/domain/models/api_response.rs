@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Wrapper around an HTTP response from the backend API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ApiResponse {
     pub status_code: u16,
     pub raw_body: String,

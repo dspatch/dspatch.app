@@ -10,7 +10,7 @@ use crate::domain::enums::SourceType;
 ///
 /// Only non-null fields are applied. Used by the agent provider edit form.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct UpdateAgentProviderRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,

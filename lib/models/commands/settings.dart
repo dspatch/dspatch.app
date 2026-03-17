@@ -93,7 +93,7 @@ class DeletePreference extends VoidEngineCommand {
 
 // ── Agent Providers ────────────────────────────────────────────────────────
 
-/// Create a new agent provider. Wire format uses camelCase to match
+/// Create a new agent provider. Wire format uses snake_case to match
 /// the Rust `CreateAgentProviderRequest` struct.
 class CreateAgentProvider extends VoidEngineCommand {
   CreateAgentProvider({
@@ -142,27 +142,27 @@ class CreateAgentProvider extends VoidEngineCommand {
   @override
   Map<String, dynamic> get params => {
         'name': name,
-        'sourceType': sourceType,
-        'entryPoint': entryPoint,
-        if (sourcePath != null) 'sourcePath': sourcePath,
-        if (gitUrl != null) 'gitUrl': gitUrl,
-        if (gitBranch != null) 'gitBranch': gitBranch,
+        'source_type': sourceType,
+        'entry_point': entryPoint,
+        if (sourcePath != null) 'source_path': sourcePath,
+        if (gitUrl != null) 'git_url': gitUrl,
+        if (gitBranch != null) 'git_branch': gitBranch,
         if (description != null) 'description': description,
         if (readme != null) 'readme': readme,
-        'requiredEnv': requiredEnv,
-        'requiredMounts': requiredMounts,
+        'required_env': requiredEnv,
+        'required_mounts': requiredMounts,
         'fields': fields,
-        if (hubSlug != null) 'hubSlug': hubSlug,
-        if (hubAuthor != null) 'hubAuthor': hubAuthor,
-        if (hubCategory != null) 'hubCategory': hubCategory,
-        if (hubTags.isNotEmpty) 'hubTags': hubTags,
-        if (hubVersion != null) 'hubVersion': hubVersion,
-        if (hubRepoUrl != null) 'hubRepoUrl': hubRepoUrl,
-        if (hubCommitHash != null) 'hubCommitHash': hubCommitHash,
+        if (hubSlug != null) 'hub_slug': hubSlug,
+        if (hubAuthor != null) 'hub_author': hubAuthor,
+        if (hubCategory != null) 'hub_category': hubCategory,
+        if (hubTags.isNotEmpty) 'hub_tags': hubTags,
+        if (hubVersion != null) 'hub_version': hubVersion,
+        if (hubRepoUrl != null) 'hub_repo_url': hubRepoUrl,
+        if (hubCommitHash != null) 'hub_commit_hash': hubCommitHash,
       };
 }
 
-/// Update an existing agent provider. Wire format uses camelCase to match
+/// Update an existing agent provider. Wire format uses snake_case to match
 /// the Rust `UpdateAgentProviderRequest` struct.
 class UpdateAgentProvider extends VoidEngineCommand {
   UpdateAgentProvider({
@@ -214,23 +214,23 @@ class UpdateAgentProvider extends VoidEngineCommand {
   Map<String, dynamic> get params => {
         'id': id,
         if (name != null) 'name': name,
-        if (sourceType != null) 'sourceType': sourceType,
-        if (entryPoint != null) 'entryPoint': entryPoint,
-        if (sourcePath != null) 'sourcePath': sourcePath,
-        if (gitUrl != null) 'gitUrl': gitUrl,
-        if (gitBranch != null) 'gitBranch': gitBranch,
+        if (sourceType != null) 'source_type': sourceType,
+        if (entryPoint != null) 'entry_point': entryPoint,
+        if (sourcePath != null) 'source_path': sourcePath,
+        if (gitUrl != null) 'git_url': gitUrl,
+        if (gitBranch != null) 'git_branch': gitBranch,
         if (description != null) 'description': description,
         if (readme != null) 'readme': readme,
-        if (requiredEnv != null) 'requiredEnv': requiredEnv,
-        if (requiredMounts != null) 'requiredMounts': requiredMounts,
+        if (requiredEnv != null) 'required_env': requiredEnv,
+        if (requiredMounts != null) 'required_mounts': requiredMounts,
         if (fields != null) 'fields': fields,
-        if (hubSlug != null) 'hubSlug': hubSlug,
-        if (hubAuthor != null) 'hubAuthor': hubAuthor,
-        if (hubCategory != null) 'hubCategory': hubCategory,
-        if (hubTags != null) 'hubTags': hubTags,
-        if (hubVersion != null) 'hubVersion': hubVersion,
-        if (hubRepoUrl != null) 'hubRepoUrl': hubRepoUrl,
-        if (hubCommitHash != null) 'hubCommitHash': hubCommitHash,
+        if (hubSlug != null) 'hub_slug': hubSlug,
+        if (hubAuthor != null) 'hub_author': hubAuthor,
+        if (hubCategory != null) 'hub_category': hubCategory,
+        if (hubTags != null) 'hub_tags': hubTags,
+        if (hubVersion != null) 'hub_version': hubVersion,
+        if (hubRepoUrl != null) 'hub_repo_url': hubRepoUrl,
+        if (hubCommitHash != null) 'hub_commit_hash': hubCommitHash,
       };
 }
 

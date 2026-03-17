@@ -11,7 +11,7 @@ use crate::domain::enums::SourceType;
 /// Used by the agent provider form to bundle validated inputs before passing
 /// them to the agent provider service.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct CreateAgentProviderRequest {
     pub name: String,
     pub source_type: SourceType,

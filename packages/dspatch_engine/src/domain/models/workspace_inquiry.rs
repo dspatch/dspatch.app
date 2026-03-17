@@ -10,7 +10,7 @@ use crate::domain::enums::{InquiryPriority, InquiryStatus};
 /// Workspace inquiries support markdown content, attachments, suggestion chips,
 /// and can be responded to by the user or another agent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct WorkspaceInquiry {
     pub id: String,
     pub run_id: String,

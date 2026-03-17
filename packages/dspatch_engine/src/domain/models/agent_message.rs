@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Messages are scoped to a specific agent instance via [`instance_id`].
 /// The [`role`] indicates direction ('user', 'assistant', 'system').
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct AgentMessage {
     pub id: String,
     pub run_id: String,

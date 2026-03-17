@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// that is resolved at container launch time. [`is_enabled`] allows
 /// toggling individual variables without deleting them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct EnvVar {
     pub key: String,
     #[serde(default)]

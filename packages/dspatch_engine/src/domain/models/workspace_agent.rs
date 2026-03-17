@@ -7,7 +7,7 @@ use crate::domain::enums::AgentState;
 
 /// An agent instance within a workspace run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct WorkspaceAgent {
     pub id: String,
     pub run_id: String,

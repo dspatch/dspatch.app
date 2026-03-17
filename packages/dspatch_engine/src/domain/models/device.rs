@@ -10,7 +10,7 @@ use crate::domain::enums::PlatformType;
 /// Tracked for multi-device sync. [`is_online`] and [`last_seen_at`] reflect
 /// the device's last known connectivity state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct Device {
     pub id: String,
     pub name: String,

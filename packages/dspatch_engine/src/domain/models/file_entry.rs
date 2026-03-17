@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// Used as the data contract between the service layer and UI.
 /// Does not include children -- tree structure is handled separately.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct FileEntry {
     /// File or directory name (e.g. "main.py").
     pub name: String,
@@ -74,7 +74,7 @@ impl std::fmt::Display for FileEntry {
 
 /// Type of file system change detected by the watcher.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum FileChangeType {
     Added,
     Modified,

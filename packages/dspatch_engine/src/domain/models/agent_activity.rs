@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// agent-reported events. The [`event_type`] categorises the event,
 /// and [`data_json`] carries event-specific payload as a JSON string.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct AgentActivity {
     pub id: String,
     pub run_id: String,

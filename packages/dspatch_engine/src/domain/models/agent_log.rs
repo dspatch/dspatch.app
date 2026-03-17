@@ -11,7 +11,7 @@ use crate::domain::enums::{LogLevel, LogSource};
 /// [`instance_id`]. The [`source`] indicates whether the log came from
 /// the agent itself or from the engine infrastructure.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct AgentLog {
     pub id: String,
     pub run_id: String,
