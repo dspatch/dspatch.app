@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/utils/agent_source_scanner.dart';
 import '../../core/utils/auth_gate.dart';
 import '../../core/utils/display_error.dart';
 import '../../di/providers.dart';
@@ -339,53 +338,13 @@ class _AgentProviderListScreenState
 
   Future<void> _submitToHub(BuildContext context, AgentProvider template) async {
     if (!await requireAuth(context, ref)) return;
+    if (!context.mounted) return;
 
-    // For local templates, run pre-flight git checks before opening dialog.
-    if (template.isLocal) {
-      final sourcePath = template.sourcePath;
-      if (sourcePath == null || sourcePath.isEmpty) {
-        toast('No source path configured', type: ToastType.error);
-        return;
-      }
-
-      final remoteUrl = await AgentSourceScanner.getGitRemoteUrl(sourcePath);
-      if (remoteUrl == null) {
-        toast(
-          'No git remote origin found',
-          description: 'Configure a remote origin to submit to the hub.',
-          type: ToastType.error,
-        );
-        return;
-      }
-
-      final (branch, hasUncommitted) = await (
-        AgentSourceScanner.getGitBranch(sourcePath),
-        AgentSourceScanner.hasUncommittedChanges(sourcePath),
-      ).wait;
-      final hasUnpushed = branch != null
-          ? await AgentSourceScanner.hasUnpushedCommits(sourcePath, branch)
-          : false;
-
-      if (!context.mounted) return;
-
-      DspatchDialog.show(
-        context: context,
-        maxWidth: 560,
-        builder: (_) => HubSubmitAgentDialog(
-          template: template,
-          detectedRemoteUrl: AgentSourceScanner.sshToHttpsUrl(remoteUrl),
-          detectedBranch: branch,
-          hasUncommittedChanges: hasUncommitted,
-          hasUnpushedCommits: hasUnpushed,
-        ),
-      );
-    } else {
-      DspatchDialog.show(
-        context: context,
-        maxWidth: 560,
-        builder: (_) => HubSubmitAgentDialog(template: template),
-      );
-    }
+    DspatchDialog.show(
+      context: context,
+      maxWidth: 560,
+      builder: (_) => HubSubmitAgentDialog(template: template),
+    );
   }
 
   void _cloneTemplate(BuildContext context, AgentProvider template) {

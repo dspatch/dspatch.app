@@ -32,17 +32,9 @@ class HubSubmitAgentDialog extends ConsumerStatefulWidget {
   const HubSubmitAgentDialog({
     super.key,
     required this.template,
-    this.detectedRemoteUrl,
-    this.detectedBranch,
-    this.hasUncommittedChanges = false,
-    this.hasUnpushedCommits = false,
   });
 
   final AgentProvider template;
-  final String? detectedRemoteUrl;
-  final String? detectedBranch;
-  final bool hasUncommittedChanges;
-  final bool hasUnpushedCommits;
 
   @override
   ConsumerState<HubSubmitAgentDialog> createState() =>
@@ -51,9 +43,6 @@ class HubSubmitAgentDialog extends ConsumerStatefulWidget {
 
 class _HubSubmitAgentDialogState
     extends ConsumerState<HubSubmitAgentDialog> {
-  bool get _hasGitIssues =>
-      widget.hasUncommittedChanges || widget.hasUnpushedCommits;
-
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
   late final TextEditingController _repoUrlController;
@@ -66,6 +55,12 @@ class _HubSubmitAgentDialogState
   bool _submitting = false;
   String? _error;
 
+  // Git preflight state (fetched from engine).
+  bool _loadingPreflight = false;
+  bool _hasUncommittedChanges = false;
+  bool _hasUnpushedCommits = false;
+  bool _detectedRemoteUrl = false;
+
   @override
   void initState() {
     super.initState();
@@ -74,13 +69,39 @@ class _HubSubmitAgentDialogState
     _descriptionController =
         TextEditingController(text: t.description ?? '');
     _repoUrlController = TextEditingController(
-      text: widget.detectedRemoteUrl ??
-          (t.sourceType == 'git' ? (t.gitUrl ?? '') : ''),
+      text: t.sourceType == 'git' ? (t.gitUrl ?? '') : '',
     );
-    _branchController = TextEditingController(
-      text: widget.detectedBranch ?? t.gitBranch ?? '',
-    );
+    _branchController = TextEditingController(text: t.gitBranch ?? '');
     _entryPointController = TextEditingController(text: t.entryPoint);
+
+    // For local providers, fetch git info from engine.
+    if (t.sourceType == 'local' && t.sourcePath != null && t.sourcePath!.isNotEmpty) {
+      _fetchGitPreflight(t.sourcePath!);
+    }
+  }
+
+  Future<void> _fetchGitPreflight(String sourcePath) async {
+    setState(() => _loadingPreflight = true);
+    try {
+      final client = ref.read(engineClientProvider);
+      final result = await client.send(GitPreflightCheck(directory: sourcePath));
+      if (!mounted) return;
+      setState(() {
+        if (result.remoteUrl != null && _repoUrlController.text.isEmpty) {
+          _repoUrlController.text = result.remoteUrl!;
+          _detectedRemoteUrl = true;
+        }
+        if (result.branch != null && _branchController.text.isEmpty) {
+          _branchController.text = result.branch!;
+        }
+        _hasUncommittedChanges = result.hasUncommittedChanges;
+        _hasUnpushedCommits = result.hasUnpushedCommits;
+      });
+    } catch (_) {
+      // Non-fatal — user can still fill in fields manually.
+    } finally {
+      if (mounted) setState(() => _loadingPreflight = false);
+    }
   }
 
   @override
@@ -162,9 +183,9 @@ class _HubSubmitAgentDialogState
               ),
             ]),
 
-            if (widget.hasUncommittedChanges || widget.hasUnpushedCommits) ...[
+            if (_hasUncommittedChanges || _hasUnpushedCommits) ...[
               const SizedBox(height: Spacing.md),
-              if (widget.hasUncommittedChanges)
+              if (_hasUncommittedChanges)
                 const Alert(
                   variant: AlertVariant.warning,
                   icon: LucideIcons.triangle_alert,
@@ -177,8 +198,8 @@ class _HubSubmitAgentDialogState
                     ),
                   ],
                 ),
-              if (widget.hasUnpushedCommits) ...[
-                if (widget.hasUncommittedChanges)
+              if (_hasUnpushedCommits) ...[
+                if (_hasUncommittedChanges)
                   const SizedBox(height: Spacing.sm),
                 const Alert(
                   variant: AlertVariant.warning,
@@ -225,7 +246,7 @@ class _HubSubmitAgentDialogState
                   Field(
                     label: 'Repository URL',
                     required: true,
-                    description: isLocal && widget.detectedRemoteUrl != null
+                    description: isLocal && _detectedRemoteUrl
                         ? null
                         : isLocal
                             ? 'Enter a public git repo URL for this agent.'
@@ -235,7 +256,7 @@ class _HubSubmitAgentDialogState
                       placeholder: 'https://github.com/org/repo.git',
                     ),
                   ),
-                  if (isLocal && widget.detectedRemoteUrl != null)
+                  if (isLocal && _detectedRemoteUrl)
                     Padding(
                       padding: const EdgeInsets.only(top: Spacing.xs),
                       child: const DspatchBadge(
@@ -335,7 +356,7 @@ class _HubSubmitAgentDialogState
                 label: 'Submit',
                 icon: LucideIcons.upload,
                 loading: _submitting,
-                onPressed: _hasGitIssues ? null : _submit,
+                onPressed: _submitting ? null : _submit,
               ),
             ]),
           ],
