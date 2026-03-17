@@ -542,10 +542,10 @@ class _AgentProviderFormScreenState
       // New template: create first to get filePath, then write YAML.
       try {
         final client = ref.read(engineClientProvider);
-        final result = await client.send(CreateAgentTemplate(request: {
-          'name': name,
-          'source_uri': _sourceUri!,
-        }));
+        final result = await client.send(CreateAgentTemplate(
+          name: name,
+          sourceUri: _sourceUri!,
+        ));
         await _writeTemplateYaml(result.raw['file_path'] as String? ?? '');
         toast('Template created', type: ToastType.success);
         if (mounted) context.go('/agent-providers');
@@ -582,41 +582,46 @@ class _AgentProviderFormScreenState
 
     if (_isEdit) {
       success = await controller.updateAgentProvider(
-        widget.id!,
-        {
-          'name': name,
-          'sourceType': _sourceType,
-          if (_sourceType == 'local')
-            'sourcePath': _sourcePathController.text.trim(),
-          if (_sourceType == 'git')
-            'gitUrl': _gitUrlController.text.trim(),
-          if (_sourceType == 'git')
-            'gitBranch': _gitBranchController.text.trim().ifEmpty(null),
-          'entryPoint': entryPoint,
-          'description': _descriptionController.text.trim().ifEmpty(null),
-          'requiredEnv': _requiredEnv,
-          'requiredMounts': _requiredMounts,
-          'fields': _fields,
-        },
+        UpdateAgentProvider(
+          id: widget.id!,
+          name: name,
+          sourceType: _sourceType,
+          sourcePath: _sourceType == 'local'
+              ? _sourcePathController.text.trim()
+              : null,
+          gitUrl: _sourceType == 'git'
+              ? _gitUrlController.text.trim()
+              : null,
+          gitBranch: _sourceType == 'git'
+              ? _gitBranchController.text.trim().ifEmpty(null)
+              : null,
+          entryPoint: entryPoint,
+          description: _descriptionController.text.trim().ifEmpty(null),
+          requiredEnv: _requiredEnv,
+          requiredMounts: _requiredMounts,
+          fields: _fields,
+        ),
       );
     } else {
       success = await controller.createAgentProvider(
-        {
-          'name': name,
-          'sourceType': _sourceType,
-          if (_sourceType == 'local')
-            'sourcePath': _sourcePathController.text.trim(),
-          if (_sourceType == 'git')
-            'gitUrl': _gitUrlController.text.trim(),
-          if (_sourceType == 'git')
-            'gitBranch': _gitBranchController.text.trim().ifEmpty(null),
-          'entryPoint': entryPoint,
-          'description': _descriptionController.text.trim().ifEmpty(null),
-          'requiredEnv': _requiredEnv,
-          'requiredMounts': _requiredMounts,
-          'fields': _fields,
-          'hubTags': const [],
-        },
+        CreateAgentProvider(
+          name: name,
+          sourceType: _sourceType,
+          entryPoint: entryPoint,
+          sourcePath: _sourceType == 'local'
+              ? _sourcePathController.text.trim()
+              : null,
+          gitUrl: _sourceType == 'git'
+              ? _gitUrlController.text.trim()
+              : null,
+          gitBranch: _sourceType == 'git'
+              ? _gitBranchController.text.trim().ifEmpty(null)
+              : null,
+          description: _descriptionController.text.trim().ifEmpty(null),
+          requiredEnv: _requiredEnv,
+          requiredMounts: _requiredMounts,
+          fields: _fields,
+        ),
       );
     }
 
@@ -710,24 +715,21 @@ class _AgentProviderFormScreenState
                   final author = result.author ?? 'unknown';
                   final resolvedResp = await client.send(
                       HubResolveAgent(agentId: '$author/${result.slug}'));
-                  await client.send(CreateAgentProvider(request: {
-                    'name': result.name,
-                    'sourceType': 'hub',
-                    'hubSlug': result.slug,
-                    'hubAuthor': result.author,
-                    'hubCategory': result.category,
-                    'hubTags': result.tags.map((t) => t.displayName).toList(),
-                    'hubVersion': resolvedResp.raw['version'],
-                    'hubRepoUrl': resolvedResp.raw['repo_url'],
-                    'hubCommitHash': resolvedResp.raw['commit_hash'],
-                    'entryPoint': resolvedResp.raw['entry_point'] ?? '',
-                    'gitUrl': resolvedResp.raw['repo_url'],
-                    'gitBranch': resolvedResp.raw['branch'],
-                    'description': result.description,
-                    'requiredEnv': const [],
-                    'requiredMounts': const [],
-                    'fields': const {},
-                  }));
+                  await client.send(CreateAgentProvider(
+                    name: result.name,
+                    sourceType: 'hub',
+                    entryPoint: (resolvedResp.raw['entry_point'] as String?) ?? '',
+                    hubSlug: result.slug,
+                    hubAuthor: result.author,
+                    hubCategory: result.category,
+                    hubTags: result.tags.map((t) => t.displayName).toList(),
+                    hubVersion: resolvedResp.raw['version'] as int?,
+                    hubRepoUrl: resolvedResp.raw['repo_url'] as String?,
+                    hubCommitHash: resolvedResp.raw['commit_hash'] as String?,
+                    gitUrl: resolvedResp.raw['repo_url'] as String?,
+                    gitBranch: resolvedResp.raw['branch'] as String?,
+                    description: result.description,
+                  ));
                   if (mounted) {
                     setState(() {
                       _sourceUri = 'dspatch://agent/${result.author}/${result.slug}';

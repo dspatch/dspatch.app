@@ -1,5 +1,4 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'dart:convert';
 
 import '../../database/engine_database.dart' show AgentProvider;
 import '../../models/commands/hub.dart';
@@ -121,15 +120,15 @@ class _HubSubmitAgentDialogState
       final description = _descriptionController.text.trim();
       final entryPoint = _entryPointController.text.trim();
 
-      await client.send(HubSubmitAgent(request: {
-        'name': name,
-        'repo_url': repoUrl,
-        if (branch.isNotEmpty) 'branch': branch,
-        if (description.isNotEmpty) 'description': description,
-        if (_selectedCategory != null) 'category': _selectedCategory,
-        if (allTags.isNotEmpty) 'tags_json': jsonEncode(allTags),
-        if (entryPoint.isNotEmpty) 'entry_point': entryPoint,
-      }));
+      await client.send(HubSubmitAgent(
+        name: name,
+        repoUrl: repoUrl,
+        branch: branch.isNotEmpty ? branch : null,
+        description: description.isNotEmpty ? description : null,
+        category: _selectedCategory,
+        tags: allTags.isNotEmpty ? allTags : null,
+        entryPoint: entryPoint.isNotEmpty ? entryPoint : null,
+      ));
 
       if (mounted) {
         toast('Submitted -- pending review', type: ToastType.success);

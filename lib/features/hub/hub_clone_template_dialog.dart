@@ -151,19 +151,15 @@ class _HubCloneTemplateDialogState
 
       // 3. Create the local provider via the engine.
       final client = ref.read(engineClientProvider);
-      await client.send(CreateAgentProvider(request: {
-        'name': name,
-        'source_type': 'local',
-        'source_path': finalPath,
-        'entry_point': widget.template.entryPoint,
-        'description': widget.template.description,
-        'git_url': _cloneableUrl,
-        'git_branch': widget.template.gitBranch,
-        'required_env_json': widget.template.requiredEnvJson,
-        'required_mounts_json': widget.template.requiredMountsJson,
-        'fields_json': widget.template.fieldsJson,
-        'hub_tags': const [],
-      }));
+      await client.send(CreateAgentProvider(
+        name: name,
+        sourceType: 'local',
+        entryPoint: widget.template.entryPoint,
+        sourcePath: finalPath,
+        description: widget.template.description,
+        gitUrl: _cloneableUrl,
+        gitBranch: widget.template.gitBranch,
+      ));
 
       if (mounted) {
         toast("Cloned '$name' to $finalPath", type: ToastType.success);

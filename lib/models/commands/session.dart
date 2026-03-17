@@ -6,13 +6,23 @@ library;
 import 'command.dart';
 
 class RefreshCredentials extends VoidEngineCommand {
-  final String backendToken;
+  RefreshCredentials({
+    required this.backendToken,
+    this.deviceId,
+    this.identityKeySeed,
+  });
 
-  RefreshCredentials({required this.backendToken});
+  final String backendToken;
+  final String? deviceId;
+  final String? identityKeySeed;
 
   @override
   String get method => 'refresh_credentials';
 
   @override
-  Map<String, dynamic>? get params => {'backend_token': backendToken};
+  Map<String, dynamic> get params => {
+        'backend_token': backendToken,
+        if (deviceId != null) 'device_id': deviceId,
+        if (identityKeySeed != null) 'identity_key_seed': identityKeySeed,
+      };
 }

@@ -12,7 +12,7 @@ class HubStripCard extends StatelessWidget {
     this.author,
     required this.slug,
     required this.targetType,
-    required this.stars,
+    required this.likes,
     required this.userLiked,
     required this.downloads,
     required this.verified,
@@ -26,7 +26,7 @@ class HubStripCard extends StatelessWidget {
   final String? author;
   final String slug;
   final String targetType;
-  final int stars;
+  final int likes;
   final bool userLiked;
   final int downloads;
   final bool verified;
@@ -90,7 +90,7 @@ class HubStripCard extends StatelessWidget {
                 HubLikeButton(
                   slug: slug,
                   targetType: targetType,
-                  initialStars: stars,
+                  initialLikes: likes,
                   initialLiked: userLiked,
                 ),
                 const SizedBox(width: Spacing.sm),
@@ -130,7 +130,7 @@ class HubTile extends StatelessWidget {
     this.description,
     required this.slug,
     required this.targetType,
-    required this.stars,
+    required this.likes,
     required this.userLiked,
     required this.downloads,
     required this.verified,
@@ -143,7 +143,7 @@ class HubTile extends StatelessWidget {
   final String? description;
   final String slug;
   final String targetType;
-  final int stars;
+  final int likes;
   final bool userLiked;
   final int downloads;
   final bool verified;
@@ -223,7 +223,7 @@ class HubTile extends StatelessWidget {
                   HubLikeButton(
                     slug: slug,
                     targetType: targetType,
-                    initialStars: stars,
+                    initialLikes: likes,
                     initialLiked: userLiked,
                   ),
                   const SizedBox(width: Spacing.sm),

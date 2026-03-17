@@ -226,36 +226,99 @@ class HubResolveWorkspaceDetails
 }
 
 class HubSubmitAgent extends VoidEngineCommand {
-  HubSubmitAgent({required this.request});
-  final Map<String, dynamic> request;
+  HubSubmitAgent({
+    required this.name,
+    required this.repoUrl,
+    this.branch,
+    this.description,
+    this.category,
+    this.tags,
+    this.entryPoint,
+    this.sdkVersion,
+  });
+
+  final String name;
+  final String repoUrl;
+  final String? branch;
+  final String? description;
+  final String? category;
+  final List<Map<String, dynamic>>? tags;
+  final String? entryPoint;
+  final String? sdkVersion;
 
   @override
   String get method => 'hub_submit_agent';
 
   @override
-  Map<String, dynamic> get params => request;
+  Map<String, dynamic> get params => {
+        'name': name,
+        'repo_url': repoUrl,
+        if (branch != null) 'branch': branch,
+        if (description != null) 'description': description,
+        if (category != null) 'category': category,
+        if (tags != null) 'tags': tags,
+        if (entryPoint != null) 'entry_point': entryPoint,
+        if (sdkVersion != null) 'sdk_version': sdkVersion,
+      };
 }
 
 class HubSubmitTemplate extends VoidEngineCommand {
-  HubSubmitTemplate({required this.request});
-  final Map<String, dynamic> request;
+  HubSubmitTemplate({
+    required this.name,
+    required this.configYaml,
+    required this.sourceUri,
+    this.description,
+    this.category,
+    this.tags,
+  });
+
+  final String name;
+  final String configYaml;
+  final String sourceUri;
+  final String? description;
+  final String? category;
+  final List<Map<String, dynamic>>? tags;
 
   @override
   String get method => 'hub_submit_template';
 
   @override
-  Map<String, dynamic> get params => request;
+  Map<String, dynamic> get params => {
+        'name': name,
+        'config_yaml': configYaml,
+        'source_uri': sourceUri,
+        if (description != null) 'description': description,
+        if (category != null) 'category': category,
+        if (tags != null) 'tags': tags,
+      };
 }
 
 class HubSubmitWorkspace extends VoidEngineCommand {
-  HubSubmitWorkspace({required this.request});
-  final Map<String, dynamic> request;
+  HubSubmitWorkspace({
+    required this.name,
+    required this.configJson,
+    this.description,
+    this.category,
+    this.tags,
+  });
+
+  final String name;
+  final String configJson;
+  final String? description;
+  final String? category;
+  final List<Map<String, dynamic>>? tags;
 
   @override
   String get method => 'hub_submit_workspace';
 
   @override
-  Map<String, dynamic> get params => request;
+  Map<String, dynamic> get params => {
+        'name': name,
+        'config_json': configJson,
+        if (description != null) 'description': description,
+        if (category != null) 'category': category,
+        if (tags != null) 'tags': tags,
+      };
 }
 
 /// Bug fix: Rust expects `agent_id` + `vote: i32`, not `slug` + `like: bool`.
@@ -302,9 +365,9 @@ class HubMyVotes extends EngineCommand<HubMyVotesResponse> {
 }
 
 class HubSearchTags extends EngineCommand<HubTagsResponse> {
-  HubSearchTags({required this.query, this.tagType});
+  HubSearchTags({required this.query, this.category});
   final String query;
-  final String? tagType;
+  final String? category;
 
   @override
   String get method => 'hub_search_tags';
@@ -312,7 +375,7 @@ class HubSearchTags extends EngineCommand<HubTagsResponse> {
   @override
   Map<String, dynamic> get params => {
         'query': query,
-        if (tagType != null) 'tag_type': tagType,
+        if (category != null) 'category': category,
       };
 
   @override
@@ -321,15 +384,15 @@ class HubSearchTags extends EngineCommand<HubTagsResponse> {
 }
 
 class HubPopularTags extends EngineCommand<HubTagsResponse> {
-  HubPopularTags({this.tagType});
-  final String? tagType;
+  HubPopularTags({this.category});
+  final String? category;
 
   @override
   String get method => 'hub_popular_tags';
 
   @override
   Map<String, dynamic> get params => {
-        if (tagType != null) 'tag_type': tagType,
+        if (category != null) 'category': category,
       };
 
   @override

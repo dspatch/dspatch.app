@@ -13,7 +13,7 @@ class SearchResultItem {
     required this.onTap,
     this.isHub = false,
     this.hubAuthor,
-    this.hubStars,
+    this.hubLikes,
     this.hubVerified = false,
     this.onDownload,
   });
@@ -24,7 +24,7 @@ class SearchResultItem {
   final VoidCallback onTap;
   final bool isHub;
   final String? hubAuthor;
-  final int? hubStars;
+  final int? hubLikes;
   final bool hubVerified;
   final VoidCallback? onDownload;
 }
@@ -421,17 +421,17 @@ class _DropdownContent extends StatelessWidget {
               ),
             ],
 
-            // Stars
-            if (item.hubStars != null) ...[
+            // Likes
+            if (item.hubLikes != null) ...[
               const SizedBox(width: Spacing.sm),
               const Icon(
-                LucideIcons.star,
+                Icons.favorite,
                 size: 12,
                 color: AppColors.mutedForeground,
               ),
               const SizedBox(width: 2),
               Text(
-                '${item.hubStars}',
+                '${item.hubLikes}',
                 style: const TextStyle(
                   fontSize: 10,
                   color: AppColors.mutedForeground,

@@ -108,7 +108,7 @@ class _TagAutocompleteInputState extends ConsumerState<TagAutocompleteInput> {
     setState(() => _loading = true);
     try {
       final client = ref.read(engineClientProvider);
-      final result = await client.send(HubPopularTags(tagType: widget.category));
+      final result = await client.send(HubPopularTags(category: widget.category));
       if (!mounted) return;
       setState(() {
         _suggestions = result.tags;
@@ -138,7 +138,7 @@ class _TagAutocompleteInputState extends ConsumerState<TagAutocompleteInput> {
         final client = ref.read(engineClientProvider);
         final result = await client.send(HubSearchTags(
           query: value.trim(),
-          tagType: widget.category,
+          category: widget.category,
         ));
         if (!mounted) return;
         setState(() {

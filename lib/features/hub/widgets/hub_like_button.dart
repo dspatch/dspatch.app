@@ -8,13 +8,13 @@ import '../../../core/utils/auth_gate.dart';
 import '../../../di/providers.dart';
 import '../hub_providers.dart';
 
-/// A heart-shaped like/unlike button with optimistic toggle and star count.
+/// A heart-shaped like/unlike button with optimistic toggle and like count.
 class HubLikeButton extends ConsumerStatefulWidget {
   const HubLikeButton({
     super.key,
     required this.slug,
     required this.targetType,
-    required this.initialStars,
+    required this.initialLikes,
     required this.initialLiked,
   });
 
@@ -22,7 +22,7 @@ class HubLikeButton extends ConsumerStatefulWidget {
 
   /// Either `'agent'` or `'workspace'`.
   final String targetType;
-  final int initialStars;
+  final int initialLikes;
   final bool initialLiked;
 
   @override
@@ -30,7 +30,7 @@ class HubLikeButton extends ConsumerStatefulWidget {
 }
 
 class _HubLikeButtonState extends ConsumerState<HubLikeButton> {
-  late int _stars = widget.initialStars;
+  late int _likes = widget.initialLikes;
   bool _loading = false;
 
   bool get _liked {
@@ -60,10 +60,10 @@ class _HubLikeButtonState extends ConsumerState<HubLikeButton> {
 
     // Optimistic update
     final prevLiked = _liked;
-    final prevStars = _stars;
+    final prevLikes = _likes;
     _setLiked(!prevLiked);
     setState(() {
-      _stars += _liked ? 1 : -1;
+      _likes += _liked ? 1 : -1;
     });
 
     setState(() => _loading = true);
@@ -79,9 +79,9 @@ class _HubLikeButtonState extends ConsumerState<HubLikeButton> {
       if (mounted) {
         _setLiked(prevLiked);
         setState(() {
-          _stars = prevStars;
+          _likes = prevLikes;
         });
-        toast('Failed to update vote', type: ToastType.error);
+        toast('Failed to update like', type: ToastType.error);
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -106,7 +106,7 @@ class _HubLikeButtonState extends ConsumerState<HubLikeButton> {
             ),
             const SizedBox(width: 4),
             Text(
-              '$_stars',
+              '$_likes',
               style: TextStyle(
                 fontSize: 12,
                 color: _liked

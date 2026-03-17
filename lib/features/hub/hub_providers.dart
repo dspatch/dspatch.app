@@ -123,7 +123,7 @@ final hubAgentSearchResultsProvider =
 });
 
 // ---------------------------------------------------------------------------
-// Vote state
+// Like state
 // ---------------------------------------------------------------------------
 
 /// Set of slugs the current user has liked (agents).
@@ -132,7 +132,7 @@ final likedAgentSlugsProvider = StateProvider<Set<String>>((_) => {});
 /// Set of slugs the current user has liked (workspaces).
 final likedWorkspaceSlugsProvider = StateProvider<Set<String>>((_) => {});
 
-/// Load user's votes on app startup (called when auth state changes to connected).
+/// Load user's likes on app startup (called when auth state changes to connected).
 final loadUserVotesProvider = FutureProvider.autoDispose<void>((ref) async {
   final authToken = ref.watch(authTokenProvider);
   if (authToken is! BackendToken) return;

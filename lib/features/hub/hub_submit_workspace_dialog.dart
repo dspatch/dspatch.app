@@ -90,13 +90,13 @@ class _HubSubmitWorkspaceDialogState
           .toList();
       final description = _descriptionController.text.trim();
 
-      await client.send(HubSubmitWorkspace(request: {
-        'name': name,
-        'config_json': jsonEncode(widget.configYaml),
-        if (description.isNotEmpty) 'description': description,
-        if (_selectedCategory != null) 'category': _selectedCategory,
-        if (allTags.isNotEmpty) 'tags_json': jsonEncode(allTags),
-      }));
+      await client.send(HubSubmitWorkspace(
+        name: name,
+        configJson: jsonEncode(widget.configYaml),
+        description: description.isNotEmpty ? description : null,
+        category: _selectedCategory,
+        tags: allTags.isNotEmpty ? allTags : null,
+      ));
 
       if (mounted) {
         toast('Submitted -- pending review', type: ToastType.success);

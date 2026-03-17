@@ -60,21 +60,17 @@ class _HubWorkspaceBrowserDialogState
               ? uri.pathSegments.skip(1).join('/')
               : agentRef;
           final resolved = await client.send(HubResolveAgent(agentId: authorSlug));
-          await client.send(CreateAgentProvider(request: {
-            'name': agentRef,
-            'source_type': 'hub',
-            'hub_slug': agentRef,
-            'hub_tags': const [],
-            'hub_version': resolved.raw['version'],
-            'hub_repo_url': resolved.raw['repo_url'],
-            'hub_commit_hash': resolved.raw['commit_hash'],
-            'entry_point': resolved.raw['entry_point'] ?? '',
-            'git_url': resolved.raw['repo_url'],
-            'git_branch': resolved.raw['branch'],
-            'required_env': const [],
-            'required_mounts': const [],
-            'fields': const {},
-          }));
+          await client.send(CreateAgentProvider(
+            name: agentRef,
+            sourceType: 'hub',
+            entryPoint: (resolved.raw['entry_point'] as String?) ?? '',
+            hubSlug: agentRef,
+            hubVersion: resolved.raw['version'] as int?,
+            hubRepoUrl: resolved.raw['repo_url'] as String?,
+            hubCommitHash: resolved.raw['commit_hash'] as String?,
+            gitUrl: resolved.raw['repo_url'] as String?,
+            gitBranch: resolved.raw['branch'] as String?,
+          ));
           addedCount++;
         } catch (e) {
           debugPrint('Failed to create template for agent ref: $e');
@@ -432,7 +428,7 @@ class _HubWorkspaceCard extends StatelessWidget {
             ),
           ),
 
-          // Right: agent count, stars, version, action
+          // Right: agent count, likes, version, action
           const SizedBox(width: Spacing.md),
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -452,7 +448,7 @@ class _HubWorkspaceCard extends StatelessWidget {
               HubLikeButton(
                 slug: workspace.slug,
                 targetType: 'workspace',
-                initialStars: workspace.stars,
+                initialLikes: workspace.likes,
                 initialLiked: workspace.userLiked,
               ),
               const SizedBox(width: Spacing.sm),

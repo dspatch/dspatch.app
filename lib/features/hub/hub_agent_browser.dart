@@ -50,10 +50,10 @@ class _HubAgentBrowserDialogState
         final author = agent.author ?? 'unknown';
         final sourceUri = 'dspatch://agent/$author/$sourceSlug';
 
-        await client.send(CreateAgentTemplate(request: {
-          'name': agent.name,
-          'source_uri': sourceUri,
-        }));
+        await client.send(CreateAgentTemplate(
+          name: agent.name,
+          sourceUri: sourceUri,
+        ));
 
         if (mounted) {
           toast('Template "${agent.name}" added', type: ToastType.success);
@@ -64,24 +64,21 @@ class _HubAgentBrowserDialogState
         final resolved =
             await client.send(HubResolveAgent(agentId: '$author/${agent.slug}'));
 
-        await client.send(CreateAgentProvider(request: {
-          'name': agent.name,
-          'source_type': 'hub',
-          'hub_slug': agent.slug,
-          'hub_author': agent.author,
-          'hub_category': agent.category,
-          'hub_tags': agent.tags.map((t) => t.displayName).toList(),
-          'hub_version': resolved.raw['version'],
-          'hub_repo_url': resolved.raw['repo_url'],
-          'hub_commit_hash': resolved.raw['commit_hash'],
-          'entry_point': resolved.raw['entry_point'] ?? '',
-          'git_url': resolved.raw['repo_url'],
-          'git_branch': resolved.raw['branch'],
-          'description': agent.description,
-          'required_env': const [],
-          'required_mounts': const [],
-          'fields': const {},
-        }));
+        await client.send(CreateAgentProvider(
+          name: agent.name,
+          sourceType: 'hub',
+          entryPoint: (resolved.raw['entry_point'] as String?) ?? '',
+          hubSlug: agent.slug,
+          hubAuthor: agent.author,
+          hubCategory: agent.category,
+          hubTags: agent.tags.map((t) => t.displayName).toList(),
+          hubVersion: resolved.raw['version'] as int?,
+          hubRepoUrl: resolved.raw['repo_url'] as String?,
+          hubCommitHash: resolved.raw['commit_hash'] as String?,
+          gitUrl: resolved.raw['repo_url'] as String?,
+          gitBranch: resolved.raw['branch'] as String?,
+          description: agent.description,
+        ));
 
         if (mounted) {
           toast('Added "${agent.name}" to templates', type: ToastType.success);
@@ -427,7 +424,7 @@ class _HubAgentCard extends StatelessWidget {
             ),
           ),
 
-          // Right: stars, version, action button
+          // Right: likes, version, action button
           const SizedBox(width: Spacing.md),
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -435,7 +432,7 @@ class _HubAgentCard extends StatelessWidget {
               HubLikeButton(
                 slug: agent.slug,
                 targetType: 'agent',
-                initialStars: agent.stars,
+                initialLikes: agent.likes,
                 initialLiked: agent.userLiked,
               ),
               const SizedBox(width: Spacing.sm),

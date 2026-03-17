@@ -12,7 +12,7 @@ class HubAgentSummary {
     this.description,
     this.category,
     required this.tags,
-    required this.stars,
+    required this.likes,
     required this.downloads,
     required this.version,
     required this.verified,
@@ -27,7 +27,7 @@ class HubAgentSummary {
   final String? description;
   final String? category;
   final List<HubTagRef> tags;
-  final int stars;
+  final int likes;
   final int downloads;
   final int version;
   final bool verified;
@@ -46,7 +46,7 @@ class HubAgentSummary {
               ?.map((e) => HubTagRef.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
-      stars: json['stars'] as int? ?? 0,
+      likes: json['stars'] as int? ?? 0,
       downloads: json['downloads'] as int? ?? 0,
       version: json['version'] as int? ?? 1,
       verified: json['verified'] as bool? ?? false,
@@ -65,7 +65,7 @@ class HubWorkspaceSummary {
     this.description,
     this.category,
     required this.tags,
-    required this.stars,
+    required this.likes,
     required this.downloads,
     required this.version,
     required this.verified,
@@ -79,7 +79,7 @@ class HubWorkspaceSummary {
   final String? description;
   final String? category;
   final List<HubTagRef> tags;
-  final int stars;
+  final int likes;
   final int downloads;
   final int version;
   final bool verified;
@@ -97,7 +97,7 @@ class HubWorkspaceSummary {
               ?.map((e) => HubTagRef.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
-      stars: json['stars'] as int? ?? 0,
+      likes: json['stars'] as int? ?? 0,
       downloads: json['downloads'] as int? ?? 0,
       version: json['version'] as int? ?? 1,
       verified: json['verified'] as bool? ?? false,

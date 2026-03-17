@@ -1,5 +1,4 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'dart:convert';
 import 'dart:io';
 
 import '../../database/engine_database.dart' show AgentTemplate;
@@ -98,14 +97,14 @@ class _HubSubmitTemplateDialogState
           .toList();
       final description = _descController.text.trim();
 
-      await client.send(HubSubmitTemplate(request: {
-        'name': name,
-        'config_yaml': configYaml,
-        'source_slug': sourceUri,
-        if (description.isNotEmpty) 'description': description,
-        if (_selectedCategory != null) 'category': _selectedCategory,
-        if (allTags.isNotEmpty) 'tags_json': jsonEncode(allTags),
-      }));
+      await client.send(HubSubmitTemplate(
+        name: name,
+        configYaml: configYaml,
+        sourceUri: sourceUri,
+        description: description.isNotEmpty ? description : null,
+        category: _selectedCategory,
+        tags: allTags.isNotEmpty ? allTags : null,
+      ));
 
       if (mounted) {
         toast('Template submitted — pending review', type: ToastType.success);

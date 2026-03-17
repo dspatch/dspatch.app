@@ -144,10 +144,10 @@ class _CreateTemplateDialogState extends ConsumerState<CreateTemplateDialog> {
 
       final sourceUri = 'dspatch://agent/$author/$slug';
       final client = ref.read(engineClientProvider);
-      final result = await client.send(CreateAgentTemplate(request: {
-        'name': _nameController.text.trim(),
-        'source_uri': sourceUri,
-      }));
+      final result = await client.send(CreateAgentTemplate(
+        name: _nameController.text.trim(),
+        sourceUri: sourceUri,
+      ));
       if (mounted) {
         Navigator.of(context).pop();
         toast('Template created', description: result.raw['file_path'] as String? ?? '');

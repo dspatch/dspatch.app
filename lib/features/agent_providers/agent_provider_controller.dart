@@ -15,10 +15,9 @@ class AgentProviderController extends _$AgentProviderController {
 
   EngineClient get _client => ref.read(engineClientProvider);
 
-  Future<bool> createAgentProvider(Map<String, dynamic> request) async {
+  Future<bool> createAgentProvider(CreateAgentProvider command) async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(
-        () => _client.send(CreateAgentProvider(request: request)));
+    state = await AsyncValue.guard(() => _client.send(command));
     if (state.hasError) {
       final message = state.error is EngineException
           ? (state.error as EngineException).message
@@ -30,11 +29,9 @@ class AgentProviderController extends _$AgentProviderController {
     return true;
   }
 
-  Future<bool> updateAgentProvider(
-      String id, Map<String, dynamic> request) async {
+  Future<bool> updateAgentProvider(UpdateAgentProvider command) async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(
-        () => _client.send(UpdateAgentProvider(id: id, request: request)));
+    state = await AsyncValue.guard(() => _client.send(command));
     if (state.hasError) {
       final message = state.error is EngineException
           ? (state.error as EngineException).message
