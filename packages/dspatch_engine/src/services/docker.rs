@@ -27,12 +27,11 @@ const CONTAINER_STATE_RUNNING: &str = "running";
 /// handling error mapping and bulk operation orchestration.
 pub struct LocalDockerService {
     client: DockerClient,
-    assets_dir: String,
 }
 
 impl LocalDockerService {
-    pub fn new(client: DockerClient, assets_dir: String) -> Self {
-        Self { client, assets_dir }
+    pub fn new(client: DockerClient) -> Self {
+        Self { client }
     }
 
     // ── Status detection ──
@@ -118,13 +117,15 @@ impl LocalDockerService {
     /// internally, so the caller must drive this stream from within a Tokio
     /// runtime context (e.g. via `forward_stream`).
     pub fn build_runtime_image(&self) -> Pin<Box<dyn futures::Stream<Item = String> + Send>> {
-        let assets_dir = self.assets_dir.clone();
-
         let stream = async_stream::stream! {
-            let context_dir = match assemble_build_context(&assets_dir).await {
-                Ok(dir) => dir,
+            let context_dir = match assemble_build_context().await {
+                Ok(dir) => {
+                    yield format!("Build context assembled at: {dir}");
+                    dir
+                }
                 Err(e) => {
                     tracing::error!("Failed to assemble build context: {e}");
+                    yield format!("ERROR: Failed to assemble build context: {e}");
                     return;
                 }
             };
@@ -139,6 +140,7 @@ impl LocalDockerService {
                     Ok(line) => yield line,
                     Err(e) => {
                         tracing::error!("Build error: {e}");
+                        yield format!("ERROR: {e}");
                         break;
                     }
                 }

@@ -45,10 +45,7 @@ class EngineController extends _$EngineController {
     _appendLog('─── Build started ───');
 
     try {
-      // Send command — returns immediately, build runs in background.
-      await _client.send(BuildRuntimeImage());
-
-      // Listen for build events streamed from the engine.
+      // Attach listener BEFORE sending command to avoid missing early lines.
       final completer = Completer<bool>();
       final subscription = _client.events.listen((event) {
         if (event.name == 'build_log_line') {
@@ -60,6 +57,9 @@ class EngineController extends _$EngineController {
           if (!completer.isCompleted) completer.complete(false);
         }
       });
+
+      // Send command — returns immediately, build runs in background.
+      await _client.send(BuildRuntimeImage());
 
       final success = await completer.future;
       await subscription.cancel();

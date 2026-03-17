@@ -345,13 +345,31 @@ pub async fn dispatch_command(
 
         Command::BuildRuntimeImage => {
             let stream = services.docker_service().build_runtime_image();
+            let docker_client = services.docker().clone();
             let emitter = ephemeral.clone_sender();
             tokio::spawn(async move {
                 let mut stream = std::pin::pin!(stream);
+                let mut got_lines = false;
                 while let Some(line) = stream.next().await {
+                    got_lines = true;
                     emitter.emit("build_log_line", serde_json::json!({ "line": line }));
                 }
-                emitter.emit("build_complete", serde_json::json!({}));
+                // Verify the image actually exists after the stream ends.
+                let image_exists = docker_client
+                    .list_images(Some(RUNTIME_IMAGE_TAG))
+                    .await
+                    .map(|imgs| !imgs.is_empty())
+                    .unwrap_or(false);
+                if image_exists {
+                    emitter.emit("build_complete", serde_json::json!({}));
+                } else {
+                    let reason = if got_lines {
+                        "Build process failed"
+                    } else {
+                        "Build context assembly failed — check engine logs"
+                    };
+                    emitter.emit("build_failed", serde_json::json!({ "error": reason }));
+                }
             });
             Ok(serde_json::json!({ "started": true }))
         }

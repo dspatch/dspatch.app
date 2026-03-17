@@ -8,10 +8,6 @@ pub struct DspatchConfig {
 
     /// Optional backend API URL.
     pub backend_url: Option<String>,
-
-    /// Directory containing docker/runtime/ assets (Dockerfile, entrypoint.sh).
-    /// Optional override — defaults to "assets" in Flutter apps.
-    pub assets_dir: Option<String>,
 }
 
 impl DspatchConfig {
@@ -20,9 +16,6 @@ impl DspatchConfig {
         Self {
             server_port: engine.agent_server_port,
             backend_url: engine.backend_url.clone(),
-            // Not applicable in daemon mode — Docker assets are
-            // resolved at the workspace bridge level, not SDK level.
-            assets_dir: None,
         }
     }
 }
@@ -32,7 +25,6 @@ impl Default for DspatchConfig {
         Self {
             server_port: 0,
             backend_url: None,
-            assets_dir: None,
         }
     }
 }

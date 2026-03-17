@@ -88,10 +88,10 @@ impl ServiceRegistry {
             Arc::clone(&docker),
         )));
 
-        // Docker service for status detection (assets_dir only needed for image builds).
+        // Docker service for status detection and image builds.
+        // Dockerfile and entrypoint.sh are embedded in the binary at compile time.
         let docker_service: Arc<dyn DockerService> = Arc::new(LocalDockerService::new(
             DockerClient::for_platform(),
-            data_dir.to_string_lossy().to_string(),
         ));
 
         // Wire the workspace bridge so launch/stop commands work immediately.

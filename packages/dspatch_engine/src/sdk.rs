@@ -188,11 +188,9 @@ impl DspatchSdk {
             data_dir,
         ));
 
-        let assets_dir = config.assets_dir.clone().unwrap_or_else(|| "assets".to_string());
         let docker_client = Arc::new(DockerClient::new(DockerCli::new()));
         let docker_service = Arc::new(LocalDockerService::new(
             DockerClient::new(DockerCli::new()),
-            assets_dir,
         ));
 
         let device_service = Arc::new(LocalDeviceService::new());
@@ -689,7 +687,7 @@ impl DspatchSdk {
         let hub_client_guard = self.hub_client().read().await;
         let hub_client_snapshot = Arc::new(HubApiClient::new(
             hub_client_guard.base_url(),
-            hub_client_guard.auth_token().map(|s| s.to_string()),
+            hub_client_guard.auth_token(),
         ));
         drop(hub_client_guard);
 
