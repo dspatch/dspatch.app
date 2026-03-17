@@ -548,9 +548,14 @@ impl DspatchSdk {
         let handle = broadcaster.start();
         *self.invalidation_handle.write().await = Some(handle);
 
-        let hub_client = {
-            let guard = self.hub_client.read().await;
-            Some(Arc::new(HubApiClient::new(guard.base_url(), guard.auth_token())))
+        // Reuse the session store's hub client so auth token updates propagate
+        // to the ServiceRegistry automatically (single shared instance).
+        let hub_client = match self.runtime.read().await.as_ref() {
+            Some(rt) => rt.session_store().hub_client(),
+            None => {
+                let guard = self.hub_client.read().await;
+                Some(Arc::new(HubApiClient::new(guard.base_url(), guard.auth_token())))
+            }
         };
 
         let registry = Arc::new(ServiceRegistry::new(

@@ -90,7 +90,7 @@ class _HubLikeButtonState extends ConsumerState<HubLikeButton> {
         setState(() {
           _likes = prevLikes;
         });
-        toast('Failed to update like', type: ToastType.error);
+        toast('Failed to update like: $e', type: ToastType.error);
       }
     } finally {
       if (mounted) setState(() => _loading = false);

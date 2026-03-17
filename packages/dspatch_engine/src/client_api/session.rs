@@ -52,6 +52,11 @@ impl SessionStore {
         *self.hub_client.write().unwrap() = Some(client);
     }
 
+    /// Returns the shared hub client, if registered.
+    pub fn hub_client(&self) -> Option<Arc<HubApiClient>> {
+        self.hub_client.read().unwrap().clone()
+    }
+
     /// Propagates a backend token to the hub client, if one is registered.
     fn sync_hub_token(&self, token: Option<&String>) {
         if let Some(hub) = self.hub_client.read().unwrap().as_ref() {
