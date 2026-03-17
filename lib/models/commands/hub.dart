@@ -419,3 +419,47 @@ class CheckForWorkspaceUpdates extends VoidEngineCommand {
   @override
   Map<String, dynamic>? get params => null;
 }
+
+// ── Git preflight ────────────────────────────────────────────────────────
+
+/// Response from the engine's `git_preflight_check` command.
+class GitPreflightResult extends EngineResponse {
+  const GitPreflightResult({
+    required this.isRepo,
+    this.remoteUrl,
+    this.branch,
+    required this.hasUncommittedChanges,
+    required this.hasUnpushedCommits,
+  });
+
+  final bool isRepo;
+  final String? remoteUrl;
+  final String? branch;
+  final bool hasUncommittedChanges;
+  final bool hasUnpushedCommits;
+
+  factory GitPreflightResult.fromJson(Map<String, dynamic> json) {
+    return GitPreflightResult(
+      isRepo: json['is_repo'] as bool? ?? false,
+      remoteUrl: json['remote_url'] as String?,
+      branch: json['branch'] as String?,
+      hasUncommittedChanges: json['has_uncommitted_changes'] as bool? ?? false,
+      hasUnpushedCommits: json['has_unpushed_commits'] as bool? ?? false,
+    );
+  }
+}
+
+class GitPreflightCheck extends EngineCommand<GitPreflightResult> {
+  GitPreflightCheck({required this.directory});
+  final String directory;
+
+  @override
+  String get method => 'git_preflight_check';
+
+  @override
+  Map<String, dynamic> get params => {'directory': directory};
+
+  @override
+  GitPreflightResult parseResponse(Map<String, dynamic> result) =>
+      GitPreflightResult.fromJson(result);
+}
