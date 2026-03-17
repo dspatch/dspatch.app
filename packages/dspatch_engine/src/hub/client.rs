@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::RwLock;
 
 use super::models::*;
 
@@ -19,7 +20,7 @@ use super::models::*;
 ///   - Submit agents and workspaces
 pub struct HubApiClient {
     base_url: String,
-    auth_token: Option<String>,
+    auth_token: RwLock<Option<String>>,
     client: reqwest::Client,
 }
 
@@ -27,7 +28,7 @@ impl HubApiClient {
     pub fn new(base_url: impl Into<String>, auth_token: Option<String>) -> Self {
         Self {
             base_url: base_url.into(),
-            auth_token,
+            auth_token: RwLock::new(auth_token),
             client: reqwest::Client::new(),
         }
     }
@@ -37,14 +38,14 @@ impl HubApiClient {
         &self.base_url
     }
 
-    /// Returns the current auth token, if set.
-    pub fn auth_token(&self) -> Option<&str> {
-        self.auth_token.as_deref()
+    /// Returns a clone of the current auth token, if set.
+    pub fn auth_token(&self) -> Option<String> {
+        self.auth_token.read().unwrap().clone()
     }
 
     /// Sets the auth token for authenticated endpoints.
-    pub fn set_auth_token(&mut self, token: Option<String>) {
-        self.auth_token = token;
+    pub fn set_auth_token(&self, token: Option<String>) {
+        *self.auth_token.write().unwrap() = token;
     }
 
     // ─── Public -- Agents ─────────────────────────────────────────────
@@ -398,7 +399,7 @@ impl HubApiClient {
         if let Some(params) = params {
             request = request.query(params);
         }
-        if let Some(ref token) = self.auth_token {
+        if let Some(ref token) = *self.auth_token.read().unwrap() {
             request = request.header("Authorization", format!("Bearer {token}"));
         }
 
@@ -424,7 +425,7 @@ impl HubApiClient {
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
             .json(body);
-        if let Some(ref token) = self.auth_token {
+        if let Some(ref token) = *self.auth_token.read().unwrap() {
             request = request.header("Authorization", format!("Bearer {token}"));
         }
 

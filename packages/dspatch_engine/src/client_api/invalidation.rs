@@ -96,6 +96,37 @@ impl InvalidationHandle {
     pub fn shutdown(&self) {
         let _ = self.shutdown_tx.send(true);
     }
+
+    /// Rebinds this handle to a new `TableChangeTracker` (e.g. after a
+    /// database swap). Shuts down the old aggregation loop and starts a
+    /// new one that sends to the **same** outbound broadcast channel, so
+    /// existing WS subscribers continue to receive invalidation batches
+    /// without re-subscribing.
+    pub fn rebind(&mut self, tracker: Arc<TableChangeTracker>, debounce_ms: u64) {
+        // 1. Shut down the old aggregation loop.
+        let _ = self.shutdown_tx.send(true);
+
+        // 2. Create a new shutdown channel for the new loop.
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        self.shutdown_tx = shutdown_tx;
+
+        // 3. Subscribe to every table on the NEW tracker.
+        let table_receivers: Vec<(String, broadcast::Receiver<()>)> = TABLE_NAMES
+            .iter()
+            .map(|&name| {
+                let rx = tracker.subscribe(&[name]);
+                (name.to_string(), rx)
+            })
+            .collect();
+
+        // 4. Spawn a new aggregation loop using the existing tx.
+        let tx_clone = self.tx.clone();
+        tokio::spawn(async move {
+            run_aggregation_loop(table_receivers, tx_clone, shutdown_rx, debounce_ms).await;
+        });
+
+        tracing::info!("InvalidationBroadcaster rebound to new database tracker");
+    }
 }
 
 /// Core aggregation loop. Collects changes from pre-subscribed table receivers

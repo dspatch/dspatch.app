@@ -76,11 +76,7 @@ async fn handle_ws_connection(
     let mut shutdown_rx = runtime.subscribe_shutdown();
 
     // Subscribe to table invalidation broadcasts (if available).
-    let mut invalidation_rx = if runtime.has_invalidation() {
-        Some(runtime.invalidation_handle().subscribe())
-    } else {
-        None
-    };
+    let mut invalidation_rx = runtime.subscribe_invalidation().await;
 
     // Subscribe to ephemeral engine events.
     let mut ephemeral_rx = runtime.ephemeral().subscribe();

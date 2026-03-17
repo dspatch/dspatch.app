@@ -84,8 +84,9 @@ pub unsafe extern "C" fn start_engine(config_json: *const c_char) -> i32 {
         std::fs::create_dir_all(&config.db_dir)
             .map_err(|e| format!("failed to create db_dir: {e}"))?;
 
-        // Clone db_dir before config is moved into EngineRuntime.
+        // Clone values before config is moved into EngineRuntime.
         let db_dir = config.db_dir.clone();
+        let invalidation_debounce_ms = config.invalidation_debounce_ms;
 
         // Create and initialize the SDK (replaces direct DB open).
         let sdk_config = DspatchConfig::from_engine_config(&config);
@@ -129,6 +130,7 @@ pub unsafe extern "C" fn start_engine(config_json: *const c_char) -> i32 {
             let bridge_runtime = Arc::clone(&runtime);
             let bridge_sdk = Arc::clone(&sdk);
             let bridge_db_dir = db_dir.clone();
+            let bridge_debounce_ms = invalidation_debounce_ms;
             let mut db_rx = sdk.subscribe_database_state();
             tokio::spawn(async move {
                 loop {
@@ -148,6 +150,11 @@ pub unsafe extern "C" fn start_engine(config_json: *const c_char) -> i32 {
                             if matches!(state, DatabaseReadyState::Ready) {
                                 match bridge_sdk.database().await {
                                     Ok(db) => {
+                                        bridge_runtime.rebind_invalidation(
+                                            db.tracker().clone(),
+                                            bridge_debounce_ms,
+                                        ).await;
+
                                         let new_registry = Arc::new(ServiceRegistry::new(
                                             db,
                                             bridge_db_dir.clone(),

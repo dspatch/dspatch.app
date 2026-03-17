@@ -22,7 +22,7 @@ pub struct EngineRuntime {
     shutdown_tx: broadcast::Sender<()>,
     session_store: SessionStore,
     services: Arc<tokio::sync::RwLock<Option<Arc<ServiceRegistry>>>>,
-    invalidation: Option<InvalidationHandle>,
+    invalidation: tokio::sync::Mutex<Option<InvalidationHandle>>,
     ephemeral: EphemeralEventEmitter,
     sdk: Option<Arc<DspatchSdk>>,
 }
@@ -36,7 +36,7 @@ impl EngineRuntime {
             shutdown_tx,
             session_store: SessionStore::new(),
             services: Arc::new(tokio::sync::RwLock::new(None)),
-            invalidation: None,
+            invalidation: tokio::sync::Mutex::new(None),
             ephemeral: EphemeralEventEmitter::new(),
             sdk: None,
         }
@@ -50,7 +50,7 @@ impl EngineRuntime {
             shutdown_tx,
             session_store: SessionStore::new(),
             services: Arc::new(tokio::sync::RwLock::new(Some(services))),
-            invalidation: None,
+            invalidation: tokio::sync::Mutex::new(None),
             ephemeral: EphemeralEventEmitter::new(),
             sdk: None,
         }
@@ -65,7 +65,7 @@ impl EngineRuntime {
             shutdown_tx,
             session_store: SessionStore::new(),
             services: Arc::new(tokio::sync::RwLock::new(None)),
-            invalidation: Some(invalidation),
+            invalidation: tokio::sync::Mutex::new(Some(invalidation)),
             ephemeral: EphemeralEventEmitter::new(),
             sdk: None,
         }
@@ -84,7 +84,7 @@ impl EngineRuntime {
             shutdown_tx,
             session_store: SessionStore::new(),
             services: Arc::new(tokio::sync::RwLock::new(Some(services))),
-            invalidation: Some(invalidation),
+            invalidation: tokio::sync::Mutex::new(Some(invalidation)),
             ephemeral: EphemeralEventEmitter::new(),
             sdk: None,
         }
@@ -137,21 +137,31 @@ impl EngineRuntime {
         self.sdk = Some(sdk);
     }
 
-    /// Returns true if the invalidation broadcaster has been started.
-    pub fn has_invalidation(&self) -> bool {
-        self.invalidation.is_some()
+    /// Subscribes to invalidation batches. Returns `None` if the broadcaster
+    /// hasn't been started yet. Safe to call from WS handlers — the
+    /// subscription survives `rebind_invalidation` calls because the
+    /// underlying broadcast channel is reused.
+    pub async fn subscribe_invalidation(&self) -> Option<broadcast::Receiver<Vec<String>>> {
+        self.invalidation.lock().await.as_ref().map(|h| h.subscribe())
     }
 
-    /// Returns the invalidation handle, if the broadcaster has been started.
-    pub fn invalidation_handle(&self) -> &InvalidationHandle {
-        self.invalidation
-            .as_ref()
-            .expect("InvalidationBroadcaster not started")
+    /// Rebinds the invalidation broadcaster to a new database tracker.
+    /// Existing WS subscribers continue to receive notifications because
+    /// the outbound broadcast channel is reused.
+    pub async fn rebind_invalidation(
+        &self,
+        tracker: std::sync::Arc<crate::db::reactive::TableChangeTracker>,
+        debounce_ms: u64,
+    ) {
+        let mut guard = self.invalidation.lock().await;
+        if let Some(handle) = guard.as_mut() {
+            handle.rebind(tracker, debounce_ms);
+        }
     }
 
     /// Sets the invalidation handle on an existing runtime.
     pub fn set_invalidation(&mut self, handle: InvalidationHandle) {
-        self.invalidation = Some(handle);
+        self.invalidation = tokio::sync::Mutex::new(Some(handle));
     }
 
     /// Returns the ephemeral event emitter.

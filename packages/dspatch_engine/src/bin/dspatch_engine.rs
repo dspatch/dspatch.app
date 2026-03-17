@@ -58,6 +58,7 @@ async fn main() {
 
     // Clone values from config before it gets moved into EngineRuntime.
     let db_dir = config.db_dir.clone();
+    let invalidation_debounce_ms = config.invalidation_debounce_ms;
     let backend_url_for_hub = config.backend_url.clone();
 
     // 2. Create and initialize the SDK (replaces direct DB open).
@@ -111,6 +112,10 @@ async fn main() {
         config, registry, invalidation_handle,
     ));
 
+    // Register hub client on session store so backend token updates
+    // are automatically forwarded to the hub client's auth header.
+    runtime.session_store().set_hub_client(Arc::clone(&hub_client));
+
     // Store SDK on runtime (safe: no clones of the Arc exist yet).
     Arc::get_mut(&mut runtime)
         .expect("runtime has no other references yet")
@@ -123,6 +128,7 @@ async fn main() {
         let bridge_sdk = Arc::clone(&sdk);
         let bridge_db_dir = db_dir.clone();
         let bridge_hub_client = Some(hub_client);
+        let bridge_debounce_ms = invalidation_debounce_ms;
         let teardown_ack = sdk.teardown_ack();
         let mut db_rx = sdk.subscribe_database_state();
         tokio::spawn(async move {
@@ -143,6 +149,14 @@ async fn main() {
                                 // Rebuild ServiceRegistry with the new database.
                                 match bridge_sdk.database().await {
                                     Ok(db) => {
+                                        // Rebind the invalidation broadcaster to the
+                                        // new database's tracker so table change
+                                        // notifications continue to reach WS clients.
+                                        bridge_runtime.rebind_invalidation(
+                                            db.tracker().clone(),
+                                            bridge_debounce_ms,
+                                        ).await;
+
                                         let new_registry = Arc::new(ServiceRegistry::new(
                                             db,
                                             bridge_db_dir.clone(),

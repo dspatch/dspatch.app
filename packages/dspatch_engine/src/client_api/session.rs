@@ -3,10 +3,12 @@
 //! In-memory session token store for the client API.
 
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use chrono::Utc;
 use rand::Rng;
+
+use crate::hub::HubApiClient;
 
 /// Authentication mode for a session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,14 +29,33 @@ pub struct Session {
 }
 
 /// Thread-safe in-memory store mapping session tokens to sessions.
+///
+/// When a hub client is registered via [`set_hub_client`](Self::set_hub_client),
+/// any backend token written through this store is automatically propagated
+/// to the hub client's `Authorization` header.
 pub struct SessionStore {
     sessions: RwLock<HashMap<String, Session>>,
+    hub_client: RwLock<Option<Arc<HubApiClient>>>,
 }
 
 impl SessionStore {
     pub fn new() -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
+            hub_client: RwLock::new(None),
+        }
+    }
+
+    /// Registers the hub client so that backend token updates are
+    /// automatically forwarded to it.
+    pub fn set_hub_client(&self, client: Arc<HubApiClient>) {
+        *self.hub_client.write().unwrap() = Some(client);
+    }
+
+    /// Propagates a backend token to the hub client, if one is registered.
+    fn sync_hub_token(&self, token: Option<&String>) {
+        if let Some(hub) = self.hub_client.read().unwrap().as_ref() {
+            hub.set_auth_token(token.cloned());
         }
     }
 
@@ -47,6 +68,7 @@ impl SessionStore {
         device_id: Option<String>,
         identity_key_seed: Option<String>,
     ) -> String {
+        self.sync_hub_token(backend_token.as_ref());
         let token = generate_token();
         let session = Session {
             auth_mode,
@@ -87,6 +109,7 @@ impl SessionStore {
         backend_token: Option<String>,
         expires_at: Option<i64>,
     ) -> bool {
+        self.sync_hub_token(backend_token.as_ref());
         let mut sessions = self.sessions.write().unwrap();
         match sessions.get_mut(token) {
             Some(session) => {
@@ -105,6 +128,7 @@ impl SessionStore {
         device_id: Option<String>,
         identity_key_seed: Option<String>,
     ) {
+        self.sync_hub_token(Some(&backend_token));
         if let Some(session) = self.sessions.write().unwrap().get_mut(session_token) {
             session.backend_token = Some(backend_token);
             if let Some(id) = device_id {
