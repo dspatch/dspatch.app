@@ -56,10 +56,10 @@ impl LocalAgentTemplateService {
         name: &str,
         source_uri: &str,
     ) -> Result<AgentTemplate> {
-        // Validate source_uri format
-        if !source_uri.starts_with("dspatch://agent/") {
+        // Validate source_uri format — hub agents or local providers.
+        if !source_uri.starts_with("dspatch://agent/") && !source_uri.starts_with("local://") {
             return Err(AppError::Validation(
-                "source_uri must start with dspatch://agent/<author>/<slug>".into(),
+                "source_uri must start with dspatch://agent/<author>/<slug> or local://<id>".into(),
             ));
         }
 
