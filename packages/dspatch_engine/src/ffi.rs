@@ -10,14 +10,12 @@ use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
 
-use crate::client_api::invalidation::InvalidationBroadcaster;
-use crate::client_api::server::start_client_api;
+use crate::client_api::server::{start_client_api, AppState};
 use crate::config::DspatchConfig;
 use crate::crypto::KeyringSecretStore;
 use crate::engine::config::EngineConfig;
-use crate::engine::service_registry::ServiceRegistry;
 use crate::engine::startup::{init_tracing, ClientApiRuntime};
-use crate::sdk::{DatabaseReadyState, DspatchSdk};
+use crate::sdk::DspatchSdk;
 
 /// Holds the tokio runtime and engine runtime so we can shut down later.
 struct EngineHandle {
@@ -77,120 +75,45 @@ pub unsafe extern "C" fn start_engine(config_json: *const c_char) -> i32 {
     };
 
     // Initialize the engine inside the runtime.
-    let engine_runtime = match rt.block_on(async {
+    let (engine_runtime, state) = match rt.block_on(async {
         init_tracing(&config.log_level);
 
         // Ensure db directory exists.
         std::fs::create_dir_all(&config.db_dir)
             .map_err(|e| format!("failed to create db_dir: {e}"))?;
 
-        // Clone values before config is moved into ClientApiRuntime.
         let db_dir = config.db_dir.clone();
-        let invalidation_debounce_ms = config.invalidation_debounce_ms;
 
-        // Create and initialize the SDK (replaces direct DB open).
+        // Create and initialize the SDK.
         let sdk_config = DspatchConfig::from_engine_config(&config);
         let sdk = Arc::new(DspatchSdk::with_secret_store(
             sdk_config,
             Box::new(KeyringSecretStore::new("dspatch")),
-            db_dir.clone(),
+            db_dir,
         ));
 
         sdk.initialize()
             .await
             .map_err(|e| format!("failed to initialize SDK: {e}"))?;
 
-        // Get DB handle from SDK.
-        let db = sdk
-            .database()
-            .await
-            .map_err(|e| format!("failed to get database from SDK: {e}"))?;
+        // Create runtime via SDK (wires hub client to session store).
+        let runtime = sdk.create_runtime(config).await;
 
-        let broadcaster = InvalidationBroadcaster::new(
-            db.tracker().clone(),
-            config.invalidation_debounce_ms,
-        );
-        let invalidation_handle = broadcaster.start();
+        let state = AppState {
+            sdk: Arc::clone(&sdk),
+            runtime: Arc::clone(&runtime),
+        };
 
-        let registry = Arc::new(ServiceRegistry::new(db, db_dir.clone(), None));
-        let mut runtime = Arc::new(ClientApiRuntime::with_services_and_invalidation(
-            config,
-            registry,
-            invalidation_handle,
-        ));
-
-        // Store SDK on runtime (safe: no clones of the Arc exist yet).
-        Arc::get_mut(&mut runtime)
-            .expect("runtime has no other references yet")
-            .set_sdk(Arc::clone(&sdk));
-
-        // Bridge SDK database state changes → ephemeral events + service rebuild.
-        {
-            let ephemeral = runtime.ephemeral().clone_sender();
-            let bridge_runtime = Arc::clone(&runtime);
-            let bridge_sdk = Arc::clone(&sdk);
-            let bridge_db_dir = db_dir.clone();
-            let bridge_debounce_ms = invalidation_debounce_ms;
-            let mut db_rx = sdk.subscribe_database_state();
-            tokio::spawn(async move {
-                loop {
-                    match db_rx.recv().await {
-                        Ok(state) => {
-                            let state_str = match &state {
-                                DatabaseReadyState::Ready => "ready",
-                                DatabaseReadyState::Closed => "closed",
-                                DatabaseReadyState::MigrationPending => "migration_pending",
-                            };
-                            ephemeral.emit(
-                                "database_state_changed",
-                                serde_json::json!({ "state": state_str }),
-                            );
-
-                            // Rebuild ServiceRegistry when a new database becomes ready.
-                            if matches!(state, DatabaseReadyState::Ready) {
-                                match bridge_sdk.database().await {
-                                    Ok(db) => {
-                                        bridge_runtime.rebind_invalidation(
-                                            db.tracker().clone(),
-                                            bridge_debounce_ms,
-                                        ).await;
-
-                                        let new_registry = Arc::new(ServiceRegistry::new(
-                                            db,
-                                            bridge_db_dir.clone(),
-                                            None,
-                                        ));
-                                        bridge_runtime.replace_services(new_registry).await;
-                                        tracing::info!(
-                                            "ServiceRegistry rebuilt after database change"
-                                        );
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            error = %e,
-                                            "failed to get DB for service rebuild"
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
-        }
-
-        Ok::<_, String>(runtime)
+        Ok::<_, String>((runtime, state))
     }) {
         Ok(r) => r,
         Err(_) => return 3,
     };
 
     // Spawn the client API server in the background.
-    let api_runtime = engine_runtime.clone();
     let shutdown_rx = engine_runtime.subscribe_shutdown();
     rt.spawn(async move {
-        if let Err(e) = start_client_api(api_runtime, shutdown_rx, None).await {
+        if let Err(e) = start_client_api(state, shutdown_rx, None).await {
             tracing::error!(error = %e, "client API server failed");
         }
     });
