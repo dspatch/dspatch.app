@@ -26,8 +26,6 @@ class WorkspaceRunHistoryDialog extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final runsAsync = ref.watch(workspaceRunsProvider(workspaceId));
-    final activeRun = ref.watch(activeRunProvider(workspaceId));
-
     return ConstrainedBox(
       constraints: const BoxConstraints(maxHeight: 500),
       child: Column(
@@ -108,7 +106,6 @@ class WorkspaceRunHistoryDialog extends ConsumerWidget {
                     ),
                   );
                 }
-                final activeRunId = activeRun?.id;
                 return ListView.separated(
                   shrinkWrap: true,
                   padding: const EdgeInsets.fromLTRB(
@@ -118,7 +115,7 @@ class WorkspaceRunHistoryDialog extends ConsumerWidget {
                       const Divider(height: 1, color: AppColors.border),
                   itemBuilder: (context, index) {
                     final run = runs[index];
-                    final isActive = run.id == activeRunId;
+                    final isActive = run.status == 'starting' || run.status == 'running';
                     return _RunRow(
                       run: run,
                       isActive: isActive,

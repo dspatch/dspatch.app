@@ -73,8 +73,8 @@ class _WorkspaceViewBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final configAsync =
         ref.watch(workspaceConfigProvider(workspace.projectPath));
-    final activeRun = ref.watch(activeRunProvider(workspaceId));
-    final runId = activeRun?.id;
+    final latestRun = ref.watch(latestRunProvider(workspaceId));
+    final runId = latestRun?.id;
     final agentsAsync =
         runId != null ? ref.watch(workspaceAgentsProvider(runId)) : null;
     final selectedInstance = ref.watch(selectedInstanceProvider(workspaceId));
@@ -82,8 +82,8 @@ class _WorkspaceViewBody extends ConsumerWidget {
     final config = configAsync.valueOrNull;
     final agents = agentsAsync?.valueOrNull ?? [];
 
-    // Derive workspace status from active run
-    final runStatus = activeRun?.status;
+    // Derive workspace status from the viewable run
+    final runStatus = latestRun?.status;
     final isRunning = runStatus == 'running';
     final isStarting = runStatus == 'starting';
 
@@ -93,7 +93,7 @@ class _WorkspaceViewBody extends ConsumerWidget {
         _WorkspaceDashboard(
           workspace: workspace,
           agents: agents,
-          activeRun: activeRun,
+          activeRun: latestRun,
           onBack: () => context.go('/workspaces'),
           onViewLogs: () {
             // Select workspace-level view and switch to logs tab

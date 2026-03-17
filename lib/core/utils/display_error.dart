@@ -6,6 +6,10 @@ import 'dart:io';
 /// Strips exception wrappers and provides readable messages for
 /// common error types.
 String displayError(Object error) {
+  // Check for engine-unreachable errors (connection refused, timeout, etc.)
+  if (isEngineUnreachableError(error)) {
+    return 'Engine is not reachable';
+  }
   if (error is SocketException) {
     return 'Network error: ${error.message}';
   }
@@ -23,4 +27,15 @@ String displayError(Object error) {
   final s = error.toString();
   if (s.startsWith('Exception: ')) return s.substring(11);
   return s;
+}
+
+/// Returns true if the error indicates the engine process is unreachable
+/// (connection refused, timeout, etc.).
+bool isEngineUnreachableError(Object error) {
+  final s = error.toString();
+  return s.contains('Connection refused') ||
+      s.contains('Netzwerkverbindung abgelehnt') ||
+      s.contains('SocketException') ||
+      s.contains('TimeoutException') ||
+      (s.contains('ClientException') && s.contains('errno'));
 }

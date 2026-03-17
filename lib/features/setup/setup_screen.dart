@@ -14,6 +14,7 @@ import '../../engine_client/models/auth_token.dart';
 import '../../engine_client/models/db_state.dart';
 import '../../models/commands/commands.dart';
 import '../auth/auth_controller.dart';
+import '../auth/widgets/engine_status_button.dart';
 
 /// Gateway screen shown after authentication.
 ///
@@ -35,11 +36,18 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   String? _error;
   Object? _errorObject;
   String _status = 'Initializing...';
+  Timer? _retryTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _startSetup());
+  }
+
+  @override
+  void dispose() {
+    _retryTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _startSetup() async {
@@ -107,7 +115,26 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       debugPrint('[SETUP] Setup complete, phase=ready');
     } catch (e, st) {
       debugPrint('[SETUP] FATAL ERROR: $e\n$st');
-      if (mounted) {
+      if (!mounted) return;
+
+      if (isEngineUnreachableError(e)) {
+        // Engine is down — show status and auto-retry every 3 seconds.
+        setState(() {
+          _error = e.toString();
+          _errorObject = e;
+          _status = 'Waiting for engine...';
+        });
+        _retryTimer?.cancel();
+        _retryTimer = Timer(const Duration(seconds: 3), () {
+          if (!mounted) return;
+          setState(() {
+            _error = null;
+            _errorObject = null;
+            _setupStarted = false;
+          });
+          _startSetup();
+        });
+      } else {
         setState(() {
           _error = e.toString();
           _errorObject = e;
@@ -401,20 +428,83 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Error state.
+    final isUnreachable =
+        _errorObject != null && isEngineUnreachableError(_errorObject!);
+
+    // Engine unreachable — show waiting state with auto-retry and engine button.
+    if (isUnreachable) {
+      return Scaffold(
+        body: Stack(
+          children: [
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    LucideIcons.unplug,
+                    size: 32,
+                    color: AppColors.mutedForeground,
+                  ),
+                  const SizedBox(height: Spacing.md),
+                  const Text(
+                    'Engine is not reachable',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.foreground,
+                    ),
+                  ),
+                  const SizedBox(height: Spacing.xs),
+                  const Text(
+                    'Retrying automatically...',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.mutedForeground,
+                    ),
+                  ),
+                  const SizedBox(height: Spacing.lg),
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ],
+              ),
+            ),
+            const Positioned(
+              left: Spacing.md,
+              bottom: Spacing.md,
+              child: EngineStatusButton(),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Non-connection error — show error with manual retry.
     if (_error != null) {
       return Scaffold(
-        body: ErrorStateView(
-          message: 'Setup failed: ${displayError(_errorObject!)}',
-          onRetry: () {
-            setState(() {
-              _error = null;
-              _errorObject = null;
-              _setupStarted = false;
-              _status = 'Initializing...';
-            });
-            _startSetup();
-          },
+        body: Stack(
+          children: [
+            ErrorStateView(
+              message: 'Setup failed: ${displayError(_errorObject!)}',
+              onRetry: () {
+                _retryTimer?.cancel();
+                setState(() {
+                  _error = null;
+                  _errorObject = null;
+                  _setupStarted = false;
+                  _status = 'Initializing...';
+                });
+                _startSetup();
+              },
+            ),
+            const Positioned(
+              left: Spacing.md,
+              bottom: Spacing.md,
+              child: EngineStatusButton(),
+            ),
+          ],
         ),
       );
     }

@@ -213,14 +213,13 @@ final workspaceRunsProvider = StreamProvider.autoDispose
       .watch();
 });
 
-/// Derives the active run (status == 'starting' or 'running') from the runs stream.
-final activeRunProvider = Provider.autoDispose
+/// The most recent run for a workspace, regardless of status.
+/// This ensures logs, agents, and usage data remain visible after a run
+/// fails or stops, instead of being replaced with an empty state.
+final latestRunProvider = Provider.autoDispose
     .family<WorkspaceRun?, String>((ref, workspaceId) {
   final runs = ref.watch(workspaceRunsProvider(workspaceId)).valueOrNull ?? [];
-  for (final run in runs) {
-    if (run.status == 'starting' || run.status == 'running') return run;
-  }
-  return null;
+  return runs.isEmpty ? null : runs.first; // sorted by startedAt DESC
 });
 
 // ---------------------------------------------------------------------------

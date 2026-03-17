@@ -36,9 +36,9 @@ class WorkspaceInfoTab extends ConsumerWidget {
     final waiting = agents.where((a) => a.status.isWaiting).length;
     final terminal = agents.where((a) => a.status.isTerminal).length;
 
-    // Docker container stats — get containerId from active run
-    final activeRun = ref.watch(activeRunProvider(workspace.id));
-    final containerId = activeRun?.containerId;
+    // Docker container stats — get containerId from latest run
+    final latestRun = ref.watch(latestRunProvider(workspace.id));
+    final containerId = latestRun?.containerId;
 
     // Workspace config from dspatch.workspace.yml
     final configAsync =
@@ -59,7 +59,7 @@ class WorkspaceInfoTab extends ConsumerWidget {
           const _SectionLabel('Workspace'),
           _KV('ID', workspace.id),
           _KV('Name', workspace.name),
-          _KV('Status', activeRun?.status ?? 'idle'),
+          _KV('Status', latestRun?.status ?? 'idle'),
           _KV('Project path', workspace.projectPath),
           _KV('Created', parseDate(workspace.createdAt).formatted()),
           _KV('Updated', parseDate(workspace.updatedAt).formatted()),
@@ -69,15 +69,15 @@ class WorkspaceInfoTab extends ConsumerWidget {
           // ── Run History ──
           const _SectionLabel('Run History'),
           Builder(builder: (context) {
-            final activeRun =
-                ref.watch(activeRunProvider(workspace.id));
-            if (activeRun != null) {
+            final latestRun =
+                ref.watch(latestRunProvider(workspace.id));
+            if (latestRun != null) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _KV('Current run', 'Run #${activeRun.runNumber}'),
-                  _KV('Started', parseDate(activeRun.startedAt).formatted()),
-                  _KV('Status', activeRun.status),
+                  _KV('Current run', 'Run #${latestRun.runNumber}'),
+                  _KV('Started', parseDate(latestRun.startedAt).formatted()),
+                  _KV('Status', latestRun.status),
                   const SizedBox(height: Spacing.sm),
                   Button(
                     label: 'View Run History',
@@ -112,7 +112,7 @@ class WorkspaceInfoTab extends ConsumerWidget {
           // ── Runtime ──
           const _SectionLabel('Runtime'),
           _KV('Container', containerId ?? '\u2014'),
-          _KV('Port', activeRun?.serverPort?.toString() ?? '\u2014'),
+          _KV('Port', latestRun?.serverPort?.toString() ?? '\u2014'),
 
           const SizedBox(height: Spacing.md),
 
