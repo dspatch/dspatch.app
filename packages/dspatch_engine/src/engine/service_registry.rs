@@ -21,6 +21,7 @@ use crate::db::dao::preference_dao::PreferenceDao;
 use crate::db::dao::workspace_dao::WorkspaceDao;
 use crate::db::dao::workspace_template_dao::WorkspaceTemplateDao;
 use crate::docker::DockerClient;
+use crate::git::GitClient;
 use crate::domain::services::{AgentProviderService, ApiKeyService, DockerService};
 use crate::hub::HubApiClient;
 use crate::server::agent_server::EmbeddedAgentServer;
@@ -49,6 +50,7 @@ pub struct ServiceRegistry {
     docker: Arc<DockerClient>,
     docker_service: Arc<dyn DockerService>,
     hub_client: Option<Arc<HubApiClient>>,
+    git: Arc<GitClient>,
 }
 
 impl ServiceRegistry {
@@ -135,6 +137,7 @@ impl ServiceRegistry {
             docker,
             docker_service,
             hub_client,
+            git: Arc::new(GitClient::for_platform()),
         }
     }
 
@@ -188,5 +191,9 @@ impl ServiceRegistry {
 
     pub fn hub_client(&self) -> Option<&Arc<HubApiClient>> {
         self.hub_client.as_ref()
+    }
+
+    pub fn git(&self) -> &Arc<GitClient> {
+        &self.git
     }
 }

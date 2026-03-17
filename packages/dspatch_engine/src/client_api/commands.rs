@@ -280,6 +280,11 @@ pub enum Command {
     #[serde(rename = "hub_vote_workspace")]
     HubVoteWorkspace { workspace_id: String, vote: i32 },
 
+    // ── Git Commands ────────────────────────────────────────────────────
+
+    #[serde(rename = "git_preflight_check")]
+    GitPreflightCheck { directory: String },
+
     // ── Config Parser Commands ──────────────────────────────────────────
 
     #[serde(rename = "parse_workspace_config")]

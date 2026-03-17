@@ -545,6 +545,43 @@ pub async fn dispatch_command(
             Ok(result)
         }
 
+        // ── Git Commands ────────────────────────────────────────
+
+        Command::GitPreflightCheck { directory } => {
+            use crate::git::GitClient;
+
+            let is_repo = GitClient::is_git_repository(directory);
+            if !is_repo {
+                return Ok(serde_json::json!({
+                    "is_repo": false,
+                    "remote_url": null,
+                    "branch": null,
+                    "has_uncommitted_changes": false,
+                    "has_unpushed_commits": false,
+                }));
+            }
+
+            let git = services.git();
+            let remote_url = git.remote_url(directory, "origin").await.unwrap_or(None);
+            let branch = git.current_branch(directory).await.unwrap_or(None);
+            let has_uncommitted = git.has_uncommitted_changes(directory).await.unwrap_or(false);
+            let has_unpushed = match &branch {
+                Some(b) => git.has_unpushed_commits(directory, b).await.unwrap_or(false),
+                None => false,
+            };
+
+            // Convert SSH URL to HTTPS if detected.
+            let remote_url_https = remote_url.map(|u| GitClient::ssh_to_https_url(&u));
+
+            Ok(serde_json::json!({
+                "is_repo": true,
+                "remote_url": remote_url_https,
+                "branch": branch,
+                "has_uncommitted_changes": has_uncommitted,
+                "has_unpushed_commits": has_unpushed,
+            }))
+        }
+
         // ── Config Parser Commands ──────────────────────────────
 
         Command::ParseWorkspaceConfig { yaml } => {
