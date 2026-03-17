@@ -60,14 +60,9 @@ class _CreateTemplateDialogState extends ConsumerState<CreateTemplateDialog> {
                     style: const TextStyle(
                         color: AppColors.destructive, fontSize: 12)),
                 data: (providers) {
-                  // Filter to only hub providers (which have author+slug)
-                  final hubProviders = providers
-                      .where(
-                          (p) => p.hubAuthor != null && p.hubSlug != null)
-                      .toList();
-                  if (hubProviders.isEmpty) {
+                  if (providers.isEmpty) {
                     return const Text(
-                      'No hub providers available. Only hub providers can be used as template sources.',
+                      'No providers available.',
                       style: TextStyle(
                           color: AppColors.mutedForeground, fontSize: 12),
                     );
@@ -75,7 +70,7 @@ class _CreateTemplateDialogState extends ConsumerState<CreateTemplateDialog> {
                   return Select<String>(
                     value: _selectedProvider?.id,
                     hint: 'Select a provider...',
-                    items: hubProviders
+                    items: providers
                         .map((p) => SelectItem(
                               value: p.id,
                               label: p.name,
@@ -84,7 +79,7 @@ class _CreateTemplateDialogState extends ConsumerState<CreateTemplateDialog> {
                     onChanged: (id) {
                       if (id == null) return;
                       final provider =
-                          hubProviders.firstWhere((p) => p.id == id);
+                          providers.firstWhere((p) => p.id == id);
                       setState(() {
                         _selectedProvider = provider;
                         if (_nameController.text.isEmpty) {
@@ -135,14 +130,11 @@ class _CreateTemplateDialogState extends ConsumerState<CreateTemplateDialog> {
       final provider = _selectedProvider!;
       final author = provider.hubAuthor;
       final slug = provider.hubSlug;
-      if (author == null || slug == null) {
-        toast('Only hub providers can be used as template sources',
-            type: ToastType.error);
-        setState(() => _isCreating = false);
-        return;
-      }
 
-      final sourceUri = 'dspatch://agent/$author/$slug';
+      final sourceUri = (author != null && slug != null)
+          ? 'dspatch://agent/$author/$slug'
+          : 'local://${provider.id}';
+
       final client = ref.read(engineClientProvider);
       final result = await client.send(CreateAgentTemplate(
         name: _nameController.text.trim(),
@@ -150,7 +142,8 @@ class _CreateTemplateDialogState extends ConsumerState<CreateTemplateDialog> {
       ));
       if (mounted) {
         Navigator.of(context).pop();
-        toast('Template created', description: result.raw['file_path'] as String? ?? '');
+        toast('Template created',
+            description: result.raw['file_path'] as String? ?? '');
       }
     } catch (e) {
       toast('Failed to create template: $e', type: ToastType.error);
