@@ -30,6 +30,7 @@ use crate::domain::enums::{AgentState, LogLevel, LogSource, SourceType};
 use crate::domain::models::{AgentLog, WorkspaceRun};
 use crate::domain::services::{AgentProviderService, ApiKeyService, DockerService};
 use crate::server::packages::*;
+use crate::services::LocalAgentDataService;
 use crate::util::error::AppError;
 use crate::util::new_id;
 use crate::util::result::Result;
@@ -83,6 +84,7 @@ pub struct WorkspaceBridge {
     docker_client: Arc<DockerClient>,
     docker_service: Arc<dyn DockerService>,
     preference_dao: Arc<PreferenceDao>,
+    agent_data: Arc<LocalAgentDataService>,
 
     startup_monitors: Mutex<HashMap<String, JoinHandle<()>>>,
     lifecycle_monitors: Mutex<HashMap<String, LifecycleMonitorHandles>>,
@@ -105,6 +107,7 @@ impl WorkspaceBridge {
         docker_client: Arc<DockerClient>,
         docker_service: Arc<dyn DockerService>,
         preference_dao: Arc<PreferenceDao>,
+        agent_data: Arc<LocalAgentDataService>,
     ) -> Self {
         Self {
             server,
@@ -115,6 +118,7 @@ impl WorkspaceBridge {
             docker_client,
             docker_service,
             preference_dao,
+            agent_data,
             startup_monitors: Mutex::new(HashMap::new()),
             lifecycle_monitors: Mutex::new(HashMap::new()),
         }
@@ -1219,6 +1223,10 @@ impl WorkspaceBridge {
     }
 
     /// Starts the embedded server with port-persistence and retry logic.
+    ///
+    /// After a successful start, wires the `send_user_input` and
+    /// `interrupt_instance` callbacks on the `agent_data` service so that
+    /// client API commands can relay messages to connected agents.
     async fn start_server_with_retry(&self) -> Result<u16> {
         {
             let server = self.server.lock().await;
@@ -1250,6 +1258,8 @@ impl WorkspaceBridge {
                             "Server recovered"
                         );
                     }
+                    // Wire agent_data callbacks now that the server is running.
+                    self.wire_agent_data_callbacks(&server);
                     drop(server);
                     self.save_port(port);
                     return Ok(port);
@@ -1276,6 +1286,95 @@ impl WorkspaceBridge {
             "Embedded server failed to start after {SERVER_START_MAX_ATTEMPTS} attempts. \
              Last error: {last_error}"
         )))
+    }
+
+    /// Wires `send_user_input` and `interrupt_instance` callbacks on the
+    /// `agent_data` service using the server's host router connection service.
+    fn wire_agent_data_callbacks(&self, server: &EmbeddedAgentServer) {
+        let host_router = match server.host_router() {
+            Some(hr) => hr,
+            None => return,
+        };
+
+        let conn = Arc::clone(&host_router.connection_service);
+        let dao = self.agent_data.dao();
+
+        self.agent_data.set_send_user_input(Arc::new({
+            let conn = Arc::clone(&conn);
+            let dao = Arc::clone(&dao);
+            move |run_id: &str, instance_id: &str, text: &str| {
+                let agent = dao
+                    .find_workspace_agent_by_instance_id(run_id, instance_id)
+                    .map_err(|e| format!("DB lookup failed: {e}"))?
+                    .ok_or_else(|| {
+                        format!("Agent instance {} not found in run {}", instance_id, run_id)
+                    })?;
+
+                let agent_key = agent.agent_key;
+
+                if !conn.is_connected(run_id, &agent_key) {
+                    return Err(format!("Agent {} is not connected", agent_key));
+                }
+
+                let pkg = Package::UserInput(UserInputPackage {
+                    instance_id: instance_id.to_string(),
+                    content: text.to_string(),
+                });
+
+                let json_str = pkg.to_json().map_err(|e| format!("Serialize failed: {e}"))?;
+                let conn = Arc::clone(&conn);
+                let run_id = run_id.to_string();
+                let agent_key_clone = agent_key.clone();
+                let instance_id_owned = instance_id.to_string();
+
+                tokio::spawn(async move {
+                    conn.send_json_to_agent(&run_id, &agent_key_clone, &json_str)
+                        .await;
+                });
+
+                let _ = dao.update_agent_status(
+                    &instance_id_owned,
+                    &crate::domain::enums::AgentState::Generating,
+                );
+
+                Ok(())
+            }
+        }));
+
+        self.agent_data.set_interrupt_instance(Arc::new({
+            let conn = Arc::clone(&conn);
+            let dao = Arc::clone(&dao);
+            move |run_id: &str, instance_id: &str| {
+                let agent = dao
+                    .find_workspace_agent_by_instance_id(run_id, instance_id)
+                    .map_err(|e| format!("DB lookup failed: {e}"))?
+                    .ok_or_else(|| {
+                        format!("Agent instance {} not found in run {}", instance_id, run_id)
+                    })?;
+
+                let agent_key = agent.agent_key;
+
+                if !conn.is_connected(run_id, &agent_key) {
+                    return Err(format!("Agent {} is not connected", agent_key));
+                }
+
+                let pkg = Package::Interrupt(InterruptPackage {
+                    instance_id: instance_id.to_string(),
+                });
+
+                let json_str = pkg.to_json().map_err(|e| format!("Serialize failed: {e}"))?;
+                let conn = Arc::clone(&conn);
+                let run_id = run_id.to_string();
+                let agent_key_clone = agent_key.clone();
+
+                tokio::spawn(async move {
+                    conn.send_json_to_agent(&run_id, &agent_key_clone, &json_str)
+                        .await;
+                });
+
+                Ok(())
+            }
+        }));
     }
 
     fn load_saved_port(&self) -> Option<u16> {

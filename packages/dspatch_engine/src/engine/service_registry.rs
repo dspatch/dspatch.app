@@ -98,6 +98,8 @@ impl ServiceRegistry {
         let agent_providers = Arc::new(LocalAgentProviderService::new(agent_provider_dao));
         let api_keys = Arc::new(LocalApiKeyService::new(api_key_dao));
 
+        let agent_data = Arc::new(LocalAgentDataService::new(workspace_dao.clone()));
+
         let ws_bridge = WorkspaceBridge::new(
             agent_server,
             Arc::clone(&workspace_dao),
@@ -107,6 +109,7 @@ impl ServiceRegistry {
             Arc::clone(&docker),
             Arc::clone(&docker_service),
             Arc::clone(&preference_dao),
+            Arc::clone(&agent_data),
         );
         let bridge = Arc::new(TokioMutex::new(Some(ws_bridge)));
 
@@ -126,7 +129,7 @@ impl ServiceRegistry {
             api_keys,
             preferences: Arc::new(LocalPreferenceService::new(preference_dao)),
             inquiries: Arc::new(LocalInquiryService::new(workspace_dao.clone())),
-            agent_data: Arc::new(LocalAgentDataService::new(workspace_dao)),
+            agent_data,
             crypto,
             file_browser,
             docker,
