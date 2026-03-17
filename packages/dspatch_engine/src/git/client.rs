@@ -138,3 +138,22 @@ impl GitClient {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ssh_to_https_github() {
+        assert_eq!(
+            GitClient::ssh_to_https_url("git@github.com:org/repo.git"),
+            "https://github.com/org/repo.git"
+        );
+    }
+
+    #[test]
+    fn ssh_to_https_passthrough() {
+        let https = "https://github.com/org/repo.git";
+        assert_eq!(GitClient::ssh_to_https_url(https), https);
+    }
+}
