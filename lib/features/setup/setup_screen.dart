@@ -57,16 +57,16 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     debugPrint('[SETUP] Starting setup...');
 
     try {
-      // Dev device profile: skip engine connection entirely.
-      // The engine only supports a single authenticated user, so the second
-      // dev instance only uses backend HTTP endpoints for pairing testing.
+      // Dev device profile: block here permanently.
+      // The engine only supports a single authenticated user. Secondary dev
+      // instances exist solely to test the auth + pairing flow — they should
+      // never enter the app. Pairing was already completed at this point.
       final devProfile = ref.read(devDeviceProfileProvider);
       if (devProfile > 0) {
-        debugPrint('[SETUP] DEV_DEVICE_PROFILE=$devProfile — skipping engine connection');
+        debugPrint('[SETUP] DEV_DEVICE_PROFILE=$devProfile — blocking at setup screen');
         if (!mounted) return;
-        setState(() => _status = 'Dev device mode — engine skipped');
-        ref.read(authControllerProvider.notifier).setReady();
-        debugPrint('[SETUP] Dev device mode ready');
+        setState(() => _status = 'Device paired successfully');
+        // Do NOT call setReady() — intentionally stay on this screen.
         return;
       }
 
@@ -518,6 +518,53 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               child: EngineStatusButton(),
             ),
           ],
+        ),
+      );
+    }
+
+    // Dev device profile: show pairing-complete dead end.
+    final devProfile = ref.read(devDeviceProfileProvider);
+    if (devProfile > 0 && _status == 'Device paired successfully') {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                LucideIcons.circle_check,
+                size: 48,
+                color: AppColors.primary,
+              ),
+              const SizedBox(height: Spacing.md),
+              const Text(
+                'Device paired successfully',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.foreground,
+                ),
+              ),
+              const SizedBox(height: Spacing.xs),
+              Text(
+                'Dev device profile $devProfile — engine connection skipped.',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.mutedForeground,
+                ),
+              ),
+              const SizedBox(height: Spacing.sm),
+              const Text(
+                'This instance is for pairing testing only.\n'
+                'Close this window when done.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.mutedForeground,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
