@@ -9,6 +9,7 @@ pub mod session_store;
 pub mod sender_key_store;
 pub mod kyber_prekey_store;
 pub mod protocol;
+pub mod safety_number;
 
 pub use identity_store::SqliteIdentityStore;
 pub use prekey_store::SqlitePreKeyStore;
@@ -17,6 +18,7 @@ pub use session_store::SqliteSessionStore;
 pub use sender_key_store::SqliteSenderKeyStore;
 pub use kyber_prekey_store::SqliteKyberPreKeyStore;
 pub use protocol::SignalService;
+pub use safety_number::derive_safety_number;
 
 /// Creates Signal Protocol tables if they don't exist.
 pub fn ensure_schema(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
