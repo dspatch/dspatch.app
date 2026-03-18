@@ -58,9 +58,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     debugPrint('[SETUP] Starting setup...');
 
     try {
-      // Validate auth status against the backend (ground truth).
-      // This catches stale tokens, revoked sessions, and scope mismatches
-      // that the local state might not reflect.
+      // ── Step 0: Auth verification (runs ONCE, never retried) ──────
       final token = ref.read(authTokenProvider);
       if (token is BackendToken) {
         if (!mounted) return;
@@ -74,7 +72,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           debugPrint('[SETUP] Backend says scope=$backendScope');
 
           if (backendScope != 'full') {
-            // Token is not fully authenticated — redirect to login.
             debugPrint('[SETUP] Not fully authenticated (scope=$backendScope), logging out');
             if (!mounted) return;
             await ref.read(authControllerProvider.notifier).logout();
@@ -82,54 +79,45 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           }
         } catch (e) {
           // Backend unreachable — proceed with local state for offline resilience.
-          // The engine connection will fail separately if the backend is truly down.
           debugPrint('[SETUP] Backend status check failed (proceeding): $e');
         }
       }
 
       // Dev device profile: block here permanently.
-      // The engine only supports a single authenticated user. Secondary dev
-      // instances exist solely to test the auth + pairing flow — they should
-      // never enter the app. Pairing was already completed at this point.
       final devProfile = ref.read(devDeviceProfileProvider);
       if (devProfile > 0) {
         debugPrint('[SETUP] DEV_DEVICE_PROFILE=$devProfile — blocking at setup screen');
         if (!mounted) return;
         setState(() => _status = 'Device paired successfully');
-        // Do NOT call setReady() — intentionally stay on this screen.
         return;
       }
 
-      // If the user just logged in (scope == 'full'), reconnect the
-      // engine WS with their backend token. This is done here — not in
-      // the auth controller — so login is a simple POST→save→navigate
-      // with no concurrent WS work racing against the router.
+      // ── Step 1: Connect to engine (retries silently until success) ─
       debugPrint('[SETUP] Step 1: _connectEngine...');
-      await _connectEngine();
+      if (!mounted) return;
+      setState(() => _status = 'Waiting for engine...');
+      await _connectEngineWithRetry();
       debugPrint('[SETUP] Step 1 done');
 
       final client = ref.read(engineClientProvider);
 
-      // Wait for the engine to signal database readiness (handles migration).
+      // ── Step 2: Wait for database readiness ───────────────────────
       if (!mounted) return;
       setState(() => _status = 'Waiting for database...');
       debugPrint('[SETUP] Step 2: _waitForDatabase...');
       await _waitForDatabase();
       debugPrint('[SETUP] Step 2 done — database ready');
 
-      // Fetch the actual DB path from the engine and open the read-only
-      // Drift connection. The path varies by auth state (anonymous vs
-      // per-user) and changes after migration.
+      // ── Step 3: Open read-only Drift database ─────────────────────
       if (!mounted) return;
       setState(() => _status = 'Opening database...');
       debugPrint('[SETUP] Step 3: Fetching engine info for DB path...');
       await _openDatabase();
       debugPrint('[SETUP] Step 3 done — Drift database opened');
 
-      // Load saved theme.
+      // ── Step 4: Load preferences ──────────────────────────────────
       if (!mounted) return;
       setState(() => _status = 'Loading preferences...');
-      debugPrint('[SETUP] Step 4: Loading theme preference...');
 
       try {
         final pref = await client.send(GetPreference(key: 'theme_mode'));
@@ -153,35 +141,54 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         ref.read(authControllerProvider.notifier).startRefreshTimer();
       }
 
-      // Phase → ready (via AuthController — single writer). Router handles navigation.
+      // Phase → ready. Router handles navigation.
       ref.read(authControllerProvider.notifier).setReady();
       debugPrint('[SETUP] Setup complete, phase=ready');
     } catch (e, st) {
       debugPrint('[SETUP] FATAL ERROR: $e\n$st');
       if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _errorObject = e;
+      });
+    }
+  }
 
-      if (isEngineUnreachableError(e)) {
-        // Engine is down — show status and auto-retry every 3 seconds.
-        setState(() {
-          _error = e.toString();
-          _errorObject = e;
-          _status = 'Waiting for engine...';
-        });
-        _retryTimer?.cancel();
-        _retryTimer = Timer(const Duration(seconds: 3), () {
-          if (!mounted) return;
+  /// Retries engine connection in a background loop until it succeeds.
+  ///
+  /// Auth verification has already completed — this only retries the
+  /// engine WS handshake. Shows "Waiting for engine..." on the UI and
+  /// polls every 3 seconds without re-running auth checks.
+  Future<void> _connectEngineWithRetry() async {
+    while (true) {
+      if (!mounted) return;
+      try {
+        await _connectEngine();
+        // Success — clear any previous engine-unreachable state.
+        if (mounted) {
           setState(() {
             _error = null;
             _errorObject = null;
-            _setupStarted = false;
           });
-          _startSetup();
-        });
-      } else {
+        }
+        return;
+      } catch (e) {
+        if (!isEngineUnreachableError(e)) rethrow; // Non-connection error → fatal
+
+        debugPrint('[SETUP] Engine not reachable, retrying in 3s...');
+        if (!mounted) return;
         setState(() {
           _error = e.toString();
           _errorObject = e;
         });
+
+        // Wait 3 seconds before retrying (cancellable via dispose).
+        final completer = Completer<void>();
+        _retryTimer?.cancel();
+        _retryTimer = Timer(const Duration(seconds: 3), () {
+          if (!completer.isCompleted) completer.complete();
+        });
+        await completer.future;
       }
     }
   }
