@@ -44,6 +44,8 @@ pub const CREATE_SIGNAL_KYBER_PREKEYS: &str = include_str!("../../shared/schema/
 
 pub const CREATE_SYNC_OUTBOX: &str = include_str!("../../shared/schema/sync_outbox.sql");
 pub const CREATE_SYNC_CURSORS: &str = include_str!("../../shared/schema/sync_cursors.sql");
+pub const CREATE_SYNC_LAMPORT: &str = include_str!("../../shared/schema/sync_lamport.sql");
+pub const CREATE_SYNC_CONFIG: &str = include_str!("../../shared/schema/sync_config.sql");
 
 // ---------------------------------------------------------------------------
 // Ephemeral state tables
@@ -84,6 +86,8 @@ pub const ALL_TABLES: &[&str] = &[
     CREATE_SIGNAL_KYBER_PREKEYS,
     CREATE_SYNC_OUTBOX,
     CREATE_SYNC_CURSORS,
+    CREATE_SYNC_LAMPORT,
+    CREATE_SYNC_CONFIG,
     CREATE_AGENT_INSTANCE_STATES,
     CREATE_AGENT_CONNECTION_STATUS,
     CREATE_CONTAINER_HEALTH,
@@ -116,6 +120,8 @@ pub const TABLE_NAMES: &[&str] = &[
     "signal_kyber_prekeys",
     "sync_outbox",
     "sync_cursors",
+    "sync_lamport",
+    "sync_config",
     "agent_instance_states",
     "agent_connection_status",
     "container_health",

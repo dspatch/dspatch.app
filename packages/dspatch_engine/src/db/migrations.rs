@@ -16,6 +16,7 @@
 //!   v11 → add ephemeral state tables (agent_instance_states, agent_connection_status, container_health, workspace_run_status)
 //!   v12 → add signal_kyber_prekeys
 //!   v13 → add performance indexes on foreign keys and filtered columns
+//!   v14 → add sync_lamport and sync_config tables for trigger-based outbox
 
 use rusqlite::Connection;
 
@@ -25,7 +26,7 @@ use crate::util::result::Result;
 use super::schema::ALL_TABLES;
 
 /// Current schema version. Must match the Dart SDK's `schemaVersion`.
-pub const SCHEMA_VERSION: i32 = 13;
+pub const SCHEMA_VERSION: i32 = 14;
 
 /// Creates all tables from scratch (fresh database, version 0 → current).
 pub fn create_tables(conn: &Connection) -> Result<()> {
@@ -127,6 +128,13 @@ pub fn run_migrations(conn: &Connection, from_version: i32) -> Result<()> {
              CREATE INDEX IF NOT EXISTS idx_instance_results_run ON instance_results(run_id);"
         )
         .map_err(|e| AppError::Storage(format!("Migration v13 (performance indexes) failed: {e}")))?;
+    }
+    if from_version < 14 {
+        conn.execute_batch(super::schema::CREATE_SYNC_LAMPORT)
+            .map_err(|e| AppError::Storage(format!("Migration v14 (sync_lamport) failed: {e}")))?;
+        conn.execute_batch(super::schema::CREATE_SYNC_CONFIG)
+            .map_err(|e| AppError::Storage(format!("Migration v14 (sync_config) failed: {e}")))?;
+        // Note: triggers are installed at runtime by the sync engine, not in migration.
     }
 
     Ok(())

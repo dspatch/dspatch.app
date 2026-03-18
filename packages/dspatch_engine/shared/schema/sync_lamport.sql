@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS sync_lamport (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    ts INTEGER NOT NULL DEFAULT 0
+);
+INSERT OR IGNORE INTO sync_lamport (id, ts) VALUES (1, 0);

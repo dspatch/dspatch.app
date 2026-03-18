@@ -1,4 +1,8 @@
-use dspatch_engine::sync::outbox_hook::OutboxHook;
+// Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
+
+//! Tests for the trigger-based outbox hook.
+
+use dspatch_engine::sync::outbox_hook::{install_outbox_triggers, set_sync_device_id};
 
 #[test]
 fn outbox_hook_records_change_for_synced_table() {
@@ -8,13 +12,23 @@ fn outbox_hook_records_change_for_synced_table() {
          CREATE TABLE sync_outbox (
              id TEXT PRIMARY KEY, table_name TEXT, row_id TEXT,
              operation TEXT, data TEXT, lamport_ts INTEGER,
-             device_id TEXT, created_at TEXT
-         );",
+             device_id TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+         );
+         CREATE TABLE sync_lamport (
+             id INTEGER PRIMARY KEY CHECK (id = 1),
+             ts INTEGER NOT NULL DEFAULT 0
+         );
+         INSERT INTO sync_lamport (id, ts) VALUES (1, 0);
+         CREATE TABLE sync_config (
+             id INTEGER PRIMARY KEY CHECK (id = 1),
+             device_id TEXT NOT NULL DEFAULT 'local'
+         );
+         INSERT INTO sync_config (id, device_id) VALUES (1, 'local');",
     )
     .unwrap();
 
-    let hook = OutboxHook::new("test-device".to_string());
-    hook.install(&conn);
+    install_outbox_triggers(&conn).unwrap();
+    set_sync_device_id(&conn, "test-device").unwrap();
 
     // Insert into a synced table.
     conn.execute(
@@ -22,9 +36,6 @@ fn outbox_hook_records_change_for_synced_table() {
         [],
     )
     .unwrap();
-
-    // Flush pending changes.
-    OutboxHook::flush_pending(&conn);
 
     // Verify outbox has an entry.
     let count: i64 = conn
@@ -54,13 +65,22 @@ fn outbox_hook_ignores_device_local_table() {
          CREATE TABLE sync_outbox (
              id TEXT PRIMARY KEY, table_name TEXT, row_id TEXT,
              operation TEXT, data TEXT, lamport_ts INTEGER,
-             device_id TEXT, created_at TEXT
-         );",
+             device_id TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+         );
+         CREATE TABLE sync_lamport (
+             id INTEGER PRIMARY KEY CHECK (id = 1),
+             ts INTEGER NOT NULL DEFAULT 0
+         );
+         INSERT INTO sync_lamport (id, ts) VALUES (1, 0);
+         CREATE TABLE sync_config (
+             id INTEGER PRIMARY KEY CHECK (id = 1),
+             device_id TEXT NOT NULL DEFAULT 'local'
+         );
+         INSERT INTO sync_config (id, device_id) VALUES (1, 'device-a');",
     )
     .unwrap();
 
-    let hook = OutboxHook::new("test-device".to_string());
-    hook.install(&conn);
+    install_outbox_triggers(&conn).unwrap();
 
     conn.execute(
         "INSERT INTO signal_identities (address, device_id, identity_key, trust_level) \
@@ -68,8 +88,6 @@ fn outbox_hook_ignores_device_local_table() {
         [],
     )
     .unwrap();
-
-    OutboxHook::flush_pending(&conn);
 
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM sync_outbox", [], |r| r.get(0))
@@ -85,13 +103,22 @@ fn outbox_hook_ignores_outbox_writes() {
         "CREATE TABLE sync_outbox (
              id TEXT PRIMARY KEY, table_name TEXT, row_id TEXT,
              operation TEXT, data TEXT, lamport_ts INTEGER,
-             device_id TEXT, created_at TEXT
-         );",
+             device_id TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+         );
+         CREATE TABLE sync_lamport (
+             id INTEGER PRIMARY KEY CHECK (id = 1),
+             ts INTEGER NOT NULL DEFAULT 0
+         );
+         INSERT INTO sync_lamport (id, ts) VALUES (1, 0);
+         CREATE TABLE sync_config (
+             id INTEGER PRIMARY KEY CHECK (id = 1),
+             device_id TEXT NOT NULL DEFAULT 'local'
+         );
+         INSERT INTO sync_config (id, device_id) VALUES (1, 'device-a');",
     )
     .unwrap();
 
-    let hook = OutboxHook::new("test-device".to_string());
-    hook.install(&conn);
+    install_outbox_triggers(&conn).unwrap();
 
     conn.execute(
         "INSERT INTO sync_outbox (id, table_name, row_id, operation, data, lamport_ts, device_id, created_at) \
@@ -99,8 +126,6 @@ fn outbox_hook_ignores_outbox_writes() {
         [],
     )
     .unwrap();
-
-    OutboxHook::flush_pending(&conn);
 
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM sync_outbox", [], |r| r.get(0))
