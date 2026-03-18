@@ -28,6 +28,16 @@ const kMinWindowHeight = 600.0;
 /// Default engine port. Can be overridden at compile time.
 const kEnginePort = int.fromEnvironment('ENGINE_PORT', defaultValue: 9847);
 
+/// Dev device profile for multi-device testing.
+/// When set (e.g. `--dart-define=DEV_DEVICE_PROFILE=2`), this instance uses
+/// an isolated keyring namespace and skips engine connection — appearing as
+/// a completely new device to the backend.
+///
+/// Usage:
+///   Instance 1 (existing device): `flutter run`
+///   Instance 2 (new device):      `flutter run --dart-define=DEV_DEVICE_PROFILE=2`
+const kDevDeviceProfile = int.fromEnvironment('DEV_DEVICE_PROFILE', defaultValue: 0);
+
 const _kHost = '127.0.0.1';
 
 Future<void> main(List<String> args) async {
@@ -84,7 +94,15 @@ Future<void> main(List<String> args) async {
   final client = EngineClient(connection);
 
   // Step 3: Load stored session so we can seed authPhaseProvider + authTokenProvider.
-  final tokenStore = SecureTokenStore();
+  // When DEV_DEVICE_PROFILE is set, use an isolated keyring namespace so this
+  // instance appears as a completely different device.
+  final keyPrefix = kDevDeviceProfile > 0
+      ? 'dspatch_dev${kDevDeviceProfile}_'
+      : 'dspatch_auth_';
+  if (kDevDeviceProfile > 0) {
+    debugPrint('[BOOT] DEV_DEVICE_PROFILE=$kDevDeviceProfile — isolated keyring prefix: $keyPrefix');
+  }
+  final tokenStore = SecureTokenStore(keyPrefix: keyPrefix);
   final storedSession = await tokenStore.loadSession();
 
   // Step 4: Create a placeholder Drift database.
@@ -104,6 +122,7 @@ Future<void> main(List<String> args) async {
       backendAuthProvider.overrideWithValue(BackendAuth(baseUrl: backendUrl)),
       secureTokenStoreProvider.overrideWithValue(tokenStore),
       engineProcessManagerProvider.overrideWithValue(processManager),
+      devDeviceProfileProvider.overrideWithValue(kDevDeviceProfile),
       themeModeProvider.overrideWith((_) => ThemeMode.system),
     ],
     observers: [AppProviderObserver()],
@@ -160,6 +179,8 @@ Future<void> _configureWindow() async {
   await windowManager.setMinimumSize(
     const Size(kMinWindowWidth, kMinWindowHeight),
   );
-  await windowManager.setTitle(kAppName);
+  await windowManager.setTitle(
+    kDevDeviceProfile > 0 ? '$kAppName [Device $kDevDeviceProfile]' : kAppName,
+  );
 }
 

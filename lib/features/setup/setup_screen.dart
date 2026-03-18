@@ -57,6 +57,19 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     debugPrint('[SETUP] Starting setup...');
 
     try {
+      // Dev device profile: skip engine connection entirely.
+      // The engine only supports a single authenticated user, so the second
+      // dev instance only uses backend HTTP endpoints for pairing testing.
+      final devProfile = ref.read(devDeviceProfileProvider);
+      if (devProfile > 0) {
+        debugPrint('[SETUP] DEV_DEVICE_PROFILE=$devProfile — skipping engine connection');
+        if (!mounted) return;
+        setState(() => _status = 'Dev device mode — engine skipped');
+        ref.read(authControllerProvider.notifier).setReady();
+        debugPrint('[SETUP] Dev device mode ready');
+        return;
+      }
+
       // If the user just logged in (scope == 'full'), reconnect the
       // engine WS with their backend token. This is done here — not in
       // the auth controller — so login is a simple POST→save→navigate

@@ -11,24 +11,28 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// Writes are sequential (not concurrent) to avoid race conditions on
 /// platforms where the backing store is a single file (e.g. Windows DPAPI).
 class SecureTokenStore {
-  static const _keyPrefix = 'dspatch_auth_';
-  static const _tokenKey = '${_keyPrefix}backend_token';
-  static const _expiresAtKey = '${_keyPrefix}expires_at';
-  static const _scopeKey = '${_keyPrefix}scope';
-  static const _usernameKey = '${_keyPrefix}username';
-  static const _emailKey = '${_keyPrefix}email';
-  static const _sessionTokenKey = '${_keyPrefix}session_token';
+  final String _keyPrefix;
+
+  late final String _tokenKey = '${_keyPrefix}backend_token';
+  late final String _expiresAtKey = '${_keyPrefix}expires_at';
+  late final String _scopeKey = '${_keyPrefix}scope';
+  late final String _usernameKey = '${_keyPrefix}username';
+  late final String _emailKey = '${_keyPrefix}email';
+  late final String _sessionTokenKey = '${_keyPrefix}session_token';
   final FlutterSecureStorage _storage;
 
   /// Device credential keys are scoped per-user so that multiple accounts
   /// on the same OS user can each have their own device identity.
-  static String _deviceIdKey(String username) =>
+  String _deviceIdKey(String username) =>
       '$_keyPrefix${username}_device_id';
-  static String _identityKeyHexKey(String username) =>
+  String _identityKeyHexKey(String username) =>
       '$_keyPrefix${username}_identity_key_hex';
 
-  SecureTokenStore({FlutterSecureStorage? storage})
-      : _storage = storage ??
+  /// Creates a token store with an optional [keyPrefix] for namespace isolation.
+  /// Used by `DEV_DEVICE_PROFILE` to run multiple app instances as separate devices.
+  SecureTokenStore({FlutterSecureStorage? storage, String keyPrefix = 'dspatch_auth_'})
+      : _keyPrefix = keyPrefix,
+        _storage = storage ??
             const FlutterSecureStorage(
               aOptions: AndroidOptions(encryptedSharedPreferences: true),
               mOptions: MacOsOptions(

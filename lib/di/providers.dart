@@ -78,6 +78,10 @@ final engineProcessManagerProvider = Provider<EngineProcessManager>(
   (_) => throw UnimplementedError('Override engineProcessManagerProvider in main.dart'),
 );
 
+/// Dev device profile for multi-device testing. 0 = normal, >0 = dev instance.
+/// When set, engine connection is skipped (the engine only supports one user).
+final devDeviceProfileProvider = Provider<int>((_) => 0);
+
 /// Single source of truth for routing. AuthController is the only writer.
 final authPhaseProvider = StateProvider<AuthPhase>((_) => AuthPhase.unauthenticated);
 
