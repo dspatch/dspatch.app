@@ -113,6 +113,11 @@ pub struct DspatchSdk {
     /// Signal Protocol service — initialized when multi-device is active.
     signal_service: Arc<RwLock<Option<Arc<tokio::sync::Mutex<crate::signal::SignalService>>>>>,
 
+    /// Sync engine — manages outbox, cursors, and conflict resolution.
+    sync_engine: Arc<RwLock<Option<Arc<crate::sync::SyncEngine>>>>,
+    /// Cancellation token for the sync loop.
+    sync_cancel: Arc<RwLock<Option<tokio_util::sync::CancellationToken>>>,
+
     /// Shared secret store reference for keyring access outside DatabaseKeyManager.
     secret_store: Arc<dyn SecretStore>,
 
@@ -211,6 +216,8 @@ impl DspatchSdk {
             sync_service,
             connectivity_service,
             signal_service: Arc::new(RwLock::new(None)),
+            sync_engine: Arc::new(RwLock::new(None)),
+            sync_cancel: Arc::new(RwLock::new(None)),
             secret_store: store_arc,
             database: Arc::new(RwLock::new(None)),
             current_db_path: Arc::new(RwLock::new(None)),
@@ -408,6 +415,9 @@ impl DspatchSdk {
             *path_guard = None;
         }
 
+        // Stop sync engine before releasing Signal + DB references.
+        self.stop_sync().await;
+
         // Clear Signal Protocol service (releases signal.db connection).
         *self.signal_service.write().await = None;
 
@@ -508,6 +518,13 @@ impl DspatchSdk {
         // Bootstrap Signal Protocol if multi-device is active.
         if let Err(e) = self.bootstrap_signal(&db_ref).await {
             tracing::warn!("Signal bootstrap failed (sync disabled): {e}");
+        }
+
+        // Auto-start sync if Signal is ready.
+        if self.signal_service.read().await.is_some() {
+            if let Err(e) = self.start_sync().await {
+                tracing::warn!("Auto-start sync failed: {e}");
+            }
         }
     }
 
@@ -723,6 +740,59 @@ impl DspatchSdk {
     /// Returns the Signal Protocol service, if initialized.
     pub async fn signal_service(&self) -> Option<Arc<tokio::sync::Mutex<crate::signal::SignalService>>> {
         self.signal_service.read().await.clone()
+    }
+
+    // ── P2P Sync Engine ────────────────────────────────────────────────
+
+    /// Starts the P2P sync engine. Called automatically after Signal bootstrap
+    /// when a server-assigned device ID is present.
+    pub async fn start_sync(&self) -> Result<()> {
+        // Check prerequisites.
+        let signal = self.signal_service.read().await.clone()
+            .ok_or_else(|| AppError::Internal("Cannot start sync — Signal not initialized".into()))?;
+        let db = self.database.read().await.clone()
+            .ok_or_else(|| AppError::Internal("Cannot start sync — database not open".into()))?;
+        let device_id = self.device_service.current_device().id.clone();
+        if device_id == "local" {
+            return Err(AppError::Internal("Cannot start sync — no server-assigned device ID".into()));
+        }
+
+        // Set device ID in sync_config for triggers.
+        {
+            let conn = db.conn();
+            crate::sync::outbox_hook::set_sync_device_id(&conn, &device_id)?;
+            crate::sync::outbox_hook::bootstrap_lamport_clock(&conn)?;
+        }
+
+        // Create peer connection manager.
+        let peer_manager = Arc::new(crate::sync::PeerConnectionManager::new(signal));
+
+        // Create sync engine.
+        let engine = Arc::new(crate::sync::SyncEngine::new(db, peer_manager, &device_id));
+
+        // Start sync loop.
+        let cancel = tokio_util::sync::CancellationToken::new();
+        crate::sync::start_sync_loop(Arc::clone(&engine), cancel.clone());
+
+        *self.sync_engine.write().await = Some(engine);
+        *self.sync_cancel.write().await = Some(cancel);
+
+        tracing::info!("Sync engine started for device {device_id}");
+        Ok(())
+    }
+
+    /// Stops the sync engine.
+    pub async fn stop_sync(&self) {
+        if let Some(cancel) = self.sync_cancel.write().await.take() {
+            cancel.cancel();
+        }
+        *self.sync_engine.write().await = None;
+        tracing::info!("Sync engine stopped");
+    }
+
+    /// Returns the current sync engine, if active.
+    pub async fn sync_engine(&self) -> Option<Arc<crate::sync::SyncEngine>> {
+        self.sync_engine.read().await.clone()
     }
 
     // ── Disposal ───────────────────────────────────────────────────────
