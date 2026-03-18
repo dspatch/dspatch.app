@@ -45,6 +45,7 @@ use crate::services::{
     LocalSyncService,
 };
 use base64::Engine as _;
+use crate::domain::services::ApiClient;
 use crate::util::error::AppError;
 use crate::util::result::Result;
 
@@ -742,6 +743,44 @@ impl DspatchSdk {
         self.signal_service.read().await.clone()
     }
 
+    /// Generates and uploads new prekeys when the backend signals they're running low.
+    ///
+    /// Called by the prekey-low listener task spawned when the WS client is
+    /// integrated into the sync lifecycle. See `EngineWsClient::prekey_low_rx()`.
+    pub async fn replenish_prekeys(&self, remaining: i64) -> Result<()> {
+        if remaining >= 50 {
+            return Ok(()); // Plenty of keys remaining.
+        }
+
+        let signal = self.signal_service.read().await.clone()
+            .ok_or_else(|| AppError::Internal("Cannot replenish prekeys — Signal not initialized".into()))?;
+
+        let mut signal = signal.lock().await;
+
+        // Generate 100 new one-time prekeys.
+        let start_id = (remaining as u32).saturating_add(1);
+        let prekeys = signal.generate_prekeys(start_id, 100, &mut rand::rng())
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to generate prekeys: {e}")))?;
+
+        // Serialize prekeys for upload.
+        let prekey_data: Vec<serde_json::Value> = prekeys.iter().map(|pk| {
+            use base64::engine::general_purpose::STANDARD;
+            serde_json::json!({
+                "id": u32::from(pk.id().expect("prekey id")),
+                "public_key": STANDARD.encode(pk.public_key().expect("prekey public key").serialize()),
+            })
+        }).collect();
+
+        // Upload via API.
+        let body = serde_json::json!({ "prekeys": prekey_data });
+        self.api_client.post("/api/keys/prekeys", Some(body)).await
+            .map_err(|e| AppError::Server(format!("Failed to upload prekeys: {e}")))?;
+
+        tracing::info!("Uploaded {} new prekeys", prekeys.len());
+        Ok(())
+    }
+
     // ── P2P Sync Engine ────────────────────────────────────────────────
 
     /// Starts the P2P sync engine. Called automatically after Signal bootstrap
@@ -776,6 +815,10 @@ impl DspatchSdk {
 
         *self.sync_engine.write().await = Some(engine);
         *self.sync_cancel.write().await = Some(cancel);
+
+        // TODO: When the WS client is integrated into the SDK lifecycle, spawn
+        // a listener task here that receives from `ws_client.prekey_low_rx()`
+        // and calls `self.replenish_prekeys(remaining)` for each notification.
 
         tracing::info!("Sync engine started for device {device_id}");
         Ok(())

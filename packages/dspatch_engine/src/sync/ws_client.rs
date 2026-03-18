@@ -71,6 +71,9 @@ pub struct EngineWsClient {
     signaling_tx: mpsc::Sender<SignalingEvent>,
     #[allow(dead_code)]
     signaling_rx: Arc<Mutex<mpsc::Receiver<SignalingEvent>>>,
+    /// Channel for notifying the SDK when prekeys are running low.
+    prekey_low_tx: mpsc::Sender<i64>,
+    prekey_low_rx: Arc<Mutex<mpsc::Receiver<i64>>>,
 }
 
 impl EngineWsClient {
@@ -84,6 +87,7 @@ impl EngineWsClient {
         device_id: String,
     ) -> Self {
         let (signaling_tx, signaling_rx) = mpsc::channel(64);
+        let (prekey_low_tx, prekey_low_rx) = mpsc::channel(4);
         Self {
             backend_url,
             auth_token,
@@ -92,6 +96,8 @@ impl EngineWsClient {
             ws_tx: Arc::new(Mutex::new(None)),
             signaling_tx,
             signaling_rx: Arc::new(Mutex::new(signaling_rx)),
+            prekey_low_tx,
+            prekey_low_rx: Arc::new(Mutex::new(prekey_low_rx)),
         }
     }
 
@@ -103,6 +109,14 @@ impl EngineWsClient {
     /// Returns a clone of the current WebSocket sender, if connected.
     pub async fn ws_sender(&self) -> Option<mpsc::Sender<String>> {
         self.ws_tx.lock().await.clone()
+    }
+
+    /// Returns the receiver end of the prekey-low notification channel.
+    ///
+    /// The SDK should spawn a task that listens on this receiver and calls
+    /// `replenish_prekeys()` when a value arrives.
+    pub fn prekey_low_rx(&self) -> Arc<Mutex<mpsc::Receiver<i64>>> {
+        Arc::clone(&self.prekey_low_rx)
     }
 
     /// Starts the reconnecting WebSocket loop in a background task.
@@ -221,6 +235,7 @@ impl EngineWsClient {
                                         event,
                                         &self.online_peers,
                                         &self.signaling_tx,
+                                        &self.prekey_low_tx,
                                     )
                                     .await;
                                 }
@@ -258,6 +273,7 @@ impl EngineWsClient {
         event: BackendEvent,
         online_peers: &Arc<RwLock<HashSet<String>>>,
         signaling_tx: &mpsc::Sender<SignalingEvent>,
+        prekey_low_tx: &mpsc::Sender<i64>,
     ) {
         match event {
             BackendEvent::DeviceOnline { device_id } => {
@@ -287,8 +303,10 @@ impl EngineWsClient {
                 // TODO: trigger server-relay sync fetch
             }
             BackendEvent::PreKeysLow { remaining } => {
-                tracing::warn!("Pre-keys low: {remaining} remaining — should upload more");
-                // TODO: trigger pre-key replenishment
+                tracing::warn!("Pre-keys low: {remaining} remaining — triggering replenishment");
+                if let Err(e) = prekey_low_tx.send(remaining).await {
+                    tracing::error!("Failed to send prekey-low notification: {e}");
+                }
             }
             BackendEvent::WebRtcOffer {
                 source_device_id,
@@ -386,6 +404,7 @@ mod tests {
     async fn handle_event_tracks_online_peers() {
         let peers = Arc::new(RwLock::new(HashSet::new()));
         let (tx, _rx) = mpsc::channel(16);
+        let (pk_tx, _pk_rx) = mpsc::channel(4);
 
         // Device comes online.
         EngineWsClient::handle_event(
@@ -394,6 +413,7 @@ mod tests {
             },
             &peers,
             &tx,
+            &pk_tx,
         )
         .await;
         assert!(peers.read().await.contains("dev-a"));
@@ -405,6 +425,7 @@ mod tests {
             },
             &peers,
             &tx,
+            &pk_tx,
         )
         .await;
         assert_eq!(peers.read().await.len(), 2);
@@ -416,6 +437,7 @@ mod tests {
             },
             &peers,
             &tx,
+            &pk_tx,
         )
         .await;
         assert!(!peers.read().await.contains("dev-a"));
@@ -426,6 +448,7 @@ mod tests {
     async fn handle_event_roster_replaces_peers() {
         let peers = Arc::new(RwLock::new(HashSet::new()));
         let (tx, _rx) = mpsc::channel(16);
+        let (pk_tx, _pk_rx) = mpsc::channel(4);
 
         // Pre-populate.
         peers.write().await.insert("old-device".into());
@@ -437,6 +460,7 @@ mod tests {
             },
             &peers,
             &tx,
+            &pk_tx,
         )
         .await;
 
@@ -451,6 +475,7 @@ mod tests {
     async fn handle_event_forwards_signaling() {
         let peers = Arc::new(RwLock::new(HashSet::new()));
         let (tx, mut rx) = mpsc::channel(16);
+        let (pk_tx, _pk_rx) = mpsc::channel(4);
 
         EngineWsClient::handle_event(
             BackendEvent::WebRtcOffer {
@@ -459,11 +484,30 @@ mod tests {
             },
             &peers,
             &tx,
+            &pk_tx,
         )
         .await;
 
         let event = rx.recv().await.unwrap();
         assert!(matches!(event, SignalingEvent::SdpOffer { from_device, sdp }
             if from_device == "dev-1" && sdp == "sdp"));
+    }
+
+    #[tokio::test]
+    async fn handle_event_prekeys_low_sends_notification() {
+        let peers = Arc::new(RwLock::new(HashSet::new()));
+        let (tx, _rx) = mpsc::channel(16);
+        let (pk_tx, mut pk_rx) = mpsc::channel(4);
+
+        EngineWsClient::handle_event(
+            BackendEvent::PreKeysLow { remaining: 7 },
+            &peers,
+            &tx,
+            &pk_tx,
+        )
+        .await;
+
+        let remaining = pk_rx.recv().await.unwrap();
+        assert_eq!(remaining, 7);
     }
 }
