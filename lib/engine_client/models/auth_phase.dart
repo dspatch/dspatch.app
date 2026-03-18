@@ -19,6 +19,9 @@ enum AuthPhase {
 
   deviceRegistration,
 
+  /// Second+ device: needs existing device approval via QR or numeric+SAS
+  devicePairing,
+
   /// Have a valid full token (backend or anonymous), no engine session yet.
   authenticated,
 
