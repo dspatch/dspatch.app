@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use libsignal_protocol::*;
 use rusqlite::Connection;
+use tokio::sync::mpsc;
 
 /// A simple error type that is `Send + Sync + UnwindSafe` for use with
 /// `SignalProtocolError::ApplicationCallbackError`.
@@ -25,6 +26,8 @@ pub struct SqliteIdentityStore {
     conn: Arc<Mutex<Connection>>,
     local_registration_id: u32,
     identity_key_pair: IdentityKeyPair,
+    /// Channel for identity key change notifications.
+    key_change_tx: Option<mpsc::Sender<String>>,
 }
 
 impl SqliteIdentityStore {
@@ -33,7 +36,12 @@ impl SqliteIdentityStore {
         local_registration_id: u32,
         identity_key_pair: IdentityKeyPair,
     ) -> Self {
-        Self { conn, local_registration_id, identity_key_pair }
+        Self { conn, local_registration_id, identity_key_pair, key_change_tx: None }
+    }
+
+    /// Set a channel sender to receive notifications when an identity key changes.
+    pub fn set_key_change_sender(&mut self, tx: mpsc::Sender<String>) {
+        self.key_change_tx = Some(tx);
     }
 }
 
@@ -74,6 +82,18 @@ impl IdentityKeyStore for SqliteIdentityStore {
             Some(old_key) => old_key != &key_bytes,
             None => false,
         };
+
+        if changed {
+            tracing::warn!(
+                target: "identity_key_change",
+                device_id = %address.name(),
+                "Identity key changed for device — possible reinstallation or interception"
+            );
+            // TODO: Phase 4 — emit event through engine event system for Flutter banner
+            if let Some(ref tx) = self.key_change_tx {
+                let _ = tx.try_send(address.name().to_string());
+            }
+        }
 
         conn.execute(
             "INSERT OR REPLACE INTO signal_identities (address, device_id, identity_key, trust_level) VALUES (?1, ?2, ?3, ?4)",
