@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../di/providers.dart';
+import '../../engine_client/backend_auth.dart';
 import '../../engine_client/models/auth_token.dart';
+import '../auth/utils/sas_derivation.dart';
 
 class PairingApprovalScreen extends ConsumerStatefulWidget {
   const PairingApprovalScreen({super.key});
@@ -24,6 +26,7 @@ class _PairingApprovalScreenState
   // SAS verification state
   bool _showSas = false;
   String? _deviceId;
+  String? _sasCode;
 
   @override
   void dispose() {
@@ -58,16 +61,37 @@ class _PairingApprovalScreenState
 
       _deviceId = response['device_id'] as String;
 
+      if (response['requires_sas'] == true) {
+        // Derive SAS from both identity keys
+        final approverKey = response['approver_identity_key'] as String?;
+        final bundle = response['public_key_bundle'] as Map<String, dynamic>?;
+        final newDeviceKey = bundle?['identity_key'] as String?;
+
+        if (approverKey != null && newDeviceKey != null) {
+          _sasCode = await deriveSas(newDeviceKey, approverKey);
+        }
+
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _showSas = true;
+        });
+      } else {
+        // QR path — approval is complete, no SAS needed
+        if (!mounted) return;
+        context.pop(true);
+      }
+    } on BackendAuthException catch (e) {
       if (!mounted) return;
+      final message = switch (e.statusCode) {
+        404 => 'Invalid pairing code. Please check and try again.',
+        410 => 'Pairing code has expired or been invalidated.',
+        _ => 'Failed to verify code: ${e.message}',
+      };
       setState(() {
         _loading = false;
-        _showSas = response['requires_sas'] == true;
+        _error = message;
       });
-
-      // If no SAS required (QR path), approval is complete
-      if (!_showSas) {
-        if (mounted) context.pop(true);
-      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -208,28 +232,22 @@ class _PairingApprovalScreenState
                     borderRadius: BorderRadius.circular(AppRadius.md),
                     border: Border.all(color: AppColors.border),
                   ),
-                  child: const Center(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(LucideIcons.shield_check,
-                            size: 24, color: AppColors.primary),
-                        SizedBox(width: Spacing.sm),
-                        Text(
-                          'SAS verification',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.foreground,
-                          ),
-                        ),
-                      ],
+                  child: Center(
+                    child: Text(
+                      _sasCode ?? '------',
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'DM Mono',
+                        letterSpacing: 6,
+                        color: AppColors.foreground,
+                      ),
                     ),
                   ),
                 ),
                 const SizedBox(height: Spacing.sm),
                 const Text(
-                  'Both devices should display the same verification code. '
+                  'Both devices should display the same code. '
                   'If they match, tap Confirm. If not, tap Reject to cancel.',
                   style: TextStyle(
                     fontSize: 12,

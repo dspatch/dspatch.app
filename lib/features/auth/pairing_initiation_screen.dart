@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:typed_data';
 
@@ -12,6 +13,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../di/providers.dart';
 import '../../engine_client/models/auth_phase.dart';
 import '../../engine_client/models/auth_token.dart';
+import 'utils/sas_derivation.dart';
 import 'widgets/auth_layout.dart';
 
 class PairingInitiationScreen extends ConsumerStatefulWidget {
@@ -35,6 +37,8 @@ class _PairingInitiationScreenState
   Timer? _countdownTimer;
   Duration _remaining = Duration.zero;
   String? _sasStatus; // null = not yet, 'awaiting_sas', 'approved'
+  String? _sasCode;
+  String? _identityKeyB64; // Our public key base64, for SAS derivation
 
   @override
   void initState() {
@@ -80,6 +84,9 @@ class _PairingInitiationScreenState
         signedPreKeyBytes,
         keyPair: identityKeyPair,
       );
+
+      // Store base64 public key for SAS derivation later
+      _identityKeyB64 = base64.encode(identityPublicKey.bytes);
 
       // Build hex private key for persistence
       final identityPrivateBytes =
@@ -165,9 +172,11 @@ class _PairingInitiationScreenState
       final status = response['status'] as String;
 
       if (status == 'awaiting_sas') {
+        final approverKey = response['approver_identity_key'] as String?;
+        if (approverKey != null && _identityKeyB64 != null && _sasCode == null) {
+          _sasCode = await deriveSas(_identityKeyB64!, approverKey);
+        }
         if (mounted) setState(() => _sasStatus = 'awaiting_sas');
-        // TODO: derive SAS from SHA-256(our_identity_key || approver_identity_key)
-        // and display it for manual comparison
       } else if (status == 'approved') {
         _pollTimer?.cancel();
         _countdownTimer?.cancel();
@@ -297,18 +306,32 @@ class _PairingInitiationScreenState
                       borderRadius: BorderRadius.circular(AppRadius.md),
                       border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
                     ),
-                    child: const Row(
+                    child: Column(
                       children: [
-                        Icon(LucideIcons.shield_check,
-                            size: 20, color: AppColors.primary),
-                        SizedBox(width: Spacing.sm),
-                        Expanded(
-                          child: Text(
-                            'Waiting for SAS verification on existing device...',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: AppColors.primary,
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(LucideIcons.shield_check,
+                                size: 20, color: AppColors.primary),
+                            SizedBox(width: Spacing.sm),
+                            Text(
+                              'Verify this code matches your other device',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: AppColors.primary,
+                              ),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: Spacing.sm),
+                        Text(
+                          _sasCode ?? '------',
+                          style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'DM Mono',
+                            letterSpacing: 6,
+                            color: AppColors.foreground,
                           ),
                         ),
                       ],
