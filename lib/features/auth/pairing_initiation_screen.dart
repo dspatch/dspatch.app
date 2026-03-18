@@ -5,11 +5,13 @@ import 'dart:io' show Platform;
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../core/utils/platform_info.dart';
 import '../../di/providers.dart';
 import '../../engine_client/models/auth_phase.dart';
 import '../../engine_client/models/auth_token.dart';
@@ -39,10 +41,12 @@ class _PairingInitiationScreenState
   String? _sasStatus; // null = not yet, 'awaiting_sas', 'approved'
   String? _sasCode;
   String? _identityKeyB64; // Our public key base64, for SAS derivation
+  String _deviceName = Platform.localHostname;
 
   @override
   void initState() {
     super.initState();
+    _loadDeviceName();
     _initiatePairing();
   }
 
@@ -53,11 +57,14 @@ class _PairingInitiationScreenState
     super.dispose();
   }
 
-  String get _platformId {
-    if (Platform.isWindows) return 'windows';
-    if (Platform.isMacOS) return 'macos';
-    if (Platform.isLinux) return 'linux';
-    return 'linux';
+  Future<void> _loadDeviceName() async {
+    if (PlatformInfo.isIOS) {
+      final info = await DeviceInfoPlugin().iosInfo;
+      if (mounted) setState(() => _deviceName = info.name);
+    } else if (PlatformInfo.isAndroid) {
+      final info = await DeviceInfoPlugin().androidInfo;
+      if (mounted) setState(() => _deviceName = info.model);
+    }
   }
 
   Future<void> _initiatePairing() async {
@@ -96,9 +103,9 @@ class _PairingInitiationScreenState
           .join();
 
       final request = <String, dynamic>{
-        'name': Platform.localHostname,
-        'device_type': 'desktop',
-        'platform': _platformId,
+        'name': _deviceName,
+        'device_type': PlatformInfo.deviceType,
+        'platform': PlatformInfo.platformId,
         'identity_key': identityPublicKey.bytes,
         'signed_pre_key': signedPreKeyBytes,
         'signed_pre_key_id': 1,

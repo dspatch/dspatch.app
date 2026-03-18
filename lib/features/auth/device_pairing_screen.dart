@@ -3,10 +3,12 @@ import 'dart:io' show Platform;
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/platform_info.dart';
 import 'auth_controller.dart';
 import 'widgets/auth_layout.dart';
 
@@ -21,21 +23,22 @@ class DevicePairingScreen extends ConsumerStatefulWidget {
 class _DevicePairingScreenState extends ConsumerState<DevicePairingScreen> {
   bool _isLoading = false;
   String? _error;
+  String _deviceName = Platform.localHostname;
 
-  String get _hostname => Platform.localHostname;
-
-  String get _platformName {
-    if (Platform.isWindows) return 'Windows';
-    if (Platform.isMacOS) return 'macOS';
-    if (Platform.isLinux) return 'Linux';
-    return 'Desktop';
+  @override
+  void initState() {
+    super.initState();
+    _loadDeviceName();
   }
 
-  String get _platformId {
-    if (Platform.isWindows) return 'windows';
-    if (Platform.isMacOS) return 'macos';
-    if (Platform.isLinux) return 'linux';
-    return 'linux';
+  Future<void> _loadDeviceName() async {
+    if (PlatformInfo.isIOS) {
+      final info = await DeviceInfoPlugin().iosInfo;
+      if (mounted) setState(() => _deviceName = info.name);
+    } else if (PlatformInfo.isAndroid) {
+      final info = await DeviceInfoPlugin().androidInfo;
+      if (mounted) setState(() => _deviceName = info.model);
+    }
   }
 
   Future<void> _handleRegister() async {
@@ -70,9 +73,9 @@ class _DevicePairingScreenState extends ConsumerState<DevicePairingScreen> {
           _bytesToHex(Uint8List.fromList(identityPrivateBytes));
 
       final request = <String, dynamic>{
-        'name': _hostname,
-        'device_type': 'desktop',
-        'platform': _platformId,
+        'name': _deviceName,
+        'device_type': PlatformInfo.deviceType,
+        'platform': PlatformInfo.platformId,
         'identity_key': identityPublicKey.bytes,
         'signed_pre_key': signedPreKeyBytes,
         'signed_pre_key_id': 1,
@@ -142,8 +145,8 @@ class _DevicePairingScreenState extends ConsumerState<DevicePairingScreen> {
                     ),
                     child: Row(
                       children: [
-                        const Icon(
-                          LucideIcons.monitor,
+                        Icon(
+                          PlatformInfo.isMobile ? LucideIcons.smartphone : LucideIcons.monitor,
                           size: 32,
                           color: AppColors.mutedForeground,
                         ),
@@ -152,7 +155,7 @@ class _DevicePairingScreenState extends ConsumerState<DevicePairingScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _hostname,
+                              _deviceName,
                               style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
@@ -161,7 +164,7 @@ class _DevicePairingScreenState extends ConsumerState<DevicePairingScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '$_platformName \u2022 Desktop',
+                              '${PlatformInfo.platformName} \u2022 ${PlatformInfo.isMobile ? 'Mobile' : 'Desktop'}',
                               style: const TextStyle(
                                 fontSize: 12,
                                 color: AppColors.mutedForeground,
