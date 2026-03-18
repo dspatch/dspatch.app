@@ -12,9 +12,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::crypto::AesGcmCrypto;
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(not(target_os = "android"))]
 use crate::crypto::KeyringSecretStore;
-#[cfg(any(target_os = "ios", target_os = "android"))]
+#[cfg(target_os = "android")]
 use crate::crypto::FileSecretStore;
 use crate::db::Database;
 use crate::db::dao::agent_provider_dao::AgentProviderDao;
@@ -84,11 +84,11 @@ impl ServiceRegistry {
         let api_key_dao = Arc::new(ApiKeyDao::new(db.clone()));
         let preference_dao = Arc::new(PreferenceDao::new(db.clone()));
 
-        // Crypto: desktop uses the platform keyring, mobile uses file-based storage.
-        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        // Crypto: desktop + iOS use the platform keyring, Android uses file-based storage.
+        #[cfg(not(target_os = "android"))]
         let secret_store: Arc<dyn crate::db::key_manager::SecretStore> =
             Arc::new(KeyringSecretStore::new("dspatch"));
-        #[cfg(any(target_os = "ios", target_os = "android"))]
+        #[cfg(target_os = "android")]
         let secret_store: Arc<dyn crate::db::key_manager::SecretStore> =
             Arc::new(FileSecretStore::new(&data_dir));
         let crypto = Arc::new(AesGcmCrypto::new(secret_store));

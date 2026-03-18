@@ -9,8 +9,8 @@ pub mod aes_gcm;
 pub mod secure_storage;
 
 pub use aes_gcm::AesGcmCrypto;
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(not(target_os = "android"))]
 pub use secure_storage::KeyringSecretStore;
 
-#[cfg(any(target_os = "ios", target_os = "android"))]
+#[cfg(target_os = "android")]
 pub use secure_storage::FileSecretStore;

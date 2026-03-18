@@ -2,27 +2,33 @@
 
 //! Platform-specific secret storage.
 //!
-//! - **Desktop** (Windows/macOS/Linux): Uses the OS credential manager via `keyring`.
-//! - **Mobile** (iOS/Android): Uses an encrypted file in the app's private sandbox.
+//! - **Desktop + iOS** (Windows/macOS/Linux/iOS): Uses the OS credential manager
+//!   via `keyring` (Keychain on macOS/iOS, Credential Manager on Windows,
+//!   kernel keyutils on Linux).
+//! - **Android**: Uses an encrypted file in the app's private sandbox
+//!   (`keyring` v3 does not support Android; v4 will add Keystore support).
 
 use crate::db::key_manager::SecretStore;
 use crate::util::error::AppError;
 use crate::util::result::Result;
 
 // ---------------------------------------------------------------------------
-// Desktop: Keyring-backed store
+// Keyring-backed store (desktop + iOS)
 // ---------------------------------------------------------------------------
 
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(not(target_os = "android"))]
 use keyring::Entry;
 
-/// OS credential store backed by the `keyring` crate (desktop only).
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+/// OS credential store backed by the `keyring` crate.
+///
+/// Works on Windows (Credential Manager), macOS (Keychain), Linux (kernel
+/// keyutils), and iOS (Keychain via Security.framework).
+#[cfg(not(target_os = "android"))]
 pub struct KeyringSecretStore {
     service_name: String,
 }
 
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(not(target_os = "android"))]
 impl KeyringSecretStore {
     pub fn new(service_name: &str) -> Self {
         Self {
@@ -36,7 +42,7 @@ impl KeyringSecretStore {
     }
 }
 
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(not(target_os = "android"))]
 impl SecretStore for KeyringSecretStore {
     fn read(&self, key: &str) -> Result<Option<String>> {
         let entry = self.entry(key)?;
@@ -69,20 +75,23 @@ impl SecretStore for KeyringSecretStore {
 }
 
 // ---------------------------------------------------------------------------
-// Mobile: File-backed store (app sandbox provides isolation)
+// Android: File-backed store (app sandbox provides isolation)
 // ---------------------------------------------------------------------------
 
-/// File-backed secret store for mobile platforms.
+/// File-backed secret store for Android.
 ///
 /// Stores secrets as a JSON object in `<data_dir>/secrets.json` inside the
-/// app's private sandbox. On iOS and Android, other apps cannot read this
-/// directory — the OS enforces sandboxing.
-#[cfg(any(target_os = "ios", target_os = "android"))]
+/// app's private sandbox. On Android, other apps cannot read this directory —
+/// the OS enforces sandboxing.
+///
+/// Note: This will be replaced with Android Keystore once `keyring` v4 is
+/// stable (it adds `android-native` support).
+#[cfg(target_os = "android")]
 pub struct FileSecretStore {
     path: std::path::PathBuf,
 }
 
-#[cfg(any(target_os = "ios", target_os = "android"))]
+#[cfg(target_os = "android")]
 impl FileSecretStore {
     /// Creates a store that persists secrets in `<data_dir>/secrets.json`.
     pub fn new(data_dir: &std::path::Path) -> Self {
@@ -109,7 +118,7 @@ impl FileSecretStore {
     }
 }
 
-#[cfg(any(target_os = "ios", target_os = "android"))]
+#[cfg(target_os = "android")]
 impl SecretStore for FileSecretStore {
     fn read(&self, key: &str) -> Result<Option<String>> {
         let map = self.load()?;
