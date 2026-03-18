@@ -14,6 +14,7 @@
 //! timestamps provide causal ordering; conflicts are resolved by
 //! last-writer-wins with device-ID tiebreaking.
 
+pub mod key_exchange;
 pub mod materializer;
 pub mod message;
 pub mod outbox_hook;
