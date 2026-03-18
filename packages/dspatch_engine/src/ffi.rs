@@ -12,7 +12,10 @@ use once_cell::sync::Lazy;
 
 use crate::client_api::server::{start_client_api, AppState};
 use crate::config::DspatchConfig;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use crate::crypto::KeyringSecretStore;
+#[cfg(any(target_os = "ios", target_os = "android"))]
+use crate::crypto::FileSecretStore;
 use crate::engine::config::EngineConfig;
 use crate::engine::startup::{init_tracing, ClientApiRuntime};
 use crate::sdk::DspatchSdk;
@@ -86,9 +89,17 @@ pub unsafe extern "C" fn start_engine(config_json: *const c_char) -> i32 {
 
         // Create and initialize the SDK.
         let sdk_config = DspatchConfig::from_engine_config(&config);
+
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        let secret_store: Box<dyn crate::db::key_manager::SecretStore> =
+            Box::new(KeyringSecretStore::new("dspatch"));
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        let secret_store: Box<dyn crate::db::key_manager::SecretStore> =
+            Box::new(FileSecretStore::new(&db_dir));
+
         let sdk = Arc::new(DspatchSdk::with_secret_store(
             sdk_config,
-            Box::new(KeyringSecretStore::new("dspatch")),
+            secret_store,
             db_dir,
         ));
 

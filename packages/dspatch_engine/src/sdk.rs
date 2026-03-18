@@ -27,6 +27,7 @@ use crate::api::HttpApiClient;
 use crate::client_api::invalidation::{InvalidationBroadcaster, InvalidationHandle};
 use crate::config::DspatchConfig;
 use crate::crypto::aes_gcm::AesGcmCrypto;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use crate::crypto::secure_storage::KeyringSecretStore;
 use crate::db::key_manager::{DatabaseKeyManager, SecretStore};
 use crate::db::manager::{DatabaseManager, DatabaseState};
@@ -135,6 +136,7 @@ impl DspatchSdk {
     /// Creates a new SDK instance with default `KeyringSecretStore` and
     /// platform data directory. Call [`initialize`](Self::initialize) to
     /// start services.
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub fn new(config: DspatchConfig) -> Self {
         let store = Box::new(KeyringSecretStore::new(KEYRING_SERVICE_NAME));
         let data_dir = default_data_dir();
