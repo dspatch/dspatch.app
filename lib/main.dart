@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
+import 'core/utils/platform_info.dart';
 import 'database/engine_database.dart';
 import 'database/invalidation_bridge.dart';
 import 'di/providers.dart';
@@ -54,7 +55,9 @@ Future<void> main(List<String> args) async {
     return true;
   };
 
-  await _configureWindow();
+  if (PlatformInfo.isDesktop) {
+    await _configureWindow();
+  }
 
   // On mobile, start the engine in-process via FFI before connecting.
   if (Platform.isAndroid || Platform.isIOS) {
