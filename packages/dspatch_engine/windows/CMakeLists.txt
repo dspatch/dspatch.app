@@ -5,16 +5,16 @@
 cmake_minimum_required(VERSION 3.14)
 
 # Project-level configuration.
-set(PROJECT_NAME "dspatch_sdk")
+set(PROJECT_NAME "dspatch_engine")
 project(${PROJECT_NAME} LANGUAGES CXX)
 
 include("../cargokit/cmake/cargokit.cmake")
-apply_cargokit(${PROJECT_NAME} ../. dspatch_sdk "")
+apply_cargokit(${PROJECT_NAME} ../. dspatch_engine "")
 
 # List of absolute paths to libraries that should be bundled with the plugin.
-# This list could contain prebuilt libraries, or libraries created by an
-# external build triggered from this build file.
-set(dspatch_sdk_bundled_libraries
+# Variable name MUST match the Flutter plugin name (dspatch_engine) so
+# Flutter's build system copies the DLL to the runner directory.
+set(dspatch_engine_bundled_libraries
   "${${PROJECT_NAME}_cargokit_lib}"
   PARENT_SCOPE
 )

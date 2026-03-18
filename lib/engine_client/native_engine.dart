@@ -14,8 +14,9 @@ typedef StartEngineDart = int Function(Pointer<Utf8>);
 typedef StopEngineNative = Int32 Function();
 typedef StopEngineDart = int Function();
 
-/// Manages the in-process dspatch engine on mobile platforms.
+/// Manages the in-process dspatch engine via FFI.
 ///
+/// Used on mobile (always) and desktop (when DEV_DEVICE_PROFILE > 0).
 /// Loads the compiled shared library and exposes [start] and [stop] methods
 /// that delegate to the Rust FFI functions. The engine listens on localhost
 /// and the same EngineClient connects to it.
@@ -33,12 +34,16 @@ class NativeEngine {
     if (Platform.isAndroid) {
       return DynamicLibrary.open('libdspatch_engine.so');
     } else if (Platform.isIOS) {
-      // On iOS, the library is statically linked into the app binary.
       return DynamicLibrary.process();
+    } else if (Platform.isWindows) {
+      return DynamicLibrary.open('dspatch_engine.dll');
+    } else if (Platform.isMacOS) {
+      return DynamicLibrary.open('libdspatch_engine.dylib');
+    } else if (Platform.isLinux) {
+      return DynamicLibrary.open('libdspatch_engine.so');
     } else {
       throw UnsupportedError(
-        'NativeEngine is only supported on mobile platforms (Android/iOS). '
-        'On desktop, the engine runs as a separate process.',
+        'NativeEngine: unsupported platform ${Platform.operatingSystem}',
       );
     }
   }
