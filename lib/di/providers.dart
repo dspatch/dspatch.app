@@ -73,9 +73,10 @@ final secureTokenStoreProvider = Provider<SecureTokenStore>(
 );
 
 /// Engine process manager for starting/stopping the engine on desktop.
+/// Null on mobile platforms where the engine runs in-process via FFI.
 /// Overridden in main.dart.
-final engineProcessManagerProvider = Provider<EngineProcessManager>(
-  (_) => throw UnimplementedError('Override engineProcessManagerProvider in main.dart'),
+final engineProcessManagerProvider = Provider<EngineProcessManager?>(
+  (_) => null,
 );
 
 /// Dev device profile for multi-device testing. 0 = normal, >0 = dev instance.

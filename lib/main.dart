@@ -69,11 +69,17 @@ Future<void> main(List<String> args) async {
 
   // Engine process manager — used by EngineStatusButton to start/stop
   // the engine on demand. No auto-start; the user controls the engine.
-  final processManager = EngineProcessManager(
-    engineBinaryPath: EngineProcessManager.resolveEngineBinaryPath(),
-    host: _kHost,
-    port: kEnginePort,
-  );
+  // Only available on desktop; mobile runs the engine in-process via FFI.
+  final EngineProcessManager? processManager;
+  if (PlatformInfo.isDesktop) {
+    processManager = EngineProcessManager(
+      engineBinaryPath: EngineProcessManager.resolveEngineBinaryPath(),
+      host: _kHost,
+      port: kEnginePort,
+    );
+  } else {
+    processManager = null;
+  }
 
   // Backend URL: use compile-time default. The engine may not be running
   // yet, so we can't derive it from /health at boot time.

@@ -39,6 +39,7 @@ class _EngineStatusButtonState extends ConsumerState<EngineStatusButton> {
   Future<void> _poll() async {
     if (_busy) return;
     final manager = ref.read(engineProcessManagerProvider);
+    if (manager == null) return;
     final health = await manager.checkRunning();
     if (!mounted) return;
     final running = health != null && health.isRunning;
@@ -49,9 +50,10 @@ class _EngineStatusButtonState extends ConsumerState<EngineStatusButton> {
 
   Future<void> _toggle() async {
     if (_busy) return;
+    final manager = ref.read(engineProcessManagerProvider);
+    if (manager == null) return;
     setState(() => _busy = true);
 
-    final manager = ref.read(engineProcessManagerProvider);
     try {
       if (_running) {
         await manager.stop();
@@ -75,6 +77,9 @@ class _EngineStatusButtonState extends ConsumerState<EngineStatusButton> {
 
   @override
   Widget build(BuildContext context) {
+    // On mobile, the engine runs in-process — no start/stop button needed.
+    final manager = ref.read(engineProcessManagerProvider);
+    if (manager == null) return const SizedBox.shrink();
     final Color dotColor;
     final String label;
     final IconData icon;
