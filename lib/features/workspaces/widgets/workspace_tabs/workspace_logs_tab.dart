@@ -46,11 +46,6 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
   bool _autoScroll = true;
   int _previousCount = 0;
 
-  // Filter state
-  Set<String> _levelFilters = LogLevel.all.toSet();
-  Set<String> _sourceFilters = LogSource.all.toSet();
-  String? _agentFilter;
-
   @override
   void initState() {
     super.initState();
@@ -70,6 +65,11 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
     final atBottom = pos.pixels >= pos.maxScrollExtent - 50;
     if (_autoScroll != atBottom) {
       setState(() => _autoScroll = atBottom);
+    }
+    // Load more logs when scrolling near the top (older entries).
+    if (pos.pixels < 100) {
+      final current = ref.read(logPageLimitProvider);
+      ref.read(logPageLimitProvider.notifier).state = current + 200;
     }
   }
 
@@ -128,8 +128,7 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
             children: [
               logsAsync.when(
                 data: (logs) {
-                  final filtered = _applyFilters(logs);
-                  if (filtered.isEmpty) {
+                  if (logs.isEmpty) {
                     return const EmptyState(
                       icon: LucideIcons.terminal,
                       title: 'No Logs',
@@ -137,13 +136,13 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
                     );
                   }
 
-                  if (_autoScroll && filtered.length > _previousCount) {
+                  if (_autoScroll && logs.length > _previousCount) {
                     WidgetsBinding.instance
                         .addPostFrameCallback((_) => _scrollToBottom());
                   }
-                  _previousCount = filtered.length;
+                  _previousCount = logs.length;
 
-                  final entries = filtered
+                  final entries = logs
                       .map((log) => LogEntry(
                             _formatLogLine(log),
                             level: log.level,
@@ -183,6 +182,9 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
   }
 
   Widget _buildFilterBar() {
+    final levelFilters = ref.watch(logLevelFiltersProvider);
+    final sourceFilters = ref.watch(logSourceFiltersProvider);
+    final agentFilter = ref.watch(logAgentFilterProvider);
     final agentKeys = widget.agents.map((a) => a.agentKey).toSet().toList()
       ..sort();
 
@@ -205,9 +207,9 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
             style: ToggleGroupStyle.grouped,
             iconMode: false,
             variant: ToggleVariant.outline,
-            value: _levelFilters,
+            value: levelFilters,
             onChanged: (values) {
-              setState(() => _levelFilters = values);
+              ref.read(logLevelFiltersProvider.notifier).state = values;
             },
             children: const [
               ToggleGroupItem(value: 'debug', child: Text('Debug')),
@@ -223,9 +225,9 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
             style: ToggleGroupStyle.grouped,
             iconMode: false,
             variant: ToggleVariant.outline,
-            value: _sourceFilters,
+            value: sourceFilters,
             onChanged: (values) {
-              setState(() => _sourceFilters = values);
+              ref.read(logSourceFiltersProvider.notifier).state = values;
             },
             children: const [
               ToggleGroupItem(value: 'engine', child: Text('Engine')),
@@ -237,21 +239,15 @@ class _WorkspaceLogsTabState extends ConsumerState<WorkspaceLogsTab> {
             const SizedBox(width: Spacing.sm),
             _AgentFilterDropdown(
               agentKeys: agentKeys,
-              selected: _agentFilter,
-              onChanged: (v) => setState(() => _agentFilter = v),
+              selected: agentFilter,
+              onChanged: (v) {
+                ref.read(logAgentFilterProvider.notifier).state = v;
+              },
             ),
           ],
         ],
       ),
     );
-  }
-
-  List<AgentLog> _applyFilters(List<AgentLog> logs) {
-    return logs
-        .where((l) =>
-            _levelFilters.contains(l.level) &&
-            _sourceFilters.contains(l.source))
-        .toList();
   }
 }
 

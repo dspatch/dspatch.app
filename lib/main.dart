@@ -1,4 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
@@ -20,6 +22,12 @@ import 'shared/widgets/error_boundary.dart';
 
 /// Human-readable application name shown in the title bar and about dialog.
 const kAppName = 'd:spatch';
+
+/// Top-level subscriptions for engine event bridges.
+/// Stored at file scope so hot restarts cancel the previous listeners
+/// before creating new ones, preventing listener accumulation.
+StreamSubscription? _eventSub;
+StreamSubscription? _connectionSub;
 
 /// Minimum window dimensions enforced at startup.
 const kMinWindowWidth = 900.0;
@@ -166,7 +174,10 @@ Future<void> main(List<String> args) async {
   invalidationBridge.start();
 
   // Bridge engine events to StateProviders for race-condition-free access.
-  client.events.listen((event) {
+  // Cancel previous subscriptions on hot restart to prevent listener accumulation.
+  _eventSub?.cancel();
+  _connectionSub?.cancel();
+  _eventSub = client.events.listen((event) {
     if (event.name == 'database_state_changed') {
       final state = event.data['state'] as String?;
       container.read(dbStateProvider.notifier).state = DbState.fromString(state);
@@ -174,7 +185,7 @@ Future<void> main(List<String> args) async {
   });
 
   // Bridge connection state changes to engineSessionProvider.
-  connection.connectionState.listen((connected) {
+  _connectionSub = connection.connectionState.listen((connected) {
     container.read(engineSessionProvider.notifier).state = connected;
   });
 

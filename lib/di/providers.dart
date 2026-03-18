@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../database/engine_database.dart';
 import '../engine_client/backend_auth.dart';
@@ -284,19 +285,71 @@ final agentActivityProvider = StreamProvider.autoDispose.family<
   },
 );
 
-/// Watches logs for a run, optionally filtered by instanceId.
+/// Log filter state providers — persisted across tab switches via Riverpod.
+final logLevelFiltersProvider =
+    StateProvider.autoDispose<Set<String>>((_) => {'debug', 'info', 'warn', 'error'});
+final logSourceFiltersProvider =
+    StateProvider.autoDispose<Set<String>>((_) => {'engine', 'agent'});
+final logAgentFilterProvider =
+    StateProvider.autoDispose<String?>((_) => null);
+
+/// How many log rows to fetch. Increased by the logs tab as user scrolls.
+final logPageLimitProvider = StateProvider.autoDispose<int>((_) => 200);
+
+/// Watches logs for a run with DB-side filtering by level, source, and agent.
+/// Results are capped at [logPageLimitProvider] rows (most recent first, then
+/// reversed to chronological order for display).
 final workspaceLogsProvider = StreamProvider.autoDispose.family<
     List<AgentLog>,
     ({String runId, String? instanceId})>(
   (ref, p) {
     final db = ref.watch(engineDatabaseProvider);
-    var query = db.select(db.agentLogs)
-      ..where((t) => t.runId.equals(p.runId))
-      ..orderBy([(t) => OrderingTerm.asc(t.timestamp)]);
+    final levels = ref.watch(logLevelFiltersProvider);
+    final sources = ref.watch(logSourceFiltersProvider);
+    final agentFilter = ref.watch(logAgentFilterProvider);
+    final limit = ref.watch(logPageLimitProvider);
+
+    // Build a custom query with WHERE clauses for all active filters.
+    final conditions = <String>['run_id = ?'];
+    final variables = <Variable>[Variable(p.runId)];
+
     if (p.instanceId != null) {
-      query = query..where((t) => t.instanceId.equals(p.instanceId!));
+      conditions.add('instance_id = ?');
+      variables.add(Variable(p.instanceId!));
     }
-    return query.watch();
+
+    // Level filter — only add clause if not all levels are selected
+    if (levels.length < 4 && levels.isNotEmpty) {
+      conditions.add('level IN (${levels.map((_) => '?').join(', ')})');
+      for (final l in levels) {
+        variables.add(Variable(l));
+      }
+    }
+
+    // Source filter — only add clause if not all sources are selected
+    if (sources.length < 2 && sources.isNotEmpty) {
+      conditions.add('source IN (${sources.map((_) => '?').join(', ')})');
+      for (final s in sources) {
+        variables.add(Variable(s));
+      }
+    }
+
+    // Agent filter
+    if (agentFilter != null) {
+      conditions.add('agent_key = ?');
+      variables.add(Variable(agentFilter));
+    }
+
+    final where = conditions.join(' AND ');
+    // Fetch the N most recent matching rows (ORDER BY timestamp DESC LIMIT N),
+    // then reverse to chronological order for the terminal view.
+    return db.customSelect(
+      'SELECT * FROM ('
+      '  SELECT * FROM agent_logs WHERE $where ORDER BY timestamp DESC LIMIT $limit'
+      ') sub ORDER BY timestamp ASC',
+      variables: variables,
+      readsFrom: {db.agentLogs},
+    ).watch().map((rows) => rows.map((row) => db.agentLogs.map(row.data)).toList());
   },
 );
 
@@ -423,8 +476,9 @@ final dockerStatusProvider = FutureProvider.autoDispose<DockerStatus>((ref) {
   return ref.watch(engineClientProvider).send(DetectDockerStatus());
 });
 
-/// Polls d:spatch containers every 3 seconds. Auto-disposed when the
-/// Engine screen unmounts — no polling overhead when not viewing containers.
+/// Polls d:spatch containers with adaptive interval: 3s when any container
+/// is running, 30s when all are stopped. Auto-disposed when the Engine
+/// screen unmounts — no polling overhead when not viewing containers.
 final containerListProvider =
     StreamProvider.autoDispose<List<ContainerSummary>>((ref) async* {
   final client = ref.watch(engineClientProvider);
@@ -432,11 +486,12 @@ final containerListProvider =
     try {
       final response = await client.send(ListContainers());
       yield response.containers;
+      final hasRunning = response.containers.any((c) => c.state == 'running');
+      await Future.delayed(Duration(seconds: hasRunning ? 3 : 30));
     } catch (e) {
       debugPrint('[docker] Container poll failed: $e');
       rethrow;
     }
-    await Future.delayed(const Duration(seconds: 3));
   }
 });
 
@@ -507,6 +562,20 @@ final dbHealthStatusProvider = StateProvider<String?>((_) => null);
 /// Set by AuthController.confirm2fa, consumed by BackupCodesScreen,
 /// cleared after acknowledgement.
 final pendingBackupCodesProvider = StateProvider<List<String>?>((_) => null);
+
+// ---------------------------------------------------------------------------
+// Package Info (cached)
+// ---------------------------------------------------------------------------
+
+/// Caches the result of PackageInfo.fromPlatform() so it's only called once.
+final packageInfoProvider = FutureProvider<String?>((ref) async {
+  try {
+    final info = await PackageInfo.fromPlatform();
+    return info.version;
+  } catch (_) {
+    return null;
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Helpers

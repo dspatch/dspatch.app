@@ -4,7 +4,7 @@ import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart' hide DropdownMenuItem;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:package_info_plus/package_info_plus.dart';
+
 
 import '../../core/constants.dart';
 import '../../core/utils/platform_info.dart';
@@ -59,24 +59,21 @@ class AppSidebar extends ConsumerWidget {
               ),
             ),
             if (!collapsed)
-              FutureBuilder<PackageInfo>(
-                future: PackageInfo.fromPlatform(),
-                builder: (_, snapshot) {
-                  final version = snapshot.data?.version;
-                  if (version == null) return const SizedBox.shrink();
-                  return Padding(
-                    padding: const EdgeInsets.only(left: Spacing.sm, top: 6),
-                    child: Text(
-                      'v$version',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.mutedForeground,
-                        height: 1,
-                      ),
+              Builder(builder: (context) {
+                final version = ref.watch(packageInfoProvider).valueOrNull;
+                if (version == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(left: Spacing.sm, top: 6),
+                  child: Text(
+                    'v$version',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.mutedForeground,
+                      height: 1,
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              }),
           ],
         ),
       ),

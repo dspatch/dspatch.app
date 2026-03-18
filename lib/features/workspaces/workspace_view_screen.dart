@@ -71,16 +71,19 @@ class _WorkspaceViewBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final configAsync =
-        ref.watch(workspaceConfigProvider(workspace.projectPath));
+    final config = ref.watch(
+      workspaceConfigProvider(workspace.projectPath)
+          .select((async) => async.valueOrNull),
+    );
     final latestRun = ref.watch(latestRunProvider(workspaceId));
     final runId = latestRun?.id;
-    final agentsAsync =
-        runId != null ? ref.watch(workspaceAgentsProvider(runId)) : null;
+    final agents = runId != null
+        ? ref.watch(
+            workspaceAgentsProvider(runId)
+                .select((async) => async.valueOrNull ?? <WorkspaceAgent>[]),
+          )
+        : <WorkspaceAgent>[];
     final selectedInstance = ref.watch(selectedInstanceProvider(workspaceId));
-
-    final config = configAsync.valueOrNull;
-    final agents = agentsAsync?.valueOrNull ?? [];
 
     // Derive workspace status from the viewable run
     final runStatus = latestRun?.status;

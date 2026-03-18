@@ -42,13 +42,19 @@ class _ActivityItem extends _TimelineItem {
 
 // ── Activity helpers ──
 
+/// Cache parsed JSON data per activity ID to avoid repeated jsonDecode calls.
+/// Cleared when the widget rebuilds with new data.
+final _activityDataCache = <String, Map<String, dynamic>?>{};
+
 Map<String, dynamic>? _activityData(AgentActivityEvent a) {
   if (a.dataJson == null) return null;
-  try {
-    return jsonDecode(a.dataJson!) as Map<String, dynamic>;
-  } catch (_) {
-    return null;
-  }
+  return _activityDataCache.putIfAbsent(a.id, () {
+    try {
+      return jsonDecode(a.dataJson!) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  });
 }
 
 String? _activityTool(AgentActivityEvent a) => _activityData(a)?['tool'] as String?;
@@ -260,7 +266,15 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
     final allInquiries = inquiriesAsync?.valueOrNull ?? [];
     final status = _agentStatus;
 
-    _inquiryMap = {for (final i in allInquiries) i.id: i};
+    // Only rebuild inquiry map when the list identity changes.
+    if (allInquiries.length != _inquiryMap.length ||
+        allInquiries.any((i) => _inquiryMap[i.id] != i)) {
+      _inquiryMap = {for (final i in allInquiries) i.id: i};
+    }
+    // Evict stale entries from activity data cache when activities change.
+    if (activities.length != _activityDataCache.length) {
+      _activityDataCache.removeWhere((id, _) => !activities.any((a) => a.id == id));
+    }
     final items = _buildTimelineItems(messages, activities);
 
     // Auto-scroll on new items

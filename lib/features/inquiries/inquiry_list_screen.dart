@@ -205,6 +205,7 @@ class _WorkspaceSectionState extends ConsumerState<_WorkspaceSection> {
         for (int i = 0; i < visible.length; i++) ...[
           if (i > 0) const SizedBox(height: Spacing.sm),
           _InquiryListCard(
+            key: ValueKey(visible[i].id),
             inquiry: visible[i],
             onTap: () => context.go(
               '/workspaces/${widget.workspaceId}/inquiries/${visible[i].id}',
@@ -257,7 +258,7 @@ class _WorkspaceSectionState extends ConsumerState<_WorkspaceSection> {
 // ── Inquiry card ──
 
 class _InquiryListCard extends StatelessWidget {
-  const _InquiryListCard({required this.inquiry, this.onTap});
+  const _InquiryListCard({super.key, required this.inquiry, this.onTap});
 
   final WorkspaceInquiry inquiry;
   final VoidCallback? onTap;

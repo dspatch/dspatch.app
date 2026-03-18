@@ -13,6 +13,9 @@
 //!   v8 → add Signal Protocol key stores
 //!   v9 → add sync_outbox and sync_cursors tables for P2P sync
 //!   v10 → rename agent_templates → agent_providers; create new agent_templates for config presets
+//!   v11 → add ephemeral state tables (agent_instance_states, agent_connection_status, container_health, workspace_run_status)
+//!   v12 → add signal_kyber_prekeys
+//!   v13 → add performance indexes on foreign keys and filtered columns
 
 use rusqlite::Connection;
 
@@ -22,7 +25,7 @@ use crate::util::result::Result;
 use super::schema::ALL_TABLES;
 
 /// Current schema version. Must match the Dart SDK's `schemaVersion`.
-pub const SCHEMA_VERSION: i32 = 12;
+pub const SCHEMA_VERSION: i32 = 13;
 
 /// Creates all tables from scratch (fresh database, version 0 → current).
 pub fn create_tables(conn: &Connection) -> Result<()> {
@@ -108,6 +111,22 @@ pub fn run_migrations(conn: &Connection, from_version: i32) -> Result<()> {
     if from_version < 12 {
         conn.execute_batch(super::schema::CREATE_SIGNAL_KYBER_PREKEYS)
             .map_err(|e| AppError::Storage(format!("Migration v12 (signal_kyber_prekeys) failed: {e}")))?;
+    }
+    if from_version < 13 {
+        // Performance indexes on high-query foreign keys and filtered columns.
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_agent_messages_run_instance ON agent_messages(run_id, instance_id);
+             CREATE INDEX IF NOT EXISTS idx_agent_activity_events_run_instance ON agent_activity_events(run_id, instance_id);
+             CREATE INDEX IF NOT EXISTS idx_agent_logs_run_instance ON agent_logs(run_id, instance_id);
+             CREATE INDEX IF NOT EXISTS idx_agent_logs_run_timestamp ON agent_logs(run_id, timestamp);
+             CREATE INDEX IF NOT EXISTS idx_agent_usage_records_run_instance ON agent_usage_records(run_id, instance_id);
+             CREATE INDEX IF NOT EXISTS idx_workspace_inquiries_run_status ON workspace_inquiries(run_id, status);
+             CREATE INDEX IF NOT EXISTS idx_workspace_agents_run ON workspace_agents(run_id);
+             CREATE INDEX IF NOT EXISTS idx_workspace_runs_workspace_started ON workspace_runs(workspace_id, started_at DESC);
+             CREATE INDEX IF NOT EXISTS idx_agent_files_run_instance ON agent_files(run_id, instance_id);
+             CREATE INDEX IF NOT EXISTS idx_instance_results_run ON instance_results(run_id);"
+        )
+        .map_err(|e| AppError::Storage(format!("Migration v13 (performance indexes) failed: {e}")))?;
     }
 
     Ok(())
