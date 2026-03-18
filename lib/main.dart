@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
@@ -61,11 +62,8 @@ Future<void> main(List<String> args) async {
 
   // On mobile, start the engine in-process via FFI before connecting.
   if (Platform.isAndroid || Platform.isIOS) {
-    final dbDir = p.join(
-      Platform.environment['HOME'] ?? '.',
-      '.dspatch',
-      'data',
-    );
+    final appSupport = await getApplicationSupportDirectory();
+    final dbDir = p.join(appSupport.path, 'data');
     NativeEngine.start(clientApiPort: kEnginePort, dbDir: dbDir);
   }
 
