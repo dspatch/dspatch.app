@@ -160,8 +160,113 @@ class BackendAuth {
     return _post('/api/auth/refresh', token: token);
   }
 
+  /// Initiate pairing for a new device (requires DevicePairing scope token).
+  Future<Map<String, dynamic>> initiatePairing({
+    required String token,
+    required Map<String, dynamic> body,
+  }) async {
+    return _postRaw('/api/devices/pairing/initiate', body: body, token: token);
+  }
+
+  /// Poll pairing status for a new device.
+  Future<Map<String, dynamic>> pairingStatus({
+    required String token,
+    required String deviceId,
+  }) async {
+    return _getRaw('/api/devices/pairing/status/$deviceId', token: token);
+  }
+
+  /// Approve a pending device pairing (existing device, requires Full scope).
+  Future<Map<String, dynamic>> approvePairing({
+    required String token,
+    required Map<String, dynamic> body,
+  }) async {
+    return _postRaw('/api/devices/pairing/approve', body: body, token: token);
+  }
+
+  /// Confirm or reject SAS verification (existing device).
+  Future<Map<String, dynamic>> verifySas({
+    required String token,
+    required String deviceId,
+    required bool sasConfirmed,
+  }) async {
+    return _postRaw('/api/devices/pairing/verify-sas', body: {
+      'device_id': deviceId,
+      'sas_confirmed': sasConfirmed,
+    }, token: token);
+  }
+
+  /// List all devices for the authenticated user.
+  Future<Map<String, dynamic>> listDevices({required String token}) async {
+    return _getRaw('/api/devices', token: token);
+  }
+
+  /// Revoke (delete) a device.
+  Future<void> revokeDevice({
+    required String token,
+    required String deviceId,
+  }) async {
+    await _deleteRaw('/api/devices/$deviceId', token: token);
+  }
+
   void dispose() {
     _httpClient.close();
+  }
+
+  /// GET that returns raw JSON.
+  Future<Map<String, dynamic>> _getRaw(
+    String path, {
+    String? token,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl$path');
+      final headers = <String, String>{};
+      if (token != null) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      final response = await _httpClient
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+
+      _throwError(response);
+    } on BackendAuthException {
+      rethrow;
+    } catch (e) {
+      throw BackendAuthException('Failed to connect to backend: $e');
+    }
+  }
+
+  /// DELETE that returns nothing.
+  Future<void> _deleteRaw(
+    String path, {
+    String? token,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl$path');
+      final headers = <String, String>{};
+      if (token != null) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      final response = await _httpClient
+          .delete(uri, headers: headers)
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        return;
+      }
+
+      _throwError(response);
+    } on BackendAuthException {
+      rethrow;
+    } catch (e) {
+      throw BackendAuthException('Failed to connect to backend: $e');
+    }
   }
 
   /// POST that returns raw JSON without parsing as [BackendAuthResponse].
