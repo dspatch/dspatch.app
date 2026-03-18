@@ -84,8 +84,9 @@ class _PairingApprovalScreenState
     } on BackendAuthException catch (e) {
       if (!mounted) return;
       final message = switch (e.statusCode) {
+        400 => e.message,
+        410 => 'No pending pairing requests. The code may have expired.',
         404 => 'Invalid pairing code. Please check and try again.',
-        410 => 'Pairing code has expired or been invalidated.',
         _ => 'Failed to verify code: ${e.message}',
       };
       setState(() {
