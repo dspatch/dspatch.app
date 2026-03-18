@@ -450,6 +450,7 @@ class AuthController extends _$AuthController {
       'setup_2fa' => AuthPhase.setup2fa,
       'partial_2fa' => AuthPhase.verify2fa,
       'device_registration' => AuthPhase.deviceRegistration,
+      'device_pairing' => AuthPhase.devicePairing,
       'full' => AuthPhase.authenticated,
       _ => AuthPhase.unauthenticated,
     };

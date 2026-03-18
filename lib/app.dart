@@ -73,6 +73,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           }
           return '/auth/device-pairing';
 
+        case AuthPhase.devicePairing:
+          if (path == '/auth/device-pairing-new') return null;
+          return '/auth/device-pairing-new';
+
         case AuthPhase.authenticated:
         case AuthPhase.connecting:
         case AuthPhase.migrating:
@@ -128,6 +132,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/auth/sas-verify',
         pageBuilder: (context, state) =>
             const NoTransitionPage(child: SasVerificationScreen()),
+      ),
+      GoRoute(
+        path: '/auth/device-pairing-new',
+        pageBuilder: (context, state) =>
+            const NoTransitionPage(child: Placeholder()), // TODO: PairingInitiationScreen (Task 14)
       ),
 
       // ----- Catch-all: / redirects to /workspaces -----
