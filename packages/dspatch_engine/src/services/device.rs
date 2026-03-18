@@ -5,15 +5,27 @@
 use crate::domain::enums::PlatformType;
 use crate::domain::models::Device;
 
-/// Local-only device service. Returns a single device derived from
-/// the current hostname and platform. Multi-device is disabled.
+/// Local device service. Returns a single device derived from
+/// the current hostname and platform. Supports server-assigned device IDs
+/// for multi-device sync.
 pub struct LocalDeviceService {
     device: Device,
 }
 
 impl LocalDeviceService {
     /// Creates a device service using the current machine's hostname and platform.
+    /// Device ID defaults to "local" until set via `with_device_id`.
     pub fn new() -> Self {
+        Self::build_with_id("local".to_string())
+    }
+
+    /// Creates a device service with a server-assigned device ID.
+    /// Used after device registration when the backend assigns a UUID.
+    pub fn with_device_id(device_id: &str) -> Self {
+        Self::build_with_id(device_id.to_string())
+    }
+
+    fn build_with_id(id: String) -> Self {
         let hostname = hostname::get()
             .ok()
             .and_then(|h| h.into_string().ok())
@@ -34,7 +46,7 @@ impl LocalDeviceService {
         };
 
         let device = Device {
-            id: "local".to_string(),
+            id,
             name: hostname,
             platform_type,
             is_online: true,
@@ -42,6 +54,16 @@ impl LocalDeviceService {
         };
 
         Self { device }
+    }
+
+    /// Sets the device ID. Called when the device registers with the backend.
+    pub fn set_device_id(&mut self, device_id: &str) {
+        self.device.id = device_id.to_string();
+    }
+
+    /// Returns `true` if multi-device sync is active (device has a server-assigned ID).
+    pub fn is_multi_device_enabled(&self) -> bool {
+        self.device.id != "local"
     }
 
     /// Returns a reference to the current device.
@@ -52,10 +74,5 @@ impl LocalDeviceService {
     /// Returns the local device as the only "online desktop".
     pub fn online_desktops(&self) -> Vec<Device> {
         vec![self.device.clone()]
-    }
-
-    /// Always `false` — multi-device is a SaaS-only feature.
-    pub fn is_multi_device_enabled(&self) -> bool {
-        false
     }
 }
