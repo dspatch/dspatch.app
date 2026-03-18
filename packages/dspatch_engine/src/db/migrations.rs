@@ -18,6 +18,7 @@
 //!   v13 → add performance indexes on foreign keys and filtered columns
 //!   v14 → add sync_lamport and sync_config tables for trigger-based outbox
 //!   v15 → add sync_tombstones table for soft deletes
+//!   v16 → add _lamport_ts and _sync_device_id columns to all synced tables for per-row LWW
 
 use rusqlite::Connection;
 
@@ -27,7 +28,7 @@ use crate::util::result::Result;
 use super::schema::ALL_TABLES;
 
 /// Current schema version. Must match the Dart SDK's `schemaVersion`.
-pub const SCHEMA_VERSION: i32 = 15;
+pub const SCHEMA_VERSION: i32 = 16;
 
 /// Creates all tables from scratch (fresh database, version 0 → current).
 pub fn create_tables(conn: &Connection) -> Result<()> {
@@ -140,6 +141,21 @@ pub fn run_migrations(conn: &Connection, from_version: i32) -> Result<()> {
     if from_version < 15 {
         conn.execute_batch(super::schema::CREATE_SYNC_TOMBSTONES)
             .map_err(|e| AppError::Storage(format!("Migration v15 (sync_tombstones) failed: {e}")))?;
+    }
+    if from_version < 16 {
+        let synced_tables = vec![
+            "api_keys", "preferences", "agent_providers", "agent_templates",
+            "workspace_templates", "workspaces", "workspace_runs", "workspace_agents",
+            "agent_messages", "agent_logs", "agent_activity_events", "agent_usage_records",
+            "agent_files", "workspace_inquiries", "instance_results",
+        ];
+        for table in synced_tables {
+            // SQLite supports NOT NULL DEFAULT on ALTER TABLE ADD COLUMN.
+            conn.execute_batch(&format!(
+                "ALTER TABLE {table} ADD COLUMN _lamport_ts INTEGER NOT NULL DEFAULT 0;\n\
+                 ALTER TABLE {table} ADD COLUMN _sync_device_id TEXT NOT NULL DEFAULT '';"
+            )).map_err(|e| AppError::Storage(format!("Migration v16 ({table} version columns) failed: {e}")))?;
+        }
     }
 
     Ok(())

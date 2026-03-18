@@ -88,11 +88,16 @@ fn install_triggers_for_table(conn: &rusqlite::Connection, table: &str) -> Resul
              (SELECT ts FROM sync_lamport WHERE id = 1),\n\
              (SELECT device_id FROM sync_config WHERE id = 1)\n\
            );\n\
+           UPDATE {table} SET _lamport_ts = (SELECT ts FROM sync_lamport WHERE id = 1),\n\
+                              _sync_device_id = (SELECT device_id FROM sync_config WHERE id = 1)\n\
+           WHERE {pk_col} = NEW.{pk_col};\n\
          END;"
     ))
     .map_err(|e| AppError::Storage(format!("Failed to create INSERT trigger for {table}: {e}")))?;
 
     // AFTER UPDATE
+    // Note: recursive_triggers defaults to OFF in SQLite, so the inner UPDATE
+    // on _lamport_ts/_sync_device_id will NOT re-fire this trigger.
     conn.execute_batch(&format!(
         "CREATE TRIGGER sync_outbox_update_{table} AFTER UPDATE ON {table}\n\
          WHEN (SELECT device_id FROM sync_config WHERE id = 1) != 'local'\n\
@@ -108,6 +113,9 @@ fn install_triggers_for_table(conn: &rusqlite::Connection, table: &str) -> Resul
              (SELECT ts FROM sync_lamport WHERE id = 1),\n\
              (SELECT device_id FROM sync_config WHERE id = 1)\n\
            );\n\
+           UPDATE {table} SET _lamport_ts = (SELECT ts FROM sync_lamport WHERE id = 1),\n\
+                              _sync_device_id = (SELECT device_id FROM sync_config WHERE id = 1)\n\
+           WHERE {pk_col} = NEW.{pk_col};\n\
          END;"
     ))
     .map_err(|e| AppError::Storage(format!("Failed to create UPDATE trigger for {table}: {e}")))?;

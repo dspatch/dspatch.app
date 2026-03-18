@@ -55,6 +55,9 @@ impl ChangeMaterializer {
     }
 
     /// Performs an INSERT OR REPLACE (upsert) from the change's JSON data.
+    ///
+    /// Before writing, checks the existing row's `_lamport_ts` and `_sync_device_id`
+    /// to implement Last-Writer-Wins (LWW) with device-ID tiebreaking.
     fn upsert(conn: &rusqlite::Connection, change: &SyncChange) -> Result<()> {
         let obj = change
             .data
@@ -65,14 +68,42 @@ impl ChangeMaterializer {
             return Err(AppError::Internal("SyncChange data is empty".into()));
         }
 
-        let columns: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
-        let placeholders: Vec<String> = (1..=columns.len()).map(|i| format!("?{i}")).collect();
-
         // Sanitize table name (only allow alphanumeric + underscore).
         let table = &change.table;
         if !table.chars().all(|c| c.is_alphanumeric() || c == '_') {
             return Err(AppError::Internal(format!("Invalid table name: {table}")));
         }
+
+        // Check if the existing row has a newer version (LWW with device-ID tiebreak).
+        let existing_ts: Option<i64> = conn
+            .query_row(
+                &format!("SELECT _lamport_ts FROM {table} WHERE id = ?1"),
+                rusqlite::params![&change.row_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        if let Some(ts) = existing_ts {
+            if ts > change.lamport_ts {
+                return Ok(()); // Existing row is newer — skip.
+            }
+            if ts == change.lamport_ts {
+                // Tiebreak by device_id (higher device_id wins deterministically).
+                let existing_device: String = conn
+                    .query_row(
+                        &format!("SELECT _sync_device_id FROM {table} WHERE id = ?1"),
+                        rusqlite::params![&change.row_id],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or_default();
+                if existing_device > change.device_id {
+                    return Ok(()); // Existing device wins tiebreak.
+                }
+            }
+        }
+
+        let columns: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
+        let placeholders: Vec<String> = (1..=columns.len()).map(|i| format!("?{i}")).collect();
 
         let sql = format!(
             "INSERT OR REPLACE INTO {table} ({cols}) VALUES ({vals})",
