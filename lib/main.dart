@@ -80,11 +80,11 @@ Future<void> main(List<String> args) async {
       final appSupport = await getApplicationSupportDirectory();
       dbDir = p.join(appSupport.path, 'data');
     } else {
-      // Desktop integrated: use ~/.dspatch/data (same as standalone daemon).
+      // Desktop integrated: isolated data dir per device profile.
       final home = Platform.environment['USERPROFILE'] ??
           Platform.environment['HOME'] ??
           '.';
-      dbDir = p.join(home, '.dspatch', 'data');
+      dbDir = p.join(home, '.dspatch', 'dev$kDevDeviceProfile', 'data');
     }
     debugPrint('[BOOT] Starting integrated engine on port $kEnginePort, dbDir=$dbDir');
     NativeEngine.start(
