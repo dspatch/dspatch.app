@@ -60,6 +60,7 @@ class NativeEngine {
   static int start({
     required int clientApiPort,
     required String dbDir,
+    String? backendUrl,
     String logLevel = 'info',
     int agentServerPort = 0,
     int invalidationDebounceMs = 50,
@@ -79,6 +80,8 @@ class NativeEngine {
       'log_level': logLevel,
       'agent_server_port': agentServerPort,
       'invalidation_debounce_ms': invalidationDebounceMs,
+      // ignore: use_null_aware_elements
+      if (backendUrl != null) 'backend_url': backendUrl,
     });
 
     final configPtr = _toCString(config);

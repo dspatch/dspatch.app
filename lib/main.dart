@@ -65,6 +65,12 @@ Future<void> main(List<String> args) async {
     await _configureWindow();
   }
 
+  // Backend URL: used by both the Flutter app and the integrated engine.
+  const backendUrl = bool.fromEnvironment('dart.vm.product')
+      ? 'https://backend.dspatch.dev'
+      : 'http://localhost:3000';
+  debugPrint('[BOOT] backendUrl=$backendUrl');
+
   // Start the engine in-process via FFI when running integrated
   // (always on mobile, dev device profiles on desktop).
   final useIntegratedEngine = kDevDeviceProfile > 0 || PlatformInfo.isMobile;
@@ -81,7 +87,11 @@ Future<void> main(List<String> args) async {
       dbDir = p.join(home, '.dspatch', 'data');
     }
     debugPrint('[BOOT] Starting integrated engine on port $kEnginePort, dbDir=$dbDir');
-    NativeEngine.start(clientApiPort: kEnginePort, dbDir: dbDir);
+    NativeEngine.start(
+      clientApiPort: kEnginePort,
+      dbDir: dbDir,
+      backendUrl: backendUrl,
+    );
   }
 
   // Engine process manager — used by EngineStatusButton to start/stop
@@ -96,13 +106,6 @@ Future<void> main(List<String> args) async {
   } else {
     processManager = null;
   }
-
-  // Backend URL: use compile-time default. The engine may not be running
-  // yet, so we can't derive it from /health at boot time.
-  const backendUrl = bool.fromEnvironment('dart.vm.product')
-      ? 'https://backend.dspatch.dev'
-      : 'http://localhost:3000';
-  debugPrint('[BOOT] backendUrl=$backendUrl');
 
   // Step 2: Create engine objects WITHOUT connecting.
   // SetupScreen is the single gateway that establishes the WS connection
