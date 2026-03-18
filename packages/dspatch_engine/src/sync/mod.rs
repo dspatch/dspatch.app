@@ -19,6 +19,7 @@ pub mod materializer;
 pub mod message;
 pub mod outbox_hook;
 pub mod peer_connection;
+pub mod relay_transport;
 pub mod signaling;
 pub mod sync_engine;
 pub mod sync_loop;
