@@ -160,6 +160,12 @@ class BackendAuth {
     return _post('/api/auth/refresh', token: token);
   }
 
+  /// Check the current auth status against the backend (ground truth).
+  /// Returns `{ "scope": "full"|"device_pairing"|..., "username": ..., "email": ... }`.
+  Future<Map<String, dynamic>> checkStatus({required String token}) async {
+    return _getRaw('/api/auth/status', token: token);
+  }
+
   /// Initiate pairing for a new device (requires DevicePairing scope token).
   Future<Map<String, dynamic>> initiatePairing({
     required String token,

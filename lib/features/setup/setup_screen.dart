@@ -57,6 +57,35 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     debugPrint('[SETUP] Starting setup...');
 
     try {
+      // Validate auth status against the backend (ground truth).
+      // This catches stale tokens, revoked sessions, and scope mismatches
+      // that the local state might not reflect.
+      final token = ref.read(authTokenProvider);
+      if (token is BackendToken) {
+        if (!mounted) return;
+        setState(() => _status = 'Verifying authentication...');
+        debugPrint('[SETUP] Checking auth status with backend...');
+
+        try {
+          final backend = ref.read(backendAuthProvider);
+          final status = await backend.checkStatus(token: token.token);
+          final backendScope = status['scope'] as String?;
+          debugPrint('[SETUP] Backend says scope=$backendScope');
+
+          if (backendScope != 'full') {
+            // Token is not fully authenticated — redirect to login.
+            debugPrint('[SETUP] Not fully authenticated (scope=$backendScope), logging out');
+            if (!mounted) return;
+            await ref.read(authControllerProvider.notifier).logout();
+            return;
+          }
+        } catch (e) {
+          // Backend unreachable — proceed with local state for offline resilience.
+          // The engine connection will fail separately if the backend is truly down.
+          debugPrint('[SETUP] Backend status check failed (proceeding): $e');
+        }
+      }
+
       // Dev device profile: block here permanently.
       // The engine only supports a single authenticated user. Secondary dev
       // instances exist solely to test the auth + pairing flow — they should
