@@ -2,6 +2,7 @@
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/utils/platform_info.dart';
 import '../../../shared/services/title_bar_service.dart';
 import 'engine_status_button.dart';
 
@@ -112,12 +113,13 @@ class _AuthLayoutState extends State<AuthLayout> {
             },
           ),
 
-          // Engine status button — bottom-left corner
-          const Positioned(
-            left: Spacing.md,
-            bottom: Spacing.md,
-            child: EngineStatusButton(),
-          ),
+          // Engine status button — bottom-left corner (desktop only)
+          if (PlatformInfo.isDesktop)
+            const Positioned(
+              left: Spacing.md,
+              bottom: Spacing.md,
+              child: EngineStatusButton(),
+            ),
         ],
       ),
     );

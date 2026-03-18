@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/utils/display_error.dart';
+import '../../core/utils/platform_info.dart';
 import '../../database/engine_database.dart';
 import '../../di/providers.dart';
 import '../../engine_client/engine_auth.dart';
@@ -513,11 +514,12 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 ],
               ),
             ),
-            const Positioned(
-              left: Spacing.md,
-              bottom: Spacing.md,
-              child: EngineStatusButton(),
-            ),
+            if (PlatformInfo.isDesktop)
+              const Positioned(
+                left: Spacing.md,
+                bottom: Spacing.md,
+                child: EngineStatusButton(),
+              ),
           ],
         ),
       );
@@ -541,11 +543,12 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 _startSetup();
               },
             ),
-            const Positioned(
-              left: Spacing.md,
-              bottom: Spacing.md,
-              child: EngineStatusButton(),
-            ),
+            if (PlatformInfo.isDesktop)
+              const Positioned(
+                left: Spacing.md,
+                bottom: Spacing.md,
+                child: EngineStatusButton(),
+              ),
           ],
         ),
       );
