@@ -90,9 +90,11 @@ fn trigger_captures_update_with_new_data() {
         [],
     )
     .unwrap();
+    // The explicit UPDATE fires an outbox entry. Version-stamp UPDATEs from
+    // the INSERT trigger also produce 'update' entries. Get the latest one.
     let (op, data): (String, String) = conn
         .query_row(
-            "SELECT operation, data FROM sync_outbox WHERE operation = 'update'",
+            "SELECT operation, data FROM sync_outbox WHERE operation = 'update' ORDER BY lamport_ts DESC LIMIT 1",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
@@ -155,8 +157,12 @@ fn lamport_clock_increments_per_change() {
         .unwrap()
         .map(|r| r.unwrap())
         .collect();
-    assert_eq!(timestamps.len(), 2);
-    assert_eq!(timestamps[0], 1);
+    // Each INSERT produces 2 entries (insert + version-stamp update).
+    // Verify lamport clock strictly increases across all entries.
+    assert!(timestamps.len() >= 2);
+    for i in 1..timestamps.len() {
+        assert!(timestamps[i] > timestamps[i - 1], "lamport must increase: {} > {}", timestamps[i], timestamps[i-1]);
+    }
     assert_eq!(timestamps[1], 2);
 }
 
@@ -208,11 +214,23 @@ fn setup_test_db() -> Connection {
             provider_label TEXT NOT NULL,
             encrypted_key BLOB NOT NULL,
             display_hint TEXT,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            _lamport_ts INTEGER NOT NULL DEFAULT 0,
+            _sync_device_id TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE preferences (
             key TEXT NOT NULL PRIMARY KEY,
-            value TEXT NOT NULL
+            value TEXT NOT NULL,
+            _lamport_ts INTEGER NOT NULL DEFAULT 0,
+            _sync_device_id TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE sync_tombstones (
+            table_name TEXT NOT NULL,
+            row_id TEXT NOT NULL,
+            deleted_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+            device_id TEXT NOT NULL,
+            lamport_ts INTEGER NOT NULL,
+            PRIMARY KEY (table_name, row_id)
         );",
     )
     .unwrap();

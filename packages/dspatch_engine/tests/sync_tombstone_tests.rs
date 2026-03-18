@@ -10,7 +10,7 @@ use dspatch_engine::sync::{SyncChange, SyncOp};
 fn setup_db() -> rusqlite::Connection {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
     conn.execute_batch(
-        "CREATE TABLE api_keys (id TEXT PRIMARY KEY, name TEXT);
+        "CREATE TABLE api_keys (id TEXT PRIMARY KEY, name TEXT, _lamport_ts INTEGER NOT NULL DEFAULT 0, _sync_device_id TEXT NOT NULL DEFAULT '');
          CREATE TABLE sync_outbox (
              id TEXT PRIMARY KEY, table_name TEXT, row_id TEXT,
              operation TEXT, data TEXT, lamport_ts INTEGER,
