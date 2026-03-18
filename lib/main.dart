@@ -27,8 +27,18 @@ const kAppName = 'd:spatch';
 const kMinWindowWidth = 900.0;
 const kMinWindowHeight = 600.0;
 
-/// Default engine port. Can be overridden at compile time.
-const kEnginePort = int.fromEnvironment('ENGINE_PORT', defaultValue: 9847);
+/// Run the engine in-process via FFI instead of expecting an external daemon.
+/// On mobile this is always true. On desktop, opt in with:
+///   `flutter run --dart-define=INTEGRATED_ENGINE=true`
+const kIntegratedEngine = bool.fromEnvironment('INTEGRATED_ENGINE') ||
+    !bool.fromEnvironment('dart.library.io', defaultValue: true) ||
+    // Always integrated on mobile (resolved at runtime in main()).
+    false;
+
+/// Default engine port. Uses 9848 for integrated engine to avoid colliding
+/// with a standalone daemon on 9847. Override with `--dart-define=ENGINE_PORT=...`.
+const _kDefaultPort = bool.fromEnvironment('INTEGRATED_ENGINE') ? 9848 : 9847;
+const kEnginePort = int.fromEnvironment('ENGINE_PORT', defaultValue: _kDefaultPort);
 
 /// Dev device profile for multi-device testing.
 /// When set (e.g. `--dart-define=DEV_DEVICE_PROFILE=2`), this instance uses
@@ -60,18 +70,29 @@ Future<void> main(List<String> args) async {
     await _configureWindow();
   }
 
-  // On mobile, start the engine in-process via FFI before connecting.
-  if (Platform.isAndroid || Platform.isIOS) {
-    final appSupport = await getApplicationSupportDirectory();
-    final dbDir = p.join(appSupport.path, 'data');
+  // Start the engine in-process via FFI when running integrated
+  // (always on mobile, opt-in on desktop via INTEGRATED_ENGINE).
+  final useIntegratedEngine = kIntegratedEngine || PlatformInfo.isMobile;
+  if (useIntegratedEngine) {
+    final String dbDir;
+    if (PlatformInfo.isMobile) {
+      final appSupport = await getApplicationSupportDirectory();
+      dbDir = p.join(appSupport.path, 'data');
+    } else {
+      // Desktop integrated: use ~/.dspatch/data (same as standalone daemon).
+      final home = Platform.environment['USERPROFILE'] ??
+          Platform.environment['HOME'] ??
+          '.';
+      dbDir = p.join(home, '.dspatch', 'data');
+    }
+    debugPrint('[BOOT] Starting integrated engine on port $kEnginePort, dbDir=$dbDir');
     NativeEngine.start(clientApiPort: kEnginePort, dbDir: dbDir);
   }
 
   // Engine process manager — used by EngineStatusButton to start/stop
-  // the engine on demand. No auto-start; the user controls the engine.
-  // Only available on desktop; mobile runs the engine in-process via FFI.
+  // the external engine daemon. Not needed when running integrated.
   final EngineProcessManager? processManager;
-  if (PlatformInfo.isDesktop) {
+  if (PlatformInfo.isDesktop && !useIntegratedEngine) {
     processManager = EngineProcessManager(
       engineBinaryPath: EngineProcessManager.resolveEngineBinaryPath(),
       host: _kHost,
