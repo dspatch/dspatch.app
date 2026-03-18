@@ -6,6 +6,14 @@ publish_to: none
 flutter:
   plugin:
     platforms:
+      android:
+        ffiPlugin: true
+      ios:
+        ffiPlugin: true
+      macos:
+        ffiPlugin: true
+      linux:
+        ffiPlugin: true
       windows:
         ffiPlugin: true
 
