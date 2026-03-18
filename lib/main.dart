@@ -1,6 +1,4 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
@@ -75,16 +73,18 @@ Future<void> main(List<String> args) async {
   // (always on mobile, dev device profiles on desktop).
   final useIntegratedEngine = kDevDeviceProfile > 0 || PlatformInfo.isMobile;
   if (useIntegratedEngine) {
+    // path_provider gives the OS-correct app data location:
+    //   Windows: %APPDATA%/com.dspatch/dspatch_app/
+    //   macOS:   ~/Library/Application Support/com.dspatch.dspatch-app/
+    //   Linux:   ~/.local/share/com.dspatch/dspatch_app/
+    //   iOS:     <sandbox>/Library/Application Support/
+    //   Android: <sandbox>/files/
+    final appSupport = await getApplicationSupportDirectory();
     final String dbDir;
-    if (PlatformInfo.isMobile) {
-      final appSupport = await getApplicationSupportDirectory();
-      dbDir = p.join(appSupport.path, 'data');
+    if (kDevDeviceProfile > 0) {
+      dbDir = p.join(appSupport.path, 'dev$kDevDeviceProfile', 'data');
     } else {
-      // Desktop integrated: isolated data dir per device profile.
-      final home = Platform.environment['USERPROFILE'] ??
-          Platform.environment['HOME'] ??
-          '.';
-      dbDir = p.join(home, '.dspatch', 'dev$kDevDeviceProfile', 'data');
+      dbDir = p.join(appSupport.path, 'data');
     }
     debugPrint('[BOOT] Starting integrated engine on port $kEnginePort, dbDir=$dbDir');
     NativeEngine.start(
