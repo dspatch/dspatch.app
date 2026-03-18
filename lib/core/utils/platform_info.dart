@@ -17,6 +17,29 @@ class PlatformInfo {
   static bool get isIOS => Platform.isIOS;
   static bool get isAndroid => Platform.isAndroid;
 
+  /// Platform identifier sent to backend during device registration.
+  static String get platformId {
+    if (isWindows) return 'windows';
+    if (isMacOS) return 'macos';
+    if (isLinux) return 'linux';
+    if (isIOS) return 'ios';
+    if (isAndroid) return 'android';
+    return 'unknown';
+  }
+
+  /// Human-readable platform name for UI display.
+  static String get platformName {
+    if (isWindows) return 'Windows';
+    if (isMacOS) return 'macOS';
+    if (isLinux) return 'Linux';
+    if (isIOS) return 'iOS';
+    if (isAndroid) return 'Android';
+    return 'Unknown';
+  }
+
+  /// Device type category: 'mobile' or 'desktop'.
+  static String get deviceType => isMobile ? 'mobile' : 'desktop';
+
   /// Returns the platform-specific Docker daemon socket path.
   static String get dockerSocketPath {
     if (isMacOS || isLinux) return '/var/run/docker.sock';
