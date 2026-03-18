@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'di/providers.dart';
 import 'features/auth/backup_codes_screen.dart';
 import 'features/auth/device_pairing_screen.dart';
+import 'features/auth/pairing_initiation_screen.dart';
 import 'features/auth/login_screen.dart';
 import 'features/auth/register_screen.dart';
 import 'features/auth/sas_verification_screen.dart';
@@ -136,7 +137,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/auth/device-pairing-new',
         pageBuilder: (context, state) =>
-            const NoTransitionPage(child: Placeholder()), // TODO: PairingInitiationScreen (Task 14)
+            const NoTransitionPage(child: PairingInitiationScreen()),
       ),
 
       // ----- Catch-all: / redirects to /workspaces -----
