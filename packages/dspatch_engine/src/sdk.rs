@@ -44,6 +44,7 @@ use crate::services::{
     LocalConnectivityService, LocalDeviceService,
     LocalSyncService,
 };
+use base64::Engine as _;
 use crate::util::error::AppError;
 use crate::util::result::Result;
 
@@ -108,6 +109,12 @@ pub struct DspatchSdk {
     device_service: Arc<LocalDeviceService>,
     sync_service: Arc<LocalSyncService>,
     connectivity_service: Arc<LocalConnectivityService>,
+
+    /// Signal Protocol service — initialized when multi-device is active.
+    signal_service: Arc<RwLock<Option<Arc<tokio::sync::Mutex<crate::signal::SignalService>>>>>,
+
+    /// Shared secret store reference for keyring access outside DatabaseKeyManager.
+    secret_store: Arc<dyn SecretStore>,
 
     // Database + DB-dependent services
     database: Arc<RwLock<Option<Arc<Database>>>>,
@@ -203,6 +210,8 @@ impl DspatchSdk {
             device_service,
             sync_service,
             connectivity_service,
+            signal_service: Arc::new(RwLock::new(None)),
+            secret_store: store_arc,
             database: Arc::new(RwLock::new(None)),
             current_db_path: Arc::new(RwLock::new(None)),
             db_state_tx,
@@ -399,6 +408,9 @@ impl DspatchSdk {
             *path_guard = None;
         }
 
+        // Clear Signal Protocol service (releases signal.db connection).
+        *self.signal_service.write().await = None;
+
         // Clear ServiceRegistry + invalidation (releases Arc<Database>).
         self.clear_services().await;
 
@@ -481,6 +493,7 @@ impl DspatchSdk {
 
     /// Installs a new database reference and broadcasts [`DatabaseReadyState::Ready`].
     async fn install_database(&self, db: Arc<Database>, db_path: &Path) {
+        let db_ref = Arc::clone(&db);
         {
             let mut db_guard = self.database.write().await;
             *db_guard = Some(db);
@@ -491,6 +504,11 @@ impl DspatchSdk {
         }
         let _ = self.db_state_tx.send(DatabaseReadyState::Ready);
         self.rebuild_services().await;
+
+        // Bootstrap Signal Protocol if multi-device is active.
+        if let Err(e) = self.bootstrap_signal(&db_ref).await {
+            tracing::warn!("Signal bootstrap failed (sync disabled): {e}");
+        }
     }
 
     /// Returns the file path of the currently open database, or `None` if
@@ -634,6 +652,77 @@ impl DspatchSdk {
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub fn docker_client(&self) -> &Arc<DockerClient> {
         &self.docker_client
+    }
+
+    // ── Signal Protocol ─────────────────────────────────────────────────
+
+    /// Bootstraps the Signal Protocol service for E2E encryption.
+    async fn bootstrap_signal(&self, _db: &Arc<Database>) -> Result<()> {
+        let device_id = self.device_service.current_device().id.clone();
+        if device_id == "local" {
+            tracing::debug!("Skipping Signal bootstrap — no server-assigned device ID");
+            return Ok(());
+        }
+
+        // Get or generate registration_id from keyring.
+        let reg_id_key = format!("signal_registration_id_{}", device_id);
+        let registration_id: u32 = match self.secret_store.read(&reg_id_key) {
+            Ok(Some(val)) => val.parse().unwrap_or_else(|_| {
+                tracing::warn!("Corrupt registration_id in keyring — regenerating");
+                let id: u32 = rand::random();
+                let _ = self.secret_store.write(&reg_id_key, &id.to_string());
+                id
+            }),
+            _ => {
+                let id: u32 = rand::random();
+                let _ = self.secret_store.write(&reg_id_key, &id.to_string());
+                id
+            }
+        };
+
+        // Get identity key seed from keyring.
+        let ik_key = format!("identity_key_seed_{}", device_id);
+        let seed_bytes = self.secret_store.read(&ik_key)
+            .map_err(|e| AppError::Internal(format!("Failed to read identity key: {e}")))?
+            .ok_or_else(|| AppError::Internal("No identity key seed in keyring".into()))?;
+
+        let seed: [u8; 32] = base64::engine::general_purpose::STANDARD
+            .decode(&seed_bytes)
+            .map_err(|e| AppError::Internal(format!("Invalid identity key seed: {e}")))?
+            .try_into()
+            .map_err(|_| AppError::Internal("Identity key seed must be 32 bytes".into()))?;
+
+        let private_key = libsignal_protocol::PrivateKey::deserialize(&seed)
+            .map_err(|e| AppError::Internal(format!("Failed to deserialize identity key: {e}")))?;
+        let identity_key_pair = libsignal_protocol::IdentityKeyPair::new(
+            libsignal_protocol::IdentityKey::new(private_key.public_key()
+                .map_err(|e| AppError::Internal(format!("Failed to derive public key: {e}")))?),
+            private_key,
+        );
+
+        // Create Signal DB in same data directory as main DB.
+        let signal_db_path = self.data_dir.join("signal.db");
+        let signal_conn = rusqlite::Connection::open(&signal_db_path)
+            .map_err(|e| AppError::Storage(format!("Failed to open Signal DB: {e}")))?;
+
+        // Run Signal schema migrations.
+        crate::signal::ensure_schema(&signal_conn)
+            .map_err(|e| AppError::Storage(format!("Signal schema migration failed: {e}")))?;
+
+        let signal_service = crate::signal::SignalService::new(
+            Arc::new(std::sync::Mutex::new(signal_conn)),
+            registration_id,
+            identity_key_pair,
+        );
+
+        *self.signal_service.write().await = Some(Arc::new(tokio::sync::Mutex::new(signal_service)));
+        tracing::info!("Signal Protocol service bootstrapped for device {device_id}");
+        Ok(())
+    }
+
+    /// Returns the Signal Protocol service, if initialized.
+    pub async fn signal_service(&self) -> Option<Arc<tokio::sync::Mutex<crate::signal::SignalService>>> {
+        self.signal_service.read().await.clone()
     }
 
     // ── Disposal ───────────────────────────────────────────────────────

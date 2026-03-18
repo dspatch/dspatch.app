@@ -17,3 +17,14 @@ pub use session_store::SqliteSessionStore;
 pub use sender_key_store::SqliteSenderKeyStore;
 pub use kyber_prekey_store::SqliteKyberPreKeyStore;
 pub use protocol::SignalService;
+
+/// Creates Signal Protocol tables if they don't exist.
+pub fn ensure_schema(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(include_str!("../../shared/schema/signal_identities.sql"))?;
+    conn.execute_batch(include_str!("../../shared/schema/signal_prekeys.sql"))?;
+    conn.execute_batch(include_str!("../../shared/schema/signal_signed_prekeys.sql"))?;
+    conn.execute_batch(include_str!("../../shared/schema/signal_sessions.sql"))?;
+    conn.execute_batch(include_str!("../../shared/schema/signal_sender_keys.sql"))?;
+    conn.execute_batch(include_str!("../../shared/schema/signal_kyber_prekeys.sql"))?;
+    Ok(())
+}
