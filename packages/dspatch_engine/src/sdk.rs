@@ -888,12 +888,19 @@ impl DspatchSdk {
 
     // ── Sync Status & Device Presence ──────────────────────────────────
 
-    /// Returns the current sync status.
-    pub async fn sync_status(&self) -> SyncStatus {
-        let state = if self.sync_engine.read().await.is_some() {
+    /// Returns detailed sync diagnostics.
+    pub async fn sync_status(&self) -> serde_json::Value {
+        let device_id = self.device_service.current_device().id.clone();
+        let has_signal = self.signal_service.read().await.is_some();
+        let has_sync_engine = self.sync_engine.read().await.is_some();
+        let has_database = self.database.read().await.is_some();
+
+        let state = if has_sync_engine {
             "syncing"
-        } else if self.device_service.current_device().id != "local" {
+        } else if device_id != "local" && has_signal {
             "offline"
+        } else if device_id != "local" {
+            "signal_failed"
         } else {
             "disabled"
         };
@@ -915,14 +922,34 @@ impl DspatchSdk {
             None => 0,
         };
 
-        SyncStatus {
-            state: state.to_string(),
-            pending_count,
-            connected_peers,
-        }
+        // Check if identity key seed exists in keyring.
+        let has_identity_key = if device_id != "local" {
+            let ik_key = format!("identity_key_seed_{}", device_id);
+            self.secret_store.read(&ik_key).ok().flatten().is_some()
+        } else {
+            false
+        };
+
+        serde_json::json!({
+            "state": state,
+            "device_id": device_id,
+            "pending_count": pending_count,
+            "connected_peers": connected_peers,
+            "diagnostics": {
+                "database_open": has_database,
+                "device_id_set": device_id != "local",
+                "identity_key_stored": has_identity_key,
+                "signal_bootstrapped": has_signal,
+                "sync_engine_running": has_sync_engine,
+            }
+        })
     }
 
     /// Returns device IDs of currently online peer devices.
+    ///
+    /// NOTE: Currently returns P2P-connected peers only. Backend-online
+    /// peers (from EngineWsClient) are not yet tracked here because the
+    /// WS client isn't started in the SDK lifecycle yet.
     pub async fn online_devices(&self) -> Vec<String> {
         match self.sync_engine.read().await.as_ref() {
             Some(engine) => engine.peer_manager().connected_devices().await,

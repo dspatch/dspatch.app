@@ -328,8 +328,7 @@ async fn handle_sdk_command(
             Some(sdk.skip_migration().await.map(|()| serde_json::json!({})))
         }
         Command::SyncStatus => {
-            let status = sdk.sync_status().await;
-            Some(Ok(serde_json::to_value(status).unwrap_or_default()))
+            Some(Ok(sdk.sync_status().await))
         }
         Command::OnlineDevices => {
             let devices = sdk.online_devices().await;

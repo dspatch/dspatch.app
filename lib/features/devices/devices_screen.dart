@@ -205,55 +205,96 @@ class _SyncStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = syncStatus?['state'] as String? ?? 'disabled';
+    final state = syncStatus?['state'] as String? ?? 'unknown';
+    final deviceId = syncStatus?['device_id'] as String? ?? 'unknown';
     final pendingCount = syncStatus?['pending_count'] as int? ?? 0;
     final connectedPeers = syncStatus?['connected_peers'] as int? ?? 0;
+    final diag = syncStatus?['diagnostics'] as Map<String, dynamic>? ?? {};
 
     final (Color color, String label, IconData icon) = switch (state) {
-      'syncing' => (AppColors.success, 'Syncing', LucideIcons.refresh_cw),
+      'syncing' => (AppColors.success, 'Sync active', LucideIcons.refresh_cw),
       'synced' => (AppColors.success, 'Synced', LucideIcons.circle_check),
-      'offline' => (
-          AppColors.warning,
-          'Offline',
-          LucideIcons.wifi_off
-        ),
-      _ => (AppColors.mutedForeground, 'Sync disabled', LucideIcons.pause),
+      'offline' => (AppColors.warning, 'Offline', LucideIcons.wifi_off),
+      'signal_failed' => (AppColors.error, 'Signal failed', LucideIcons.circle_x),
+      'disabled' => (AppColors.mutedForeground, 'Sync disabled', LucideIcons.pause),
+      _ => (AppColors.mutedForeground, 'Unknown: $state', LucideIcons.circle_alert),
     };
 
     return DspatchCard(
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 16, color: color),
-          const SizedBox(width: Spacing.sm),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: color,
-            ),
-          ),
-          const Spacer(),
-          if (connectedPeers > 0) ...[
-            PulsingDot(color: AppColors.success, size: 8),
-            const SizedBox(width: 6),
-            Text(
-              '$connectedPeers connected',
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.mutedForeground,
+          // Main status row
+          Row(
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: Spacing.sm),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: color,
+                ),
               ),
-            ),
-            const SizedBox(width: Spacing.md),
-          ],
-          if (pendingCount > 0) ...[
-            DspatchBadge(
-              label: '$pendingCount pending',
-              variant: BadgeVariant.secondary,
-            ),
-          ],
+              const Spacer(),
+              if (connectedPeers > 0) ...[
+                PulsingDot(color: AppColors.success, size: 8),
+                const SizedBox(width: 6),
+                Text(
+                  '$connectedPeers connected',
+                  style: const TextStyle(fontSize: 12, color: AppColors.mutedForeground),
+                ),
+                const SizedBox(width: Spacing.md),
+              ],
+              if (pendingCount > 0)
+                DspatchBadge(
+                  label: '$pendingCount pending',
+                  variant: BadgeVariant.secondary,
+                ),
+            ],
+          ),
+          const SizedBox(height: Spacing.sm),
+          // Diagnostics
+          Wrap(
+            spacing: Spacing.md,
+            runSpacing: 4,
+            children: [
+              _DiagChip('Device ID', deviceId == 'local' ? 'not set' : '${deviceId.substring(0, 8)}...', deviceId != 'local'),
+              _DiagChip('Database', null, diag['database_open'] == true),
+              _DiagChip('Identity key', null, diag['identity_key_stored'] == true),
+              _DiagChip('Signal', null, diag['signal_bootstrapped'] == true),
+              _DiagChip('Sync engine', null, diag['sync_engine_running'] == true),
+            ],
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _DiagChip extends StatelessWidget {
+  final String label;
+  final String? detail;
+  final bool ok;
+  const _DiagChip(this.label, this.detail, this.ok);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          ok ? LucideIcons.circle_check : LucideIcons.circle_x,
+          size: 12,
+          color: ok ? AppColors.success : AppColors.error,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          detail != null ? '$label: $detail' : label,
+          style: const TextStyle(fontSize: 11, color: AppColors.mutedForeground),
+        ),
+      ],
     );
   }
 }
