@@ -64,15 +64,6 @@ class SettingsScreen extends ConsumerWidget {
 
                 ),
                 const SizedBox(height: Spacing.sm),
-                if (isConnected) ...[
-                  _tile(
-                    icon: LucideIcons.smartphone,
-                    title: 'Devices',
-                    description: 'Manage connected devices',
-                    onTap: () => context.go('/settings/devices'),
-                  ),
-                  const SizedBox(height: Spacing.sm),
-                ],
                 _tile(
                   icon: LucideIcons.log_out,
                   title: isConnected ? 'Sign out' : 'Switch to sign-in',

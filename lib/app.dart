@@ -28,7 +28,7 @@ import 'features/workspaces/workspace_view_screen.dart';
 import 'features/settings/account_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/settings/api_keys_screen.dart';
-import 'features/settings/devices_screen.dart';
+import 'features/devices/devices_screen.dart';
 import 'features/settings/notifications_screen.dart';
 import 'features/settings/pairing_approval_screen.dart';
 import 'features/shell/app_shell.dart';
@@ -224,6 +224,16 @@ final routerProvider = Provider<GoRouter>((ref) {
             ),
           ),
           GoRoute(
+            path: '/devices',
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: DevicesScreen()),
+          ),
+          GoRoute(
+            path: '/devices/approve',
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: PairingApprovalScreen()),
+          ),
+          GoRoute(
             path: '/engine',
             redirect: (context, state) =>
                 PlatformInfo.isMobile ? '/workspaces' : null,
@@ -252,13 +262,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/settings/devices',
-            pageBuilder: (context, state) =>
-                const NoTransitionPage(child: DevicesScreen()),
+            redirect: (_, _) => '/devices',
           ),
           GoRoute(
             path: '/settings/devices/approve',
-            pageBuilder: (context, state) =>
-                const NoTransitionPage(child: PairingApprovalScreen()),
+            redirect: (_, _) => '/devices/approve',
           ),
         ],
       ),

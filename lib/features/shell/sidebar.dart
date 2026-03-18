@@ -99,6 +99,13 @@ class AppSidebar extends ConsumerWidget {
                 isCollapsed: collapsed,
                 onTap: () => _navigate(context, '/agent-providers'),
               ),
+              NavItem(
+                icon: LucideIcons.smartphone,
+                label: 'Devices',
+                isActive: currentPath.startsWith('/devices'),
+                isCollapsed: collapsed,
+                onTap: () => _navigate(context, '/devices'),
+              ),
               if (PlatformInfo.isDesktop)
                 NavItem(
                   icon: LucideIcons.server,
