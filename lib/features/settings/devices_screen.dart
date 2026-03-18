@@ -36,8 +36,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       if (token is! BackendToken) return;
 
       final backend = ref.read(backendAuthProvider);
-      final response = await backend.listDevices(token: token.token);
-      final devices = response['devices'] as List<dynamic>? ?? [];
+      final devices = await backend.listDevices(token: token.token);
 
       if (!mounted) return;
       setState(() {

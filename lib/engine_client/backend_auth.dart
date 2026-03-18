@@ -197,8 +197,24 @@ class BackendAuth {
   }
 
   /// List all devices for the authenticated user.
-  Future<Map<String, dynamic>> listDevices({required String token}) async {
-    return _getRaw('/api/devices', token: token);
+  /// Returns a raw JSON array (the backend returns `[{...}, ...]` directly).
+  Future<List<dynamic>> listDevices({required String token}) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/devices');
+      final response = await _httpClient
+          .get(uri, headers: {'Authorization': 'Bearer $token'})
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as List<dynamic>;
+      }
+
+      _throwError(response);
+    } on BackendAuthException {
+      rethrow;
+    } catch (e) {
+      throw BackendAuthException('Failed to connect to backend: $e');
+    }
   }
 
   /// Revoke (delete) a device.
