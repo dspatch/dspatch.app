@@ -646,6 +646,41 @@ impl DspatchSdk {
         tracing::info!("ServiceRegistry cleared");
     }
 
+    // ── Sync activation (called after /auth/connect with device credentials) ──
+
+    /// Activates multi-device sync by setting the device ID and storing
+    /// the identity key seed. Bootstraps Signal Protocol and starts the
+    /// sync engine if the database is ready.
+    ///
+    /// Called from the `/auth/connect` handler when the Dart client passes
+    /// device credentials after backend authentication.
+    pub async fn activate_sync(&self, device_id: &str, identity_key_seed: &str) -> Result<()> {
+        // 1. Set the device ID on the device service (was "local").
+        self.device_service.set_device_id(device_id);
+        tracing::info!(device_id, "Device ID set for sync");
+
+        // 2. Store identity key seed in keyring (needed by bootstrap_signal).
+        let ik_key = format!("identity_key_seed_{}", device_id);
+        self.secret_store.write(&ik_key, identity_key_seed)
+            .map_err(|e| AppError::Internal(format!("Failed to store identity key seed: {e}")))?;
+
+        // 3. Bootstrap Signal + start sync if DB is ready.
+        if let Some(db) = self.database.read().await.clone() {
+            if let Err(e) = self.bootstrap_signal(&db).await {
+                tracing::warn!("Signal bootstrap failed: {e}");
+                return Err(e);
+            }
+            if self.signal_service.read().await.is_some() {
+                if let Err(e) = self.start_sync().await {
+                    tracing::warn!("Sync start failed: {e}");
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     // ── Core service accessors ─────────────────────────────────────────
 
     /// Returns the docker service (desktop only).

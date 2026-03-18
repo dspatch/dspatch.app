@@ -18,7 +18,7 @@ fn device_service_defaults_to_local_when_no_id() {
 
 #[test]
 fn set_device_id_transitions_from_local_to_multi_device() {
-    let mut service = LocalDeviceService::new();
+    let service = LocalDeviceService::new();
     assert!(!service.is_multi_device_enabled());
     service.set_device_id("019471a2-3b4c-7d8e-9f01-234567890abc");
     assert_eq!(service.current_device().id, "019471a2-3b4c-7d8e-9f01-234567890abc");

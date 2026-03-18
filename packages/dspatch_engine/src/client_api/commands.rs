@@ -354,4 +354,12 @@ pub enum Command {
 
     #[serde(rename = "logout")]
     Logout,
+
+    // ── Sync Commands ─────────────────────────────────────────────────
+
+    #[serde(rename = "sync_status")]
+    SyncStatus,
+
+    #[serde(rename = "online_devices")]
+    OnlineDevices,
 }

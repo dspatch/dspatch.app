@@ -2,14 +2,18 @@
 
 //! Local device service — single local device based on hostname/platform.
 
+use std::sync::RwLock;
+
 use crate::domain::enums::PlatformType;
 use crate::domain::models::Device;
 
 /// Local device service. Returns a single device derived from
 /// the current hostname and platform. Supports server-assigned device IDs
 /// for multi-device sync.
+///
+/// Uses interior mutability (`RwLock`) so `set_device_id` works through `Arc`.
 pub struct LocalDeviceService {
-    device: Device,
+    device: RwLock<Device>,
 }
 
 impl LocalDeviceService {
@@ -53,26 +57,27 @@ impl LocalDeviceService {
             last_seen_at: None,
         };
 
-        Self { device }
+        Self { device: RwLock::new(device) }
     }
 
     /// Sets the device ID. Called when the device registers with the backend.
-    pub fn set_device_id(&mut self, device_id: &str) {
-        self.device.id = device_id.to_string();
+    /// Thread-safe via interior mutability.
+    pub fn set_device_id(&self, device_id: &str) {
+        self.device.write().unwrap().id = device_id.to_string();
     }
 
     /// Returns `true` if multi-device sync is active (device has a server-assigned ID).
     pub fn is_multi_device_enabled(&self) -> bool {
-        self.device.id != "local"
+        self.device.read().unwrap().id != "local"
     }
 
-    /// Returns a reference to the current device.
-    pub fn current_device(&self) -> &Device {
-        &self.device
+    /// Returns a clone of the current device.
+    pub fn current_device(&self) -> Device {
+        self.device.read().unwrap().clone()
     }
 
     /// Returns the local device as the only "online desktop".
     pub fn online_desktops(&self) -> Vec<Device> {
-        vec![self.device.clone()]
+        vec![self.device.read().unwrap().clone()]
     }
 }

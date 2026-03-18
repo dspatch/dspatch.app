@@ -103,6 +103,10 @@ pub async fn connect_handler(
 
     let expires_at = decode_jwt_exp(&body.backend_token);
 
+    // Clone credentials before they're moved into create_session.
+    let sync_device_id = body.device_id.clone();
+    let sync_ik_seed = body.identity_key_seed.clone();
+
     let token = runtime.session_store().create_session(
         AuthMode::Connected,
         Some(status.username.clone()),
@@ -124,6 +128,13 @@ pub async fn connect_handler(
         );
         // Non-fatal: session is created, client can retry via
         // get_database_state or re-connect.
+    }
+
+    // Activate multi-device sync if device credentials were provided.
+    if let (Some(device_id), Some(ik_seed)) = (sync_device_id, sync_ik_seed) {
+        if let Err(e) = sdk.activate_sync(&device_id, &ik_seed).await {
+            tracing::warn!(error = %e, "Sync activation failed (sync disabled)");
+        }
     }
 
     Ok(Json(AuthResponse {
