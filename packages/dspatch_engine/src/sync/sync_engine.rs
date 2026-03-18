@@ -248,12 +248,46 @@ impl SyncEngine {
         Ok(changes)
     }
 
+    /// Compacts the outbox by deduplicating entries for the same (table, row_id).
+    ///
+    /// Rules:
+    /// - Multiple changes to the same row -> keep only the latest (highest lamport_ts)
+    /// - DELETE after INSERT/UPDATE -> keep only the DELETE
+    /// - INSERT after DELETE -> keep only the INSERT (row was recreated)
+    pub fn compact_outbox(&self) -> Result<usize> {
+        let conn = self.db.conn();
+
+        // Find duplicate (table_name, row_id) groups, keeping only the latest.
+        let deleted = conn.execute(
+            "DELETE FROM sync_outbox WHERE id NOT IN (
+                SELECT id FROM (
+                    SELECT id, ROW_NUMBER() OVER (
+                        PARTITION BY table_name, row_id
+                        ORDER BY lamport_ts DESC
+                    ) as rn
+                    FROM sync_outbox
+                    WHERE device_id = ?1
+                ) WHERE rn = 1
+            ) AND device_id = ?1",
+            rusqlite::params![&self.device_id],
+        ).map_err(|e| AppError::Storage(format!("Outbox compaction failed: {e}")))?;
+
+        if deleted > 0 {
+            tracing::info!("Compacted {deleted} duplicate outbox entries");
+        }
+
+        Ok(deleted)
+    }
+
     /// Sends pending outbox changes to a connected peer.
     ///
     /// Reads the peer's cursor for each table, gathers changes since that
     /// cursor, and sends them in a `SyncMessage::Changes` batch. Returns the
     /// number of changes sent.
     pub async fn sync_to_peer(&self, target_device_id: &str) -> Result<usize> {
+        // Compact outbox before sending to avoid duplicate/stale entries.
+        self.compact_outbox()?;
+
         // Collect all tables that have outbox entries.
         let tables: Vec<String> = {
             let conn = self.db.conn();
@@ -584,4 +618,111 @@ fn get_columns(conn: &rusqlite::Connection, table: &str) -> Result<Vec<String>> 
         .filter_map(|r| r.ok())
         .collect();
     Ok(cols)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sync::message::SyncOp;
+
+    /// Helper: build a `SyncEngine` backed by an in-memory database.
+    /// The peer manager is constructed with a dummy `SignalService`.
+    fn test_engine(device_id: &str) -> SyncEngine {
+        let db = Arc::new(Database::open_in_memory().expect("in-memory db"));
+
+        // Build a minimal SignalService for PeerConnectionManager.
+        let identity_key_pair =
+            libsignal_protocol::IdentityKeyPair::generate(&mut rand::rng());
+        let signal = Arc::new(tokio::sync::Mutex::new(
+            crate::signal::protocol::SignalService::new(
+                db.conn_arc().clone(),
+                1,
+                identity_key_pair,
+            ),
+        ));
+        let peer_manager = Arc::new(PeerConnectionManager::new(signal));
+
+        SyncEngine::new(db, peer_manager, device_id)
+    }
+
+    #[test]
+    fn compact_outbox_keeps_latest_per_row() {
+        let engine = test_engine("device-A");
+
+        // Insert three changes for the same (table, row_id).
+        // record_change auto-increments lamport, so order = 1, 2, 3.
+        engine
+            .record_change("sessions", "row-1", SyncOp::Insert, serde_json::json!({"v": 1}))
+            .unwrap();
+        engine
+            .record_change("sessions", "row-1", SyncOp::Update, serde_json::json!({"v": 2}))
+            .unwrap();
+        engine
+            .record_change("sessions", "row-1", SyncOp::Update, serde_json::json!({"v": 3}))
+            .unwrap();
+
+        // Also insert a change for a different row (should be untouched).
+        engine
+            .record_change("sessions", "row-2", SyncOp::Insert, serde_json::json!({"v": 1}))
+            .unwrap();
+
+        // Before compaction: 4 entries total.
+        let all = engine.get_all_outbox().unwrap();
+        assert_eq!(all.len(), 4);
+
+        // Compact.
+        let deleted = engine.compact_outbox().unwrap();
+        assert_eq!(deleted, 2, "should remove 2 duplicates for row-1");
+
+        // After compaction: 2 entries (latest for row-1 + row-2).
+        let remaining = engine.get_all_outbox().unwrap();
+        assert_eq!(remaining.len(), 2);
+
+        // The surviving row-1 entry should be the latest (lamport_ts=3, v=3).
+        let row1 = remaining.iter().find(|c| c.row_id == "row-1").unwrap();
+        assert_eq!(row1.lamport_ts, 3);
+        assert_eq!(row1.data["v"], 3);
+        assert_eq!(row1.operation, SyncOp::Update);
+
+        // row-2 is untouched.
+        let row2 = remaining.iter().find(|c| c.row_id == "row-2").unwrap();
+        assert_eq!(row2.lamport_ts, 4);
+    }
+
+    #[test]
+    fn compact_outbox_delete_after_insert_keeps_delete() {
+        let engine = test_engine("device-B");
+
+        // INSERT then DELETE for the same row.
+        engine
+            .record_change("sessions", "row-1", SyncOp::Insert, serde_json::json!({"v": 1}))
+            .unwrap();
+        engine
+            .record_change("sessions", "row-1", SyncOp::Delete, serde_json::Value::Null)
+            .unwrap();
+
+        let deleted = engine.compact_outbox().unwrap();
+        assert_eq!(deleted, 1);
+
+        let remaining = engine.get_all_outbox().unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].operation, SyncOp::Delete);
+    }
+
+    #[test]
+    fn compact_outbox_noop_when_no_duplicates() {
+        let engine = test_engine("device-C");
+
+        engine
+            .record_change("sessions", "row-1", SyncOp::Insert, serde_json::json!({}))
+            .unwrap();
+        engine
+            .record_change("sessions", "row-2", SyncOp::Insert, serde_json::json!({}))
+            .unwrap();
+
+        let deleted = engine.compact_outbox().unwrap();
+        assert_eq!(deleted, 0);
+
+        assert_eq!(engine.get_all_outbox().unwrap().len(), 2);
+    }
 }
