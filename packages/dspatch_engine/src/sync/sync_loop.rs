@@ -175,5 +175,66 @@ async fn handle_incoming(engine: &SyncEngine, from_device: &str, message: SyncMe
             // These variants are included here for exhaustive matching.
             tracing::debug!("Received command/result from {from_device} — routing TBD");
         }
+        SyncMessage::RequestFullState => {
+            tracing::info!("Peer {from_device} requested full state snapshot");
+            match engine.generate_full_state(500) {
+                Ok(chunks) => {
+                    for (table, rows, chunk_index, total_chunks) in chunks {
+                        let msg = SyncMessage::FullState {
+                            table,
+                            rows,
+                            chunk_index,
+                            total_chunks,
+                        };
+                        if let Err(e) = engine
+                            .peer_manager()
+                            .send_raw(
+                                from_device,
+                                serde_json::to_vec(&msg).unwrap_or_default(),
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                "Failed to send snapshot chunk to {from_device}: {e}"
+                            );
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to generate snapshot for {from_device}: {e}");
+                }
+            }
+        }
+        SyncMessage::FullState {
+            table,
+            rows,
+            chunk_index,
+            total_chunks,
+        } => {
+            tracing::info!(
+                "Received snapshot chunk {}/{} for table {table} from {from_device}",
+                chunk_index + 1,
+                total_chunks
+            );
+            // Apply all rows via materializer in "accept all" mode.
+            for row in &rows {
+                let row_id = row["id"].as_str().unwrap_or_default();
+                let change = super::message::SyncChange {
+                    id: crate::util::new_id(),
+                    table: table.clone(),
+                    row_id: row_id.to_string(),
+                    operation: super::message::SyncOp::Upsert,
+                    data: row.clone(),
+                    lamport_ts: 0, // Snapshot — accept unconditionally
+                    device_id: from_device.to_string(),
+                };
+                if let Err(e) =
+                    super::materializer::ChangeMaterializer::apply(&engine.db().conn(), &change)
+                {
+                    tracing::warn!("Failed to apply snapshot row {table}.{row_id}: {e}");
+                }
+            }
+        }
     }
 }

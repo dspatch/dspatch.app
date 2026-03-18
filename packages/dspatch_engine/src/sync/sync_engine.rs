@@ -443,6 +443,70 @@ impl SyncEngine {
         &self.peer_manager
     }
 
+    /// Returns a reference to the database.
+    pub fn db(&self) -> &Arc<Database> {
+        &self.db
+    }
+
+    /// Generates a full state snapshot for all synced tables.
+    /// Returns chunks of (table, rows, chunk_index, total_chunks) tuples,
+    /// each containing up to `chunk_size` rows.
+    pub fn generate_full_state(
+        &self,
+        chunk_size: usize,
+    ) -> Result<Vec<(String, Vec<serde_json::Value>, u32, u32)>> {
+        use super::table_class::TableClassification;
+
+        let mut chunks = Vec::new();
+
+        for table in TableClassification::synced_tables() {
+            let conn = self.db.conn();
+            let columns = get_columns(&conn, table)?;
+            if columns.is_empty() {
+                continue;
+            }
+
+            let query = format!("SELECT * FROM {table}");
+            let mut stmt = conn.prepare(&query).map_err(|e| {
+                AppError::Storage(format!(
+                    "Failed to prepare snapshot query for {table}: {e}"
+                ))
+            })?;
+
+            let col_count = stmt.column_count();
+            let col_names: Vec<String> = (0..col_count)
+                .map(|i| stmt.column_name(i).unwrap_or("?").to_string())
+                .collect();
+
+            let rows: Vec<serde_json::Value> = stmt
+                .query_map([], |row| {
+                    let mut map = serde_json::Map::new();
+                    for (i, name) in col_names.iter().enumerate() {
+                        let val: rusqlite::types::Value = row.get_unwrap(i);
+                        map.insert(name.clone(), rusqlite_to_json(val));
+                    }
+                    Ok(serde_json::Value::Object(map))
+                })
+                .map_err(|e| {
+                    AppError::Storage(format!("Snapshot query failed for {table}: {e}"))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            if rows.is_empty() {
+                continue;
+            }
+
+            // Split into chunks.
+            let total_chunks = ((rows.len() + chunk_size - 1) / chunk_size) as u32;
+            for (i, chunk) in rows.chunks(chunk_size).enumerate() {
+                chunks.push((table.to_string(), chunk.to_vec(), i as u32, total_chunks));
+            }
+        }
+
+        Ok(chunks)
+    }
+
     /// Exchanges cursors and syncs missing changes with a peer (reconciliation).
     ///
     /// This is the full reconciliation flow used when a peer reconnects:
@@ -496,4 +560,28 @@ impl SyncEngine {
 
         Ok(())
     }
+}
+
+/// Converts a rusqlite `Value` into a `serde_json::Value`.
+fn rusqlite_to_json(val: rusqlite::types::Value) -> serde_json::Value {
+    match val {
+        rusqlite::types::Value::Null => serde_json::Value::Null,
+        rusqlite::types::Value::Integer(i) => serde_json::Value::Number(i.into()),
+        rusqlite::types::Value::Real(f) => serde_json::json!(f),
+        rusqlite::types::Value::Text(s) => serde_json::Value::String(s),
+        rusqlite::types::Value::Blob(b) => serde_json::Value::String(hex::encode(b)),
+    }
+}
+
+/// Returns the column names for the given table using `PRAGMA table_info`.
+fn get_columns(conn: &rusqlite::Connection, table: &str) -> Result<Vec<String>> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|e| AppError::Storage(format!("PRAGMA failed for {table}: {e}")))?;
+    let cols = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| AppError::Storage(format!("Column query failed for {table}: {e}")))?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(cols)
 }

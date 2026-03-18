@@ -16,6 +16,7 @@ pub enum SyncOp {
     Insert,
     Update,
     Delete,
+    Upsert,
 }
 
 impl SyncOp {
@@ -25,6 +26,7 @@ impl SyncOp {
             SyncOp::Insert => "insert",
             SyncOp::Update => "update",
             SyncOp::Delete => "delete",
+            SyncOp::Upsert => "upsert",
         }
     }
 
@@ -34,6 +36,7 @@ impl SyncOp {
             "insert" => Some(SyncOp::Insert),
             "update" => Some(SyncOp::Update),
             "delete" => Some(SyncOp::Delete),
+            "upsert" => Some(SyncOp::Upsert),
             _ => None,
         }
     }
@@ -98,4 +101,13 @@ pub enum SyncMessage {
     Command(RemoteCommand),
     /// The result of a remotely executed command.
     CommandResult(CommandResult),
+    /// Request a full state snapshot from a peer (sent by new devices).
+    RequestFullState,
+    /// Full state snapshot chunk (response to RequestFullState).
+    FullState {
+        table: String,
+        rows: Vec<serde_json::Value>,
+        chunk_index: u32,
+        total_chunks: u32,
+    },
 }

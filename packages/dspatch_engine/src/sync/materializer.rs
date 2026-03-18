@@ -26,9 +26,30 @@ impl ChangeMaterializer {
     ///
     /// For Insert and Update, the `change.data` must be a JSON object with
     /// column names as keys. For Delete, only `change.row_id` is needed.
+    ///
+    /// Before upserting, checks if a newer tombstone exists for the row.
+    /// If so, the insert/update is skipped to prevent resurrecting deleted rows.
     pub fn apply(conn: &rusqlite::Connection, change: &SyncChange) -> Result<()> {
+        if change.operation != SyncOp::Delete {
+            // Check if a newer tombstone exists for this row.
+            let tombstone_ts: Option<i64> = conn
+                .query_row(
+                    "SELECT lamport_ts FROM sync_tombstones WHERE table_name = ?1 AND row_id = ?2",
+                    rusqlite::params![&change.table, &change.row_id],
+                    |row| row.get(0),
+                )
+                .ok();
+
+            if let Some(ts) = tombstone_ts {
+                if ts >= change.lamport_ts {
+                    // Tombstone is newer — skip this insert/update.
+                    return Ok(());
+                }
+            }
+        }
+
         match change.operation {
-            SyncOp::Insert | SyncOp::Update => Self::upsert(conn, change),
+            SyncOp::Insert | SyncOp::Update | SyncOp::Upsert => Self::upsert(conn, change),
             SyncOp::Delete => Self::delete(conn, change),
         }
     }
@@ -113,4 +134,14 @@ impl ChangeMaterializer {
 
         Ok(())
     }
+}
+
+/// Removes tombstones older than 30 days.
+pub fn cleanup_old_tombstones(conn: &rusqlite::Connection) -> Result<usize> {
+    let cutoff = chrono::Utc::now().timestamp() - (30 * 24 * 60 * 60);
+    conn.execute(
+        "DELETE FROM sync_tombstones WHERE deleted_at < ?1",
+        rusqlite::params![cutoff],
+    )
+    .map_err(|e| AppError::Storage(format!("Tombstone cleanup failed: {e}")))
 }
