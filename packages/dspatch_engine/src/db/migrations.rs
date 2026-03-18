@@ -17,6 +17,7 @@
 //!   v12 → add signal_kyber_prekeys
 //!   v13 → add performance indexes on foreign keys and filtered columns
 //!   v14 → add sync_lamport and sync_config tables for trigger-based outbox
+//!   v15 → add sync_tombstones table for soft deletes
 
 use rusqlite::Connection;
 
@@ -26,7 +27,7 @@ use crate::util::result::Result;
 use super::schema::ALL_TABLES;
 
 /// Current schema version. Must match the Dart SDK's `schemaVersion`.
-pub const SCHEMA_VERSION: i32 = 14;
+pub const SCHEMA_VERSION: i32 = 15;
 
 /// Creates all tables from scratch (fresh database, version 0 → current).
 pub fn create_tables(conn: &Connection) -> Result<()> {
@@ -135,6 +136,10 @@ pub fn run_migrations(conn: &Connection, from_version: i32) -> Result<()> {
         conn.execute_batch(super::schema::CREATE_SYNC_CONFIG)
             .map_err(|e| AppError::Storage(format!("Migration v14 (sync_config) failed: {e}")))?;
         // Note: triggers are installed at runtime by the sync engine, not in migration.
+    }
+    if from_version < 15 {
+        conn.execute_batch(super::schema::CREATE_SYNC_TOMBSTONES)
+            .map_err(|e| AppError::Storage(format!("Migration v15 (sync_tombstones) failed: {e}")))?;
     }
 
     Ok(())

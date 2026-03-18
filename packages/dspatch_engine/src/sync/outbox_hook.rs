@@ -128,6 +128,13 @@ fn install_triggers_for_table(conn: &rusqlite::Connection, table: &str) -> Resul
              (SELECT ts FROM sync_lamport WHERE id = 1),\n\
              (SELECT device_id FROM sync_config WHERE id = 1)\n\
            );\n\
+           INSERT OR REPLACE INTO sync_tombstones (table_name, row_id, device_id, lamport_ts)\n\
+           VALUES (\n\
+             '{table}',\n\
+             OLD.{pk_col},\n\
+             (SELECT device_id FROM sync_config WHERE id = 1),\n\
+             (SELECT ts FROM sync_lamport WHERE id = 1)\n\
+           );\n\
          END;"
     ))
     .map_err(|e| AppError::Storage(format!("Failed to create DELETE trigger for {table}: {e}")))?;
