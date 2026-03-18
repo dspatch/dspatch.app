@@ -523,6 +523,54 @@ final hubWorkspaceUpdatesProvider =
 });
 
 // ---------------------------------------------------------------------------
+// Sync Status & Device Presence
+// ---------------------------------------------------------------------------
+
+/// Polls the engine for sync status every 5 seconds.
+/// Returns a map with keys: state, pending_count, connected_peers.
+final syncStatusProvider =
+    StreamProvider.autoDispose<Map<String, dynamic>>((ref) async* {
+  final client = ref.watch(engineClientProvider);
+  while (true) {
+    try {
+      final response = await client.send(
+        RawEngineCommand(method: 'sync_status', params: {}),
+      );
+      yield response.data ?? <String, dynamic>{};
+    } catch (_) {
+      yield <String, dynamic>{
+        'state': 'offline',
+        'pending_count': 0,
+        'connected_peers': 0,
+      };
+    }
+    await Future.delayed(const Duration(seconds: 5));
+  }
+});
+
+/// Polls the engine for online device IDs every 10 seconds.
+final onlineDevicesProvider =
+    StreamProvider.autoDispose<List<String>>((ref) async* {
+  final client = ref.watch(engineClientProvider);
+  while (true) {
+    try {
+      final response = await client.send(
+        RawEngineCommand(method: 'online_devices', params: {}),
+      );
+      final data = response.data;
+      if (data != null && data['devices'] is List) {
+        yield (data['devices'] as List).cast<String>();
+      } else {
+        yield <String>[];
+      }
+    } catch (_) {
+      yield <String>[];
+    }
+    await Future.delayed(const Duration(seconds: 10));
+  }
+});
+
+// ---------------------------------------------------------------------------
 // UI State
 // ---------------------------------------------------------------------------
 

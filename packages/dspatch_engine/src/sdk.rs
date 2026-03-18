@@ -85,6 +85,19 @@ struct PendingMigration {
     username: String,
 }
 
+// ── Sync Status ────────────────────────────────────────────────────────
+
+/// Current sync engine status.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SyncStatus {
+    /// One of: "syncing", "synced", "offline", "disabled".
+    pub state: String,
+    /// Number of pending outbox entries.
+    pub pending_count: i64,
+    /// Number of connected peers.
+    pub connected_peers: usize,
+}
+
 // ── DspatchSdk ─────────────────────────────────────────────────────────
 
 /// Central facade that wires all d:spatch services together.
@@ -836,6 +849,50 @@ impl DspatchSdk {
     /// Returns the current sync engine, if active.
     pub async fn sync_engine(&self) -> Option<Arc<crate::sync::SyncEngine>> {
         self.sync_engine.read().await.clone()
+    }
+
+    // ── Sync Status & Device Presence ──────────────────────────────────
+
+    /// Returns the current sync status.
+    pub async fn sync_status(&self) -> SyncStatus {
+        let state = if self.sync_engine.read().await.is_some() {
+            "syncing"
+        } else if self.device_service.current_device().id != "local" {
+            "offline"
+        } else {
+            "disabled"
+        };
+
+        let pending_count = match self.database.read().await.as_ref() {
+            Some(db) => {
+                let conn = db.conn();
+                conn.query_row(
+                    "SELECT COUNT(*) FROM sync_outbox",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                ).unwrap_or(0)
+            }
+            None => 0,
+        };
+
+        let connected_peers = match self.sync_engine.read().await.as_ref() {
+            Some(engine) => engine.peer_manager().connected_devices().await.len(),
+            None => 0,
+        };
+
+        SyncStatus {
+            state: state.to_string(),
+            pending_count,
+            connected_peers,
+        }
+    }
+
+    /// Returns device IDs of currently online peer devices.
+    pub async fn online_devices(&self) -> Vec<String> {
+        match self.sync_engine.read().await.as_ref() {
+            Some(engine) => engine.peer_manager().connected_devices().await,
+            None => Vec::new(),
+        }
     }
 
     // ── Disposal ───────────────────────────────────────────────────────
