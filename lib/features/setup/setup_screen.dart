@@ -130,6 +130,16 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       final currentToken = ref.read(authTokenProvider);
       if (currentToken is BackendToken) {
         ref.read(authControllerProvider.notifier).startRefreshTimer();
+
+        // TODO(push): Register FCM/APNs push token with backend.
+        // On Android, get the FCM token via firebase_messaging.
+        // On iOS, get the APNs token via firebase_messaging or native APNs.
+        // Then POST to /api/push/subscribe with { platform: "fcm"|"apns", token: "<token>" }.
+        // This enables server-side push notifications for sync_ready events
+        // (wakes the app for background sync) and other domain events.
+        // Requires adding firebase_messaging dependency and FCM/APNs configuration.
+        debugPrint('[SETUP] Push token registration stub — '
+            'would send token to backend /api/push/subscribe');
       }
 
       // Phase → ready. Router handles navigation.
