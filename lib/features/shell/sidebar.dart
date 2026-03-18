@@ -130,18 +130,20 @@ class AppSidebar extends ConsumerWidget {
           SidebarGroup(
             label: 'Quick Actions',
             children: [
-              NavItem(
-                icon: LucideIcons.circle_plus,
-                label: 'New Workspace',
-                isCollapsed: collapsed,
-                onTap: () => _navigate(context, '/workspaces/new'),
-              ),
-              NavItem(
-                icon: LucideIcons.book_plus,
-                label: 'New Template',
-                isCollapsed: collapsed,
-                onTap: () => _navigate(context, '/agent-providers/new'),
-              ),
+              if (PlatformInfo.isDesktop)
+                NavItem(
+                  icon: LucideIcons.circle_plus,
+                  label: 'New Workspace',
+                  isCollapsed: collapsed,
+                  onTap: () => _navigate(context, '/workspaces/new'),
+                ),
+              if (PlatformInfo.isDesktop)
+                NavItem(
+                  icon: LucideIcons.book_plus,
+                  label: 'New Template',
+                  isCollapsed: collapsed,
+                  onTap: () => _navigate(context, '/agent-providers/new'),
+                ),
               NavItem(
                 icon: LucideIcons.key,
                 label: 'API Keys',

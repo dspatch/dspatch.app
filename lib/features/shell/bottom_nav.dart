@@ -4,14 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/utils/platform_info.dart';
 import '../../di/providers.dart';
 
 /// Single source of truth for mobile bottom navigation items.
 /// Each entry maps a route prefix to its icon and label.
-const _navItems = [
+List<({String path, IconData icon, String label})> get _navItems => [
   (path: '/workspaces', icon: LucideIcons.layout_grid, label: 'Workspaces'),
   (path: '/agent-providers', icon: LucideIcons.bot, label: 'Templates'),
-  (path: '/engine', icon: LucideIcons.server, label: 'Engine'),
+  if (PlatformInfo.isDesktop)
+    (path: '/engine', icon: LucideIcons.server, label: 'Engine'),
   (path: '/settings', icon: LucideIcons.settings, label: 'Settings'),
 ];
 
@@ -26,6 +28,7 @@ class BottomNav extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final pendingCount =
         ref.watch(globalPendingInquiryCountProvider).valueOrNull ?? 0;
+    final items = _navItems;
 
     return Container(
       decoration: const BoxDecoration(
@@ -33,8 +36,8 @@ class BottomNav extends ConsumerWidget {
         border: Border(top: BorderSide(color: AppColors.border)),
       ),
       child: BottomNavigationBar(
-        currentIndex: _indexFromPath(currentPath),
-        onTap: (index) => context.go(_navItems[index].path),
+        currentIndex: _indexFromPath(currentPath, items),
+        onTap: (index) => context.go(items[index].path),
         type: BottomNavigationBarType.fixed,
         backgroundColor: AppColors.card,
         selectedItemColor: AppColors.primary,
@@ -42,39 +45,27 @@ class BottomNav extends ConsumerWidget {
         selectedFontSize: 12,
         unselectedFontSize: 12,
         items: [
-          // Workspaces
-          BottomNavigationBarItem(
-            icon: pendingCount > 0
-                ? Badge.count(
-                    count: pendingCount,
-                    child: Icon(_navItems[0].icon),
-                  )
-                : Icon(_navItems[0].icon),
-            label: _navItems[0].label,
-          ),
-          // Templates
-          BottomNavigationBarItem(
-            icon: Icon(_navItems[1].icon),
-            label: _navItems[1].label,
-          ),
-          // Engine
-          BottomNavigationBarItem(
-            icon: Icon(_navItems[2].icon),
-            label: _navItems[2].label,
-          ),
-          // Settings
-          BottomNavigationBarItem(
-            icon: Icon(_navItems[3].icon),
-            label: _navItems[3].label,
-          ),
+          for (final item in items)
+            BottomNavigationBarItem(
+              icon: item.path == '/workspaces' && pendingCount > 0
+                  ? Badge.count(
+                      count: pendingCount,
+                      child: Icon(item.icon),
+                    )
+                  : Icon(item.icon),
+              label: item.label,
+            ),
         ],
       ),
     );
   }
 
-  int _indexFromPath(String path) {
-    for (var i = 0; i < _navItems.length; i++) {
-      if (path.startsWith(_navItems[i].path)) return i;
+  int _indexFromPath(
+    String path,
+    List<({String path, IconData icon, String label})> items,
+  ) {
+    for (var i = 0; i < items.length; i++) {
+      if (path.startsWith(items[i].path)) return i;
     }
     return _defaultIndex;
   }

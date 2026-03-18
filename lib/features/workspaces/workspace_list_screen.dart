@@ -7,6 +7,7 @@ import '../../models/hub_types.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 
 import '../../core/utils/display_error.dart';
+import '../../core/utils/platform_info.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -63,11 +64,12 @@ class _WorkspaceListScreenState extends ConsumerState<WorkspaceListScreen> {
                     ),
                   ),
                 ),
-                Button(
-                  label: 'Create Workspace',
-                  icon: LucideIcons.plus,
-                  onPressed: () => context.go('/workspaces/new'),
-                ),
+                if (PlatformInfo.isDesktop)
+                  Button(
+                    label: 'Create Workspace',
+                    icon: LucideIcons.plus,
+                    onPressed: () => context.go('/workspaces/new'),
+                  ),
               ],
             ),
             const SizedBox(height: Spacing.md),

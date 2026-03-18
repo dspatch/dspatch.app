@@ -1,4 +1,5 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
+import 'core/utils/platform_info.dart';
 import 'engine_client/models/auth_phase.dart';
 import 'package:dspatch_ui/dspatch_ui.dart';
 import 'package:flutter/material.dart';
@@ -201,6 +202,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/workspaces/new',
+            redirect: (context, state) =>
+                PlatformInfo.isMobile ? '/workspaces' : null,
             pageBuilder: (context, state) =>
                 const NoTransitionPage(child: WorkspaceCreateScreen()),
           ),
@@ -222,6 +225,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/engine',
+            redirect: (context, state) =>
+                PlatformInfo.isMobile ? '/workspaces' : null,
             pageBuilder: (context, state) =>
                 const NoTransitionPage(child: EngineScreen()),
           ),
