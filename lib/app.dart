@@ -27,7 +27,9 @@ import 'features/workspaces/workspace_view_screen.dart';
 import 'features/settings/account_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/settings/api_keys_screen.dart';
+import 'features/settings/devices_screen.dart';
 import 'features/settings/notifications_screen.dart';
+import 'features/settings/pairing_approval_screen.dart';
 import 'features/shell/app_shell.dart';
 
 // ---------------------------------------------------------------------------
@@ -242,6 +244,16 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/settings/account',
             pageBuilder: (context, state) =>
                 const NoTransitionPage(child: AccountScreen()),
+          ),
+          GoRoute(
+            path: '/settings/devices',
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: DevicesScreen()),
+          ),
+          GoRoute(
+            path: '/settings/devices/approve',
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: PairingApprovalScreen()),
           ),
         ],
       ),

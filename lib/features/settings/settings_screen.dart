@@ -69,11 +69,7 @@ class SettingsScreen extends ConsumerWidget {
                     icon: LucideIcons.smartphone,
                     title: 'Devices',
                     description: 'Manage connected devices',
-                    trailing: const DspatchBadge(
-                      label: 'Pro',
-                      variant: BadgeVariant.secondary,
-                    ),
-                    enabled: false,
+                    onTap: () => context.go('/settings/devices'),
                   ),
                   const SizedBox(height: Spacing.sm),
                 ],
