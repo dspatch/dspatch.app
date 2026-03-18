@@ -27,28 +27,23 @@ const kAppName = 'd:spatch';
 const kMinWindowWidth = 900.0;
 const kMinWindowHeight = 600.0;
 
-/// Run the engine in-process via FFI instead of expecting an external daemon.
-/// On mobile this is always true. On desktop, opt in with:
-///   `flutter run --dart-define=INTEGRATED_ENGINE=true`
-const kIntegratedEngine = bool.fromEnvironment('INTEGRATED_ENGINE') ||
-    !bool.fromEnvironment('dart.library.io', defaultValue: true) ||
-    // Always integrated on mobile (resolved at runtime in main()).
-    false;
-
-/// Default engine port. Uses 9848 for integrated engine to avoid colliding
-/// with a standalone daemon on 9847. Override with `--dart-define=ENGINE_PORT=...`.
-const _kDefaultPort = bool.fromEnvironment('INTEGRATED_ENGINE') ? 9848 : 9847;
-const kEnginePort = int.fromEnvironment('ENGINE_PORT', defaultValue: _kDefaultPort);
-
 /// Dev device profile for multi-device testing.
-/// When set (e.g. `--dart-define=DEV_DEVICE_PROFILE=2`), this instance uses
-/// an isolated keyring namespace and skips engine connection — appearing as
-/// a completely new device to the backend.
+/// Each profile runs its own in-process engine on a unique port and uses
+/// an isolated keyring namespace — appearing as a completely new device.
+///
+/// Profile 0 (default): normal desktop, external engine daemon on port 9847.
+/// Profile N (N>0): integrated in-process engine on port 9847+N, fully usable.
 ///
 /// Usage:
-///   Instance 1 (existing device): `flutter run`
-///   Instance 2 (new device):      `flutter run --dart-define=DEV_DEVICE_PROFILE=2`
+///   Primary instance:  `flutter run`
+///   Device 1:          `flutter run --dart-define=DEV_DEVICE_PROFILE=1`
+///   Device 2:          `flutter run --dart-define=DEV_DEVICE_PROFILE=2`
 const kDevDeviceProfile = int.fromEnvironment('DEV_DEVICE_PROFILE', defaultValue: 0);
+
+/// Engine port. Profile 0 uses 9847 (external daemon). Profile N uses 9847+N
+/// (integrated engine, avoids port collision). Override with `--dart-define=ENGINE_PORT=...`.
+const kEnginePort = int.fromEnvironment('ENGINE_PORT',
+    defaultValue: 9847 + kDevDeviceProfile);
 
 const _kHost = '127.0.0.1';
 
@@ -71,8 +66,8 @@ Future<void> main(List<String> args) async {
   }
 
   // Start the engine in-process via FFI when running integrated
-  // (always on mobile, opt-in on desktop via INTEGRATED_ENGINE).
-  final useIntegratedEngine = kIntegratedEngine || PlatformInfo.isMobile;
+  // (always on mobile, dev device profiles on desktop).
+  final useIntegratedEngine = kDevDeviceProfile > 0 || PlatformInfo.isMobile;
   if (useIntegratedEngine) {
     final String dbDir;
     if (PlatformInfo.isMobile) {

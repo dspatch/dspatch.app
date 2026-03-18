@@ -83,15 +83,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         }
       }
 
-      // Dev device profile: block here permanently.
-      final devProfile = ref.read(devDeviceProfileProvider);
-      if (devProfile > 0) {
-        debugPrint('[SETUP] DEV_DEVICE_PROFILE=$devProfile — blocking at setup screen');
-        if (!mounted) return;
-        setState(() => _status = 'Device paired successfully');
-        return;
-      }
-
       // ── Step 1: Connect to engine (retries silently until success) ─
       debugPrint('[SETUP] Step 1: _connectEngine...');
       if (!mounted) return;
@@ -557,53 +548,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 child: EngineStatusButton(),
               ),
           ],
-        ),
-      );
-    }
-
-    // Dev device profile: show pairing-complete dead end.
-    final devProfile = ref.read(devDeviceProfileProvider);
-    if (devProfile > 0 && _status == 'Device paired successfully') {
-      return Scaffold(
-        backgroundColor: AppColors.background,
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                LucideIcons.circle_check,
-                size: 48,
-                color: AppColors.primary,
-              ),
-              const SizedBox(height: Spacing.md),
-              const Text(
-                'Device paired successfully',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.foreground,
-                ),
-              ),
-              const SizedBox(height: Spacing.xs),
-              Text(
-                'Dev device profile $devProfile — engine connection skipped.',
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppColors.mutedForeground,
-                ),
-              ),
-              const SizedBox(height: Spacing.sm),
-              const Text(
-                'This instance is for pairing testing only.\n'
-                'Close this window when done.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppColors.mutedForeground,
-                ),
-              ),
-            ],
-          ),
         ),
       );
     }
