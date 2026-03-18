@@ -53,9 +53,17 @@ async fn main() {
 
     // 2. Create and initialize the SDK.
     let sdk_config = dspatch_engine::config::DspatchConfig::from_engine_config(&config);
+
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    let secret_store: Box<dyn dspatch_engine::db::key_manager::SecretStore> =
+        Box::new(dspatch_engine::crypto::KeyringSecretStore::new("dspatch"));
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    let secret_store: Box<dyn dspatch_engine::db::key_manager::SecretStore> =
+        Box::new(dspatch_engine::crypto::FileSecretStore::new(&config.db_dir));
+
     let sdk = Arc::new(DspatchSdk::with_secret_store(
         sdk_config,
-        Box::new(dspatch_engine::crypto::KeyringSecretStore::new("dspatch")),
+        secret_store,
         config.db_dir.clone(),
     ));
 

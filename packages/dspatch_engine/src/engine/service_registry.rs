@@ -12,7 +12,10 @@ use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::crypto::AesGcmCrypto;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use crate::crypto::KeyringSecretStore;
+#[cfg(any(target_os = "ios", target_os = "android"))]
+use crate::crypto::FileSecretStore;
 use crate::db::Database;
 use crate::db::dao::agent_provider_dao::AgentProviderDao;
 use crate::db::dao::agent_template_dao::AgentTemplateDao;
@@ -20,17 +23,24 @@ use crate::db::dao::api_key_dao::ApiKeyDao;
 use crate::db::dao::preference_dao::PreferenceDao;
 use crate::db::dao::workspace_dao::WorkspaceDao;
 use crate::db::dao::workspace_template_dao::WorkspaceTemplateDao;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use crate::docker::DockerClient;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use crate::git::GitClient;
-use crate::domain::services::{AgentProviderService, ApiKeyService, DockerService};
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+use crate::domain::services::{AgentProviderService, ApiKeyService};
 use crate::hub::HubApiClient;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use crate::server::agent_server::EmbeddedAgentServer;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use crate::server::workspace_bridge::WorkspaceBridge;
 use crate::services::{
     LocalAgentDataService, LocalAgentProviderService, LocalAgentTemplateService,
-    LocalApiKeyService, LocalDockerService, LocalFileBrowserService, LocalInquiryService,
+    LocalApiKeyService, LocalFileBrowserService, LocalInquiryService,
     LocalPreferenceService, LocalWorkspaceService, LocalWorkspaceTemplateService,
 };
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+use crate::services::LocalDockerService;
 
 /// Holds `Arc`-wrapped instances of all local services.
 ///
@@ -47,9 +57,12 @@ pub struct ServiceRegistry {
     agent_data: Arc<LocalAgentDataService>,
     crypto: Arc<AesGcmCrypto>,
     file_browser: Arc<LocalFileBrowserService>,
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     docker: Arc<DockerClient>,
-    docker_service: Arc<dyn DockerService>,
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    docker_service: Arc<dyn crate::domain::services::DockerService>,
     hub_client: Option<Arc<HubApiClient>>,
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     git: Arc<GitClient>,
 }
 
@@ -71,9 +84,13 @@ impl ServiceRegistry {
         let api_key_dao = Arc::new(ApiKeyDao::new(db.clone()));
         let preference_dao = Arc::new(PreferenceDao::new(db.clone()));
 
-        // Crypto: uses the platform keyring for master key storage.
+        // Crypto: desktop uses the platform keyring, mobile uses file-based storage.
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         let secret_store: Arc<dyn crate::db::key_manager::SecretStore> =
             Arc::new(KeyringSecretStore::new("dspatch"));
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        let secret_store: Arc<dyn crate::db::key_manager::SecretStore> =
+            Arc::new(FileSecretStore::new(&data_dir));
         let crypto = Arc::new(AesGcmCrypto::new(secret_store));
 
         // File browser: default root is the data_dir (overridden per-workspace at usage site).
@@ -81,39 +98,44 @@ impl ServiceRegistry {
             data_dir.to_string_lossy().to_string(),
         ));
 
-        // Docker: uses the default platform Docker CLI.
-        let docker = Arc::new(DockerClient::for_platform());
-
-        // Agent-facing server (created but not started — the bridge starts it on demand).
-        let agent_server = Arc::new(TokioMutex::new(EmbeddedAgentServer::new(
-            Arc::clone(&workspace_dao),
-            Arc::clone(&docker),
-        )));
-
-        // Docker service for status detection and image builds.
-        // Dockerfile and entrypoint.sh are embedded in the binary at compile time.
-        let docker_service: Arc<dyn DockerService> = Arc::new(LocalDockerService::new(
-            DockerClient::for_platform(),
-        ));
-
-        // Wire the workspace bridge so launch/stop commands work immediately.
         let agent_providers = Arc::new(LocalAgentProviderService::new(agent_provider_dao));
         let api_keys = Arc::new(LocalApiKeyService::new(api_key_dao));
-
         let agent_data = Arc::new(LocalAgentDataService::new(workspace_dao.clone()));
 
-        let ws_bridge = WorkspaceBridge::new(
-            agent_server,
-            Arc::clone(&workspace_dao),
-            Arc::clone(&agent_providers) as Arc<dyn AgentProviderService>,
-            Arc::clone(&api_keys) as Arc<dyn ApiKeyService>,
-            Arc::clone(&crypto),
-            Arc::clone(&docker),
-            Arc::clone(&docker_service),
-            Arc::clone(&preference_dao),
-            Arc::clone(&agent_data),
-        );
-        let bridge = Arc::new(TokioMutex::new(Some(ws_bridge)));
+        // Desktop: Docker, Git, workspace bridge, and agent server.
+        // Mobile: these services are not available (no docker/git binaries).
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        let docker = Arc::new(DockerClient::for_platform());
+
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        let docker_service: Arc<dyn crate::domain::services::DockerService> =
+            Arc::new(LocalDockerService::new(DockerClient::for_platform()));
+
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        let bridge = {
+            // Agent-facing server (created but not started — the bridge starts it on demand).
+            let agent_server = Arc::new(TokioMutex::new(EmbeddedAgentServer::new(
+                Arc::clone(&workspace_dao),
+                Arc::clone(&docker),
+            )));
+
+            let ws_bridge = WorkspaceBridge::new(
+                agent_server,
+                Arc::clone(&workspace_dao),
+                Arc::clone(&agent_providers) as Arc<dyn AgentProviderService>,
+                Arc::clone(&api_keys) as Arc<dyn ApiKeyService>,
+                Arc::clone(&crypto),
+                Arc::clone(&docker),
+                Arc::clone(&docker_service),
+                Arc::clone(&preference_dao),
+                Arc::clone(&agent_data),
+            );
+            Arc::new(TokioMutex::new(Some(ws_bridge)))
+        };
+
+        // Mobile: no workspace bridge (workspaces are remote-only).
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        let bridge = Arc::new(TokioMutex::new(None));
 
         Self {
             workspaces: Arc::new(LocalWorkspaceService::new(
@@ -134,9 +156,12 @@ impl ServiceRegistry {
             agent_data,
             crypto,
             file_browser,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             docker,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             docker_service,
             hub_client,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             git: Arc::new(GitClient::for_platform()),
         }
     }
@@ -181,11 +206,13 @@ impl ServiceRegistry {
         &self.file_browser
     }
 
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub fn docker(&self) -> &Arc<DockerClient> {
         &self.docker
     }
 
-    pub fn docker_service(&self) -> &Arc<dyn DockerService> {
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    pub fn docker_service(&self) -> &Arc<dyn crate::domain::services::DockerService> {
         &self.docker_service
     }
 
@@ -193,6 +220,7 @@ impl ServiceRegistry {
         self.hub_client.as_ref()
     }
 
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub fn git(&self) -> &Arc<GitClient> {
         &self.git
     }

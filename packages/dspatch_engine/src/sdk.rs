@@ -32,13 +32,16 @@ use crate::crypto::secure_storage::KeyringSecretStore;
 use crate::db::key_manager::{DatabaseKeyManager, SecretStore};
 use crate::db::manager::{DatabaseManager, DatabaseState};
 use crate::db::Database;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use crate::docker::{DockerCli, DockerClient};
 use crate::engine::config::EngineConfig;
 use crate::engine::service_registry::ServiceRegistry;
 use crate::engine::startup::ClientApiRuntime;
 use crate::hub::HubApiClient;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+use crate::services::LocalDockerService;
 use crate::services::{
-    LocalConnectivityService, LocalDeviceService, LocalDockerService,
+    LocalConnectivityService, LocalDeviceService,
     LocalSyncService,
 };
 use crate::util::error::AppError;
@@ -54,6 +57,7 @@ const DEFAULT_BACKEND_URL: &str = "http://localhost:3000";
 const DEFAULT_BACKEND_URL: &str = "https://backend.dspatch.dev";
 
 /// Default service name for the keyring secret store.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 const KEYRING_SERVICE_NAME: &str = "dspatch";
 
 // ── Database state broadcast ───────────────────────────────────────────
@@ -97,7 +101,9 @@ pub struct DspatchSdk {
     db_manager: Arc<DatabaseManager>,
     api_client: Arc<HttpApiClient>,
     hub_client: Arc<RwLock<HubApiClient>>,
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     docker_client: Arc<DockerClient>,
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     docker_service: Arc<LocalDockerService>,
     device_service: Arc<LocalDeviceService>,
     sync_service: Arc<LocalSyncService>,
@@ -170,7 +176,9 @@ impl DspatchSdk {
             data_dir,
         ));
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         let docker_client = Arc::new(DockerClient::new(DockerCli::new()));
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         let docker_service = Arc::new(LocalDockerService::new(
             DockerClient::new(DockerCli::new()),
         ));
@@ -188,7 +196,9 @@ impl DspatchSdk {
             db_manager,
             api_client,
             hub_client,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             docker_client,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             docker_service,
             device_service,
             sync_service,
@@ -589,7 +599,8 @@ impl DspatchSdk {
 
     // ── Core service accessors ─────────────────────────────────────────
 
-    /// Returns the docker service.
+    /// Returns the docker service (desktop only).
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub fn docker_service(&self) -> &Arc<LocalDockerService> {
         &self.docker_service
     }
@@ -619,7 +630,8 @@ impl DspatchSdk {
         &self.hub_client
     }
 
-    /// Returns the docker client.
+    /// Returns the docker client (desktop only).
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub fn docker_client(&self) -> &Arc<DockerClient> {
         &self.docker_client
     }
@@ -662,6 +674,7 @@ impl SecretStore for ArcSecretStoreAdapter {
 ///
 /// Falls back to a `dspatch_data` directory in the current working directory
 /// if the platform directory cannot be determined.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 fn default_data_dir() -> PathBuf {
     dirs::data_dir()
         .map(|d| d.join("dspatch"))

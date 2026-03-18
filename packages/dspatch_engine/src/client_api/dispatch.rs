@@ -2,13 +2,16 @@
 
 //! Command dispatcher — routes typed commands to service methods.
 
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use std::collections::HashMap;
 
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use futures::StreamExt;
 
 use crate::client_api::commands::Command;
 use crate::client_api::ephemeral::EphemeralEventEmitter;
 use crate::domain::models::CreateWorkspaceRequest;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use crate::docker::{DSPATCH_CONTAINER_LABEL, RUNTIME_IMAGE_TAG};
 use crate::engine::service_registry::ServiceRegistry;
 use crate::hub::HubApiClient;
@@ -244,12 +247,15 @@ pub async fn dispatch_command(
         )),
 
         // ── Docker Commands ─────────────────────────────────────
+        // Docker commands are only available on desktop platforms.
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::DetectDockerStatus => {
             let status = services.docker_service().detect_status().await?;
             Ok(serde_json::to_value(&status).unwrap())
         }
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::ListContainers => {
             let mut filters = HashMap::new();
             filters.insert(
@@ -264,6 +270,7 @@ pub async fn dispatch_command(
             to_json(containers)
         }
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::StopContainer { id } => {
             services
                 .docker()
@@ -273,6 +280,7 @@ pub async fn dispatch_command(
             Ok(serde_json::Value::Null)
         }
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::RemoveContainer { id } => {
             services
                 .docker()
@@ -282,6 +290,7 @@ pub async fn dispatch_command(
             Ok(serde_json::Value::Null)
         }
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::StopAllContainers => {
             let mut filters = HashMap::new();
             filters.insert(
@@ -299,6 +308,7 @@ pub async fn dispatch_command(
             Ok(serde_json::Value::Null)
         }
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::DeleteStoppedContainers => {
             let mut filters = HashMap::new();
             filters.insert(
@@ -317,6 +327,7 @@ pub async fn dispatch_command(
             Ok(serde_json::Value::Null)
         }
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::CleanOrphanedContainers => {
             // Orphaned = dspatch-managed containers with no matching workspace in DB.
             let mut filters = HashMap::new();
@@ -343,6 +354,7 @@ pub async fn dispatch_command(
             Ok(serde_json::Value::Null)
         }
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::BuildRuntimeImage => {
             let stream = services.docker_service().build_runtime_image();
             let docker_client = services.docker().clone();
@@ -374,6 +386,7 @@ pub async fn dispatch_command(
             Ok(serde_json::json!({ "started": true }))
         }
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::DeleteRuntimeImage => {
             services
                 .docker()
@@ -383,9 +396,25 @@ pub async fn dispatch_command(
             Ok(serde_json::Value::Null)
         }
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::ContainerStats { run_id } => Err(AppError::Server(format!(
             "Container stats requires run_id→container mapping (run_id: {run_id})"
         ))),
+
+        // Mobile: Docker commands are not available.
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        Command::DetectDockerStatus
+        | Command::ListContainers
+        | Command::StopContainer { .. }
+        | Command::RemoveContainer { .. }
+        | Command::StopAllContainers
+        | Command::DeleteStoppedContainers
+        | Command::CleanOrphanedContainers
+        | Command::BuildRuntimeImage
+        | Command::DeleteRuntimeImage
+        | Command::ContainerStats { .. } => Err(AppError::Internal(
+            "Docker is not available on this platform".into(),
+        )),
 
         // ── Hub Commands ────────────────────────────────────────
 
@@ -553,6 +582,7 @@ pub async fn dispatch_command(
 
         // ── Git Commands ────────────────────────────────────────
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::GitPreflightCheck { directory } => {
             use crate::git::GitClient;
 
@@ -587,6 +617,12 @@ pub async fn dispatch_command(
                 "has_unpushed_commits": has_unpushed,
             }))
         }
+
+        // Mobile: Git commands are not available.
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        Command::GitPreflightCheck { .. } => Err(AppError::Internal(
+            "Git is not available on this platform".into(),
+        )),
 
         // ── Config Parser Commands ──────────────────────────────
 
