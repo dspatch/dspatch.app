@@ -103,6 +103,38 @@ impl PeerConnectionManager {
         )))
     }
 
+    /// Establishes a WebRTC connection to a peer using the signaling flow.
+    ///
+    /// Called when we want to initiate a connection to a specific device.
+    /// The flow is:
+    /// 1. Create a `WebRtcTransport` with an SDP offer
+    /// 2. Send the offer via `SignalingClient`
+    /// 3. Wait for the SDP answer from the remote peer
+    /// 4. Exchange ICE candidates
+    /// 5. Once the data channel opens, register the peer via `register_peer()`
+    ///
+    /// This is not yet wired to the signaling event loop — the actual
+    /// connection establishment will happen reactively when signaling events
+    /// arrive in Phase 2 completion.
+    pub async fn connect_webrtc(
+        &self,
+        target_device_id: &str,
+        _signaling_client: &crate::sync::SignalingClient,
+    ) -> Result<()> {
+        let conns = self.connections.lock().await;
+        if conns.contains_key(target_device_id) {
+            return Ok(()); // Already connected.
+        }
+        drop(conns);
+
+        // TODO: Phase 2 completion — create WebRtcTransport offer, send via
+        // signaling, wait for answer, exchange ICE candidates, then bridge
+        // the data channel into register_peer().
+        Err(AppError::Internal(
+            "WebRTC connect flow not yet wired to signaling".into(),
+        ))
+    }
+
     /// Sends an encrypted `SyncMessage` to a connected peer.
     pub async fn send(&self, device_id: &str, message: &SyncMessage) -> Result<()> {
         let conns = self.connections.lock().await;

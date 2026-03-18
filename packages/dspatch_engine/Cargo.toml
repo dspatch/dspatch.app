@@ -36,6 +36,10 @@ tower-http = { version = "0.6", features = ["cors"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio-tungstenite = "0.26"
 
+# WebRTC (pure-Rust P2P data channels)
+webrtc = "0.17"
+bytes = "1"
+
 # Crypto
 aes-gcm = "0.10"
 hkdf = "0.12"
