@@ -29,6 +29,7 @@ dependencies:
   re_editor: ^0.7.0
   re_highlight: ^0.0.3
   qr_flutter: ^4.1.0
+  mobile_scanner: ^6.0.0
   flutter_lucide: ^1.8.2
   cryptography: ^2.7.0
   path: ^1.9.0
