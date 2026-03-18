@@ -55,8 +55,8 @@ class _AuthLayoutState extends State<AuthLayout> {
                         horizontal: Spacing.xl,
                         vertical: Spacing.xxl,
                       ),
-                      child: SizedBox(
-                        width: 420,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 420),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
