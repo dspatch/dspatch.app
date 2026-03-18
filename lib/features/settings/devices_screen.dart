@@ -18,6 +18,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   bool _loading = true;
   String? _error;
   List<dynamic> _devices = [];
+  String? _currentDeviceId;
 
   @override
   void initState() {
@@ -35,6 +36,10 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       final token = ref.read(authTokenProvider);
       if (token is! BackendToken) return;
 
+      // Load current device ID from keyring
+      final tokenStore = ref.read(secureTokenStoreProvider);
+      final creds = await tokenStore.loadDeviceCredentials(token.username);
+
       final backend = ref.read(backendAuthProvider);
       final devices = await backend.listDevices(token: token.token);
 
@@ -42,6 +47,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       setState(() {
         _loading = false;
         _devices = devices;
+        _currentDeviceId = creds?.deviceId;
       });
     } catch (e) {
       if (!mounted) return;
@@ -147,6 +153,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
               final deviceType = d['device_type'] as String?;
               final platform = d['platform'] as String?;
               final approved = d['approved'] as bool? ?? false;
+              final isCurrent = id == _currentDeviceId;
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: Spacing.sm),
@@ -156,20 +163,33 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                       Icon(
                         _deviceIcon(deviceType),
                         size: 20,
-                        color: AppColors.mutedForeground,
+                        color: isCurrent
+                            ? AppColors.primary
+                            : AppColors.mutedForeground,
                       ),
                       const SizedBox(width: Spacing.md),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              name,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: AppColors.foreground,
-                              ),
+                            Row(
+                              children: [
+                                Text(
+                                  name,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppColors.foreground,
+                                  ),
+                                ),
+                                if (isCurrent) ...[
+                                  const SizedBox(width: Spacing.xs),
+                                  const DspatchBadge(
+                                    label: 'This device',
+                                    variant: BadgeVariant.primary,
+                                  ),
+                                ],
+                              ],
                             ),
                             Text(
                               '${platform ?? 'unknown'} \u2022 ${deviceType ?? 'unknown'}',
@@ -186,18 +206,20 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                           label: 'Pending',
                           variant: BadgeVariant.secondary,
                         ),
-                      if (approved)
+                      if (approved && !isCurrent)
                         const DspatchBadge(
                           label: 'Active',
                           variant: BadgeVariant.outline,
                         ),
-                      const SizedBox(width: Spacing.sm),
-                      Button(
-                        label: 'Revoke',
-                        variant: ButtonVariant.ghost,
-                        size: ButtonSize.sm,
-                        onPressed: () => _revokeDevice(id, name),
-                      ),
+                      if (!isCurrent) ...[
+                        const SizedBox(width: Spacing.sm),
+                        Button(
+                          label: 'Revoke',
+                          variant: ButtonVariant.ghost,
+                          size: ButtonSize.sm,
+                          onPressed: () => _revokeDevice(id, name),
+                        ),
+                      ],
                     ],
                   ),
                 ),
