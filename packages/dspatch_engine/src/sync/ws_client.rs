@@ -132,6 +132,7 @@ impl EngineWsClient {
                     break;
                 }
 
+                let connected_at = std::time::Instant::now();
                 match self.connect_once(&cancel).await {
                     Ok(()) => {
                         // Clean disconnect (cancellation). Don't reconnect.
@@ -139,6 +140,11 @@ impl EngineWsClient {
                         break;
                     }
                     Err(e) => {
+                        // Reset backoff if connection was alive for more than the backoff period
+                        // (indicates a transient drop, not a persistent failure).
+                        if connected_at.elapsed() > backoff {
+                            backoff = INITIAL_BACKOFF;
+                        }
                         tracing::warn!("Engine WS disconnected: {e} — reconnecting in {backoff:?}");
 
                         // Clear WS sender on disconnect.
