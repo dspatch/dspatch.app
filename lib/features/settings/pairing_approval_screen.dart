@@ -258,26 +258,28 @@ class _PairingApprovalScreenState
             ),
           ),
           CardFooter(
-            child: Row(
-              children: [
-                Expanded(
-                  child: Button(
-                    label: 'Reject',
-                    variant: ButtonVariant.outline,
-                    loading: _loading,
-                    onPressed: _loading ? null : () => _confirmSas(false),
+            child: Expanded(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Button(
+                      label: 'Reject',
+                      variant: ButtonVariant.outline,
+                      loading: _loading,
+                      onPressed: _loading ? null : () => _confirmSas(false),
+                    ),
                   ),
-                ),
-                const SizedBox(width: Spacing.sm),
-                Expanded(
-                  child: Button(
-                    label: 'Confirm',
-                    variant: ButtonVariant.primary,
-                    loading: _loading,
-                    onPressed: _loading ? null : () => _confirmSas(true),
+                  const SizedBox(width: Spacing.sm),
+                  Expanded(
+                    child: Button(
+                      label: 'Confirm',
+                      variant: ButtonVariant.primary,
+                      loading: _loading,
+                      onPressed: _loading ? null : () => _confirmSas(true),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
