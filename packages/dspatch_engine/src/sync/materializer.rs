@@ -4,8 +4,8 @@
 //! into actual SQL statements executed against the target table.
 //!
 //! The materializer handles three operations:
-//! - **Insert**: `INSERT OR REPLACE INTO {table} ({columns}) VALUES ({values})`
-//! - **Update**: Same as insert (INSERT OR REPLACE is idempotent)
+//! - **Insert**: `INSERT INTO {table} ({columns}) VALUES ({values}) ON CONFLICT({pk}) DO UPDATE SET ...`
+//! - **Update**: Same as insert (upsert is idempotent)
 //! - **Delete**: `DELETE FROM {table} WHERE id = {row_id}`
 //!
 //! The `data` field in a `SyncChange` is a JSON object where keys are column
@@ -54,10 +54,14 @@ impl ChangeMaterializer {
         }
     }
 
-    /// Performs an INSERT OR REPLACE (upsert) from the change's JSON data.
+    /// Performs an upsert from the change's JSON data.
     ///
     /// Before writing, checks the existing row's `_lamport_ts` and `_sync_device_id`
     /// to implement Last-Writer-Wins (LWW) with device-ID tiebreaking.
+    ///
+    /// Uses `INSERT INTO ... ON CONFLICT(pk) DO UPDATE SET ...` rather than
+    /// `INSERT OR REPLACE` to avoid inadvertently deleting and re-inserting rows
+    /// (which would fire DELETE triggers and lose any columns not present in data).
     fn upsert(conn: &rusqlite::Connection, change: &SyncChange) -> Result<()> {
         let obj = change
             .data
@@ -74,10 +78,14 @@ impl ChangeMaterializer {
             return Err(AppError::Internal(format!("Invalid table name: {table}")));
         }
 
+        // Determine the primary key column for this row.
+        // Most tables use "id"; preferences and a few others use "key".
+        let pk = if obj.contains_key("id") { "id" } else { "key" };
+
         // Check if the existing row has a newer version (LWW with device-ID tiebreak).
         let existing_ts: Option<i64> = conn
             .query_row(
-                &format!("SELECT _lamport_ts FROM {table} WHERE id = ?1"),
+                &format!("SELECT _lamport_ts FROM {table} WHERE {pk} = ?1"),
                 rusqlite::params![&change.row_id],
                 |row| row.get(0),
             )
@@ -91,7 +99,7 @@ impl ChangeMaterializer {
                 // Tiebreak by device_id (higher device_id wins deterministically).
                 let existing_device: String = conn
                     .query_row(
-                        &format!("SELECT _sync_device_id FROM {table} WHERE id = ?1"),
+                        &format!("SELECT _sync_device_id FROM {table} WHERE {pk} = ?1"),
                         rusqlite::params![&change.row_id],
                         |row| row.get(0),
                     )
@@ -105,12 +113,29 @@ impl ChangeMaterializer {
         let columns: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
         let placeholders: Vec<String> = (1..=columns.len()).map(|i| format!("?{i}")).collect();
 
-        let sql = format!(
-            "INSERT OR REPLACE INTO {table} ({cols}) VALUES ({vals})",
-            table = table,
-            cols = columns.join(", "),
-            vals = placeholders.join(", "),
-        );
+        // Build the SET clause for the ON CONFLICT branch — update every non-PK column.
+        let set_clause: String = columns
+            .iter()
+            .enumerate()
+            .filter(|(_, col)| **col != pk)
+            .map(|(i, col)| format!("{col} = ?{}", i + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let sql = if set_clause.is_empty() {
+            // Only the PK column is present — nothing to update; just ignore.
+            format!(
+                "INSERT OR IGNORE INTO {table} ({cols}) VALUES ({vals})",
+                cols = columns.join(", "),
+                vals = placeholders.join(", "),
+            )
+        } else {
+            format!(
+                "INSERT INTO {table} ({cols}) VALUES ({vals}) ON CONFLICT({pk}) DO UPDATE SET {set_clause}",
+                cols = columns.join(", "),
+                vals = placeholders.join(", "),
+            )
+        };
 
         // Convert JSON values to rusqlite params.
         let params: Vec<Box<dyn ToSql>> = obj
@@ -171,7 +196,7 @@ impl ChangeMaterializer {
 pub fn cleanup_old_tombstones(conn: &rusqlite::Connection) -> Result<usize> {
     let cutoff = chrono::Utc::now().timestamp() - (30 * 24 * 60 * 60);
     conn.execute(
-        "DELETE FROM sync_tombstones WHERE deleted_at < ?1",
+        "DELETE FROM sync_tombstones WHERE CAST(deleted_at AS INTEGER) < ?1",
         rusqlite::params![cutoff],
     )
     .map_err(|e| AppError::Storage(format!("Tombstone cleanup failed: {e}")))

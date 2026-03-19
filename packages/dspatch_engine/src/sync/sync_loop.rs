@@ -310,7 +310,10 @@ async fn handle_incoming(engine: &SyncEngine, from_device: &str, message: SyncMe
             );
             // Apply all rows via materializer in "accept all" mode.
             for row in &rows {
-                let row_id = row["id"].as_str().unwrap_or_default();
+                let row_id = row.get("id")
+                    .or_else(|| row.get("key"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 let change = super::message::SyncChange {
                     id: crate::util::new_id(),
                     table: table.clone(),
