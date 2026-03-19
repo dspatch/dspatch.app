@@ -9,7 +9,8 @@ use std::time::Duration;
 use futures::StreamExt;
 use tokio_util::sync::CancellationToken;
 
-use super::message::SyncMessage;
+use super::materializer::ChangeMaterializer;
+use super::message::{SyncMessage, SyncOp};
 use super::sync_engine::SyncEngine;
 
 /// Default interval between outbox flushes.
@@ -170,6 +171,67 @@ async fn handle_incoming(engine: &SyncEngine, from_device: &str, message: SyncMe
                 tracing::warn!("Failed to get outbox for request from {from_device}: {e}");
             }
         },
+        SyncMessage::DeltaRequest { max_lamport_seen } => {
+            tracing::info!("Peer {from_device} requested delta (cursor={max_lamport_seen})");
+            match engine.generate_delta(max_lamport_seen) {
+                Ok(tables) => {
+                    let total_rows: usize = tables.iter().map(|(_, rows)| rows.len()).sum();
+                    tracing::info!("Sending delta: {total_rows} rows across {} tables to {from_device}", tables.len());
+                    for (table, rows) in tables {
+                        let msg = SyncMessage::DeltaResponse {
+                            table,
+                            rows,
+                        };
+                        if let Err(e) = engine
+                            .peer_manager()
+                            .send_raw(
+                                from_device,
+                                serde_json::to_vec(&msg).unwrap_or_default(),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to send delta to {from_device}: {e}");
+                            break;
+                        }
+                    }
+                    // Also send tombstones.
+                    match engine.get_tombstones() {
+                        Ok(tombstones) if !tombstones.is_empty() => {
+                            tracing::info!("Sending {} tombstones to {from_device}", tombstones.len());
+                            let msg = SyncMessage::Changes(tombstones);
+                            let _ = engine
+                                .peer_manager()
+                                .send_raw(from_device, serde_json::to_vec(&msg).unwrap_or_default())
+                                .await;
+                        }
+                        _ => {}
+                    }
+                }
+                Err(e) => tracing::warn!("Failed to generate delta for {from_device}: {e}"),
+            }
+        }
+        SyncMessage::DeltaResponse { table, rows } => {
+            tracing::info!("Received delta: {} rows for table {table} from {from_device}", rows.len());
+            for row in &rows {
+                // Find the primary key value.
+                let row_id = row.get("id")
+                    .or_else(|| row.get("key")) // preferences uses "key" as PK
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let change = super::message::SyncChange {
+                    id: crate::util::new_id(),
+                    table: table.clone(),
+                    row_id: row_id.to_string(),
+                    operation: SyncOp::Upsert,
+                    data: row.clone(),
+                    lamport_ts: row.get("_lamport_ts").and_then(|v| v.as_i64()).unwrap_or(0),
+                    device_id: from_device.to_string(),
+                };
+                if let Err(e) = ChangeMaterializer::apply(&engine.db().conn(), &change) {
+                    tracing::warn!("Failed to apply delta row {table}.{row_id}: {e}");
+                }
+            }
+        }
         SyncMessage::Command(_) | SyncMessage::CommandResult(_) => {
             // Command routing is handled separately by the command dispatcher.
             // These variants are included here for exhaustive matching.

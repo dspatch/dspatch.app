@@ -16,6 +16,7 @@ use webrtc::ice_transport::ice_server::RTCIceServer;
 use super::backend_client::BackendWsClient;
 use super::peer_connection::PeerConnectionManager;
 use super::signaling::{SignalingEvent, WsClientMessage};
+use super::sync_engine::SyncEngine;
 use super::webrtc_transport::WebRtcTransport;
 
 /// Spawns the P2P connection orchestrator as a background task.
@@ -24,6 +25,7 @@ pub fn spawn_p2p_connector(
     signaling_rx: Arc<Mutex<mpsc::Receiver<SignalingEvent>>>,
     ws_client: Arc<BackendWsClient>,
     peer_manager: Arc<PeerConnectionManager>,
+    sync_engine: Arc<SyncEngine>,
     cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -54,9 +56,10 @@ pub fn spawn_p2p_connector(
                                 let transports = Arc::clone(&transports);
                                 let ws = Arc::clone(&ws_client);
                                 let pm = Arc::clone(&peer_manager);
+                                let se = Arc::clone(&sync_engine);
                                 let peer_id = device_id.clone();
                                 tokio::spawn(async move {
-                                    if let Err(e) = initiate_connection(&peer_id, &transports, &ws, &pm).await {
+                                    if let Err(e) = initiate_connection(&peer_id, &transports, &ws, &pm, &se).await {
                                         tracing::warn!("WebRTC offer to {peer_id} failed: {e}");
                                     }
                                 });
@@ -76,9 +79,10 @@ pub fn spawn_p2p_connector(
                             let transports = Arc::clone(&transports);
                             let ws = Arc::clone(&ws_client);
                             let pm = Arc::clone(&peer_manager);
+                            let se = Arc::clone(&sync_engine);
                             let peer_id = from_device.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = accept_connection(&peer_id, &sdp, &transports, &ws, &pm).await {
+                                if let Err(e) = accept_connection(&peer_id, &sdp, &transports, &ws, &pm, &se).await {
                                     tracing::warn!("WebRTC answer to {peer_id} failed: {e}");
                                 }
                             });
@@ -131,6 +135,7 @@ async fn initiate_connection(
     transports: &Arc<Mutex<HashMap<String, Arc<WebRtcTransport>>>>,
     ws: &Arc<BackendWsClient>,
     peer_manager: &Arc<PeerConnectionManager>,
+    sync_engine: &Arc<SyncEngine>,
 ) -> crate::util::result::Result<()> {
     let ice_servers = vec![RTCIceServer {
         urls: vec!["stun:stun.l.google.com:19302".to_string()],
@@ -172,12 +177,14 @@ async fn initiate_connection(
     let transport_ready = Arc::clone(&transport);
     let peer_id_owned = peer_id.to_string();
     let pm = Arc::clone(peer_manager);
+    let se = Arc::clone(sync_engine);
     tokio::spawn(async move {
         transport_ready.wait_ready().await;
         tracing::info!("WebRTC data channel open with {peer_id_owned}");
         register_transport(&peer_id_owned, &transport_ready, &pm).await;
-        // Request full state from peer to sync pre-existing data.
-        request_full_state(&peer_id_owned, &pm).await;
+        // Request delta from peer — send our max lamport so they know what to skip.
+        let max_ts = se.max_lamport_ts();
+        request_delta_sync(&peer_id_owned, &pm, max_ts).await;
     });
 
     Ok(())
@@ -190,6 +197,7 @@ async fn accept_connection(
     transports: &Arc<Mutex<HashMap<String, Arc<WebRtcTransport>>>>,
     ws: &Arc<BackendWsClient>,
     peer_manager: &Arc<PeerConnectionManager>,
+    sync_engine: &Arc<SyncEngine>,
 ) -> crate::util::result::Result<()> {
     let ice_servers = vec![RTCIceServer {
         urls: vec!["stun:stun.l.google.com:19302".to_string()],
@@ -231,40 +239,41 @@ async fn accept_connection(
     let transport_ready = Arc::clone(&transport);
     let peer_id_owned = peer_id.to_string();
     let pm = Arc::clone(peer_manager);
+    let se = Arc::clone(sync_engine);
     tokio::spawn(async move {
         transport_ready.wait_ready().await;
         tracing::info!("WebRTC data channel open with {peer_id_owned}");
         register_transport(&peer_id_owned, &transport_ready, &pm).await;
-        // Request full state from peer to sync pre-existing data.
-        request_full_state(&peer_id_owned, &pm).await;
+        // Request delta from peer.
+        let max_ts = se.max_lamport_ts();
+        request_delta_sync(&peer_id_owned, &pm, max_ts).await;
     });
 
     Ok(())
 }
 
-/// Triggers initial reconciliation with a peer on connection.
+/// Sends a delta sync request to a peer on connection.
 ///
-/// Instead of sending the full database, we use cursor-based delta sync:
-/// - Send all rows with `_lamport_ts > 0` that the peer hasn't seen (via outbox cursors)
-/// - Send all rows with `_lamport_ts = 0` (pre-existing data never synced)
-/// - Send tombstones for deleted rows
+/// Sends the local max _lamport_ts so the peer knows what we already have.
+/// The peer responds with only the rows that have changed since that cursor,
+/// plus any rows with _lamport_ts = 0 (pre-existing, never synced).
 ///
-/// Both sides do this simultaneously, so both end up with each other's data.
-async fn request_full_state(peer_id: &str, peer_manager: &PeerConnectionManager) {
-    // Send RequestFullState — the sync_loop handler generates and sends all data.
-    // This includes pre-existing rows (_lamport_ts = 0) and all outbox changes.
-    let msg = crate::sync::SyncMessage::RequestFullState;
+/// On first-ever sync (max_lamport_seen = 0), the peer sends everything.
+async fn request_delta_sync(peer_id: &str, peer_manager: &PeerConnectionManager, max_lamport: i64) {
+    let msg = crate::sync::SyncMessage::DeltaRequest {
+        max_lamport_seen: max_lamport,
+    };
     let data = match serde_json::to_vec(&msg) {
         Ok(d) => d,
         Err(e) => {
-            tracing::warn!("Failed to serialize RequestFullState: {e}");
+            tracing::warn!("Failed to serialize DeltaRequest: {e}");
             return;
         }
     };
     if let Err(e) = peer_manager.send_raw(peer_id, data).await {
-        tracing::warn!("Failed to send RequestFullState to {peer_id}: {e}");
+        tracing::warn!("Failed to send DeltaRequest to {peer_id}: {e}");
     } else {
-        tracing::info!("Requested full state from {peer_id}");
+        tracing::info!("Requested delta sync from {peer_id} (cursor={max_lamport})");
     }
 }
 

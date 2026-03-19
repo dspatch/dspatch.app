@@ -110,4 +110,15 @@ pub enum SyncMessage {
         chunk_index: u32,
         total_chunks: u32,
     },
+    /// Delta sync request: "send me all rows with _lamport_ts > this value,
+    /// plus all rows with _lamport_ts = 0 (pre-existing, never synced)."
+    DeltaRequest {
+        /// The highest _lamport_ts the requester has already seen.
+        max_lamport_seen: i64,
+    },
+    /// Delta sync response: rows that changed since max_lamport_seen.
+    DeltaResponse {
+        table: String,
+        rows: Vec<serde_json::Value>,
+    },
 }

@@ -902,6 +902,7 @@ impl DspatchSdk {
                 signaling_rx,
                 Arc::clone(&ws),
                 Arc::clone(engine.peer_manager()),
+                Arc::clone(&engine),
                 cancel.clone(),
             );
             tracing::info!("P2P connector spawned — will auto-connect peers");

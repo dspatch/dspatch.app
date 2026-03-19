@@ -541,6 +541,70 @@ impl SyncEngine {
         Ok(chunks)
     }
 
+    /// Returns the highest _lamport_ts across all synced tables.
+    pub fn max_lamport_ts(&self) -> i64 {
+        use super::table_class::TableClassification;
+        let conn = self.db.conn();
+        let mut max_ts: i64 = 0;
+        for table in TableClassification::synced_tables() {
+            let ts: i64 = conn.query_row(
+                &format!("SELECT COALESCE(MAX(_lamport_ts), 0) FROM {table}"),
+                [],
+                |row| row.get(0),
+            ).unwrap_or(0);
+            if ts > max_ts { max_ts = ts; }
+        }
+        max_ts
+    }
+
+    /// Generates delta data for a peer: all rows where _lamport_ts > peer_cursor
+    /// OR _lamport_ts = 0 (pre-existing data never synced).
+    /// Returns (table_name, rows_json) pairs.
+    pub fn generate_delta(&self, peer_cursor: i64) -> Result<Vec<(String, Vec<serde_json::Value>)>> {
+        use super::table_class::TableClassification;
+
+        let mut result = Vec::new();
+
+        for table in TableClassification::synced_tables() {
+            let conn = self.db.conn();
+
+            // Get rows that are newer than peer's cursor OR never synced (_lamport_ts = 0).
+            let query = if peer_cursor == 0 {
+                // First sync: send everything.
+                format!("SELECT * FROM {table}")
+            } else {
+                // Delta: only rows changed since peer_cursor or never synced.
+                format!("SELECT * FROM {table} WHERE _lamport_ts > {peer_cursor} OR _lamport_ts = 0")
+            };
+
+            let mut stmt = conn.prepare(&query)
+                .map_err(|e| AppError::Storage(format!("Delta query failed for {table}: {e}")))?;
+
+            let col_count = stmt.column_count();
+            let col_names: Vec<String> = (0..col_count)
+                .map(|i| stmt.column_name(i).unwrap_or("?").to_string())
+                .collect();
+
+            let rows: Vec<serde_json::Value> = stmt.query_map([], |row| {
+                let mut map = serde_json::Map::new();
+                for (i, name) in col_names.iter().enumerate() {
+                    let val: rusqlite::types::Value = row.get_unwrap(i);
+                    map.insert(name.clone(), rusqlite_to_json(val));
+                }
+                Ok(serde_json::Value::Object(map))
+            })
+            .map_err(|e| AppError::Storage(format!("Delta query failed for {table}: {e}")))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+            if !rows.is_empty() {
+                result.push((table.to_string(), rows));
+            }
+        }
+
+        Ok(result)
+    }
+
     /// Returns all tombstones as SyncChange delete operations.
     pub fn get_tombstones(&self) -> Result<Vec<SyncChange>> {
         let conn = self.db.conn();
