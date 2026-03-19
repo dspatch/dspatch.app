@@ -78,7 +78,7 @@ async fn flush_outbox(engine: &SyncEngine) -> crate::util::result::Result<()> {
     for peer_id in &peers {
         match engine.sync_to_peer(peer_id).await {
             Ok(count) if count > 0 => {
-                tracing::debug!("Synced {count} changes to {peer_id}");
+                tracing::info!("Synced {count} changes to {peer_id}");
             }
             Ok(_) => {} // Nothing to sync.
             Err(e) => {
@@ -96,7 +96,7 @@ async fn handle_incoming(engine: &SyncEngine, from_device: &str, message: SyncMe
             let last_id = changes.last().map(|c| c.id.clone());
             match engine.apply_remote_changes(changes) {
                 Ok(applied) => {
-                    tracing::debug!("Applied {applied} remote changes from {from_device}");
+                    tracing::info!("Applied {applied} remote changes from {from_device}");
                     // Send acknowledgement.
                     if let Some(id) = last_id {
                         let ack = SyncMessage::Ack { last_id: id };

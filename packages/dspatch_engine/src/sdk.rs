@@ -1053,13 +1053,14 @@ impl DspatchSdk {
     /// Uses the engine WS client's online peer tracking (from backend
     /// device:online/device:offline/device:roster events).
     pub async fn online_devices(&self) -> Vec<String> {
+        let my_id = self.device_service.current_device().id.clone();
         // Primary: WS client tracks online peers from backend events.
         if let Some(ws) = self.ws_client.read().await.as_ref() {
-            return ws.online_peers().await;
+            return ws.online_peers().await.into_iter().filter(|id| *id != my_id).collect();
         }
         // Fallback: P2P-connected peers from sync engine.
         match self.sync_engine.read().await.as_ref() {
-            Some(engine) => engine.peer_manager().connected_devices().await,
+            Some(engine) => engine.peer_manager().connected_devices().await.into_iter().filter(|id| *id != my_id).collect(),
             None => Vec::new(),
         }
     }
