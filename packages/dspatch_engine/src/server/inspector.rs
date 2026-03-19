@@ -37,7 +37,7 @@ pub struct PackageInspectorService {
     max_entries: usize,
     enabled: bool,
     buffers: Mutex<HashMap<String, Vec<PackageLogEntry>>>,
-    listeners: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
+    listeners: Mutex<Vec<std::sync::Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl PackageInspectorService {
@@ -67,15 +67,20 @@ impl PackageInspectorService {
 
     pub fn add_listener<F: Fn() + Send + Sync + 'static>(&self, listener: F) {
         if let Ok(mut listeners) = self.listeners.lock() {
-            listeners.push(Box::new(listener));
+            listeners.push(std::sync::Arc::new(listener));
         }
     }
 
     fn notify_listeners(&self) {
-        if let Ok(listeners) = self.listeners.lock() {
-            for listener in listeners.iter() {
-                listener();
-            }
+        // Clone the Arc list and drop the lock before invoking callbacks so
+        // that listeners can safely re-enter the inspector (e.g. to read entries)
+        // without deadlocking.
+        let listeners = match self.listeners.lock() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        };
+        for listener in &listeners {
+            listener();
         }
     }
 

@@ -187,12 +187,13 @@ impl HostRouter {
             .register_workspace_run(workspace_id, run_id);
     }
 
-    pub fn deregister_workspace_run(&self, workspace_id: &str) {
+    pub async fn deregister_workspace_run(&self, workspace_id: &str) {
         // Look up the run_id before deregistering so we can clean up
         // heartbeat_log_times (keyed by run_id).
         let run_id = self.event_service.active_run_id(workspace_id);
         self.event_service
-            .deregister_workspace_run(workspace_id);
+            .deregister_workspace_run(workspace_id)
+            .await;
         if let Some(run_id) = run_id {
             self.heartbeat_log_times
                 .lock()

@@ -315,7 +315,7 @@ impl WorkspaceBridge {
                 {
                     let server = self.server.lock().await;
                     if let Some(ref router) = server.host_router() {
-                        router.event_service.deregister_workspace_run(workspace_id);
+                        router.event_service.deregister_workspace_run(workspace_id).await;
                     }
                     server.deregister_run(&run_id).await;
                 }
@@ -978,7 +978,8 @@ impl WorkspaceBridge {
                         if let Some(ref router) = server.host_router() {
                             router
                                 .event_service
-                                .deregister_workspace_run(&ws.id);
+                                .deregister_workspace_run(&ws.id)
+                                .await;
                         }
                         failed += 1;
                     }
@@ -995,7 +996,8 @@ impl WorkspaceBridge {
                     if let Some(ref router) = server.host_router() {
                         router
                             .event_service
-                            .deregister_workspace_run(&ws.id);
+                            .deregister_workspace_run(&ws.id)
+                            .await;
                     }
                     failed += 1;
                 }

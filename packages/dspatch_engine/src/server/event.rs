@@ -226,32 +226,29 @@ impl EventService {
             .insert(run_id.to_string(), workspace_id.to_string());
     }
 
-    pub fn deregister_workspace_run(&self, workspace_id: &str) {
+    pub async fn deregister_workspace_run(&self, workspace_id: &str) {
         let run_id = self.active_run_ids.write().unwrap_or_else(|e| e.into_inner()).remove(workspace_id);
         if let Some(run_id) = run_id {
             self.run_id_to_workspace_id.write().unwrap_or_else(|e| e.into_inner()).remove(&run_id);
         }
-        // pending_auto_start still uses tokio::sync::Mutex, so we spawn to clean it.
-        // However since this method is now sync, we do a blocking lock on the tokio mutex.
-        // Actually, pending_auto_start is only used in async contexts, so let's just
-        // leave this as a separate async call or use try_lock.
-        if let Ok(mut pending) = self.pending_auto_start.try_lock() {
-            pending.retain(|(ws, _)| ws != workspace_id);
-        }
-        // Clean up in-memory maps to prevent unbounded growth across run restarts.
-        // These maps use tokio::sync::Mutex; use try_lock (non-blocking) since
-        // deregister_workspace_run is called from sync contexts. If the lock is
-        // contended, the entries will be cleaned up lazily on the next run start
-        // or via dispose().
-        if let Ok(mut links) = self.links.try_lock() {
-            links.retain(|_, link| link.workspace_id != workspace_id);
-        }
-        if let Ok(mut conv) = self.conversation_instances.try_lock() {
-            conv.retain(|(ws, _, _), _| ws != workspace_id);
-        }
-        if let Ok(mut bubbles) = self.pending_bubbles.try_lock() {
-            bubbles.retain(|_, b| b.workspace_id != workspace_id);
-        }
+        // Use blocking `.lock().await` so cleanup always completes, even when
+        // locks are contended. All callers are now async.
+        self.pending_auto_start
+            .lock()
+            .await
+            .retain(|(ws, _)| ws != workspace_id);
+        self.links
+            .lock()
+            .await
+            .retain(|_, link| link.workspace_id != workspace_id);
+        self.conversation_instances
+            .lock()
+            .await
+            .retain(|(ws, _, _), _| ws != workspace_id);
+        self.pending_bubbles
+            .lock()
+            .await
+            .retain(|_, b| b.workspace_id != workspace_id);
         // Note: instance_chains is keyed by instance_id with no workspace reference;
         // it is cleaned up by clear_workspace_chains() (called on stop) or dispose().
         tracing::debug!(workspace_id, "Cleaned up in-memory maps for workspace run");
@@ -299,7 +296,7 @@ impl EventService {
     }
 
     pub async fn remove_workspace(&self, workspace_id: &str) {
-        self.deregister_workspace_run(workspace_id);
+        self.deregister_workspace_run(workspace_id).await;
         self.hierarchies.lock().await.remove(workspace_id);
         self.flat_agents.lock().await.remove(workspace_id);
 
