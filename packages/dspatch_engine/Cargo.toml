@@ -68,6 +68,9 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 
+# Synchronization primitives (non-poisoning mutex)
+parking_lot = "0.12"
+
 # Regex (lightweight, no-std compatible)
 regex-lite = "0.1"
 once_cell = "1"

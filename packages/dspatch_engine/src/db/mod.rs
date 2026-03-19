@@ -13,8 +13,9 @@ pub mod reactive;
 pub mod schema;
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use parking_lot::Mutex;
 use rusqlite::Connection;
 
 use crate::util::error::AppError;
@@ -102,17 +103,15 @@ impl Database {
     /// Executes a SQL statement with parameters and returns the number of
     /// affected rows.
     pub fn execute(&self, sql: &str, params: &[&dyn rusqlite::types::ToSql]) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| {
-            AppError::Storage(format!("Failed to acquire database lock: {e}"))
-        })?;
+        let conn = self.conn.lock();
         conn.execute(sql, params).map_err(|e| {
             AppError::Storage(format!("SQL execution failed: {e}"))
         })
     }
 
     /// Returns a guard to the underlying connection for direct use.
-    pub fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
-        self.conn.lock().expect("database lock poisoned")
+    pub fn conn(&self) -> parking_lot::MutexGuard<'_, Connection> {
+        self.conn.lock()
     }
 
     /// Returns a reference to the change tracker (for building reactive

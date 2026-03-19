@@ -40,12 +40,12 @@ impl HubApiClient {
 
     /// Returns a clone of the current auth token, if set.
     pub fn auth_token(&self) -> Option<String> {
-        self.auth_token.read().unwrap().clone()
+        self.auth_token.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Sets the auth token for authenticated endpoints.
     pub fn set_auth_token(&self, token: Option<String>) {
-        *self.auth_token.write().unwrap() = token;
+        *self.auth_token.write().unwrap_or_else(|e| e.into_inner()) = token;
     }
 
     // ─── Public -- Agents ─────────────────────────────────────────────
@@ -400,7 +400,7 @@ impl HubApiClient {
         if let Some(params) = params {
             request = request.query(params);
         }
-        if let Some(ref token) = *self.auth_token.read().unwrap() {
+        if let Some(ref token) = *self.auth_token.read().unwrap_or_else(|e| e.into_inner()) {
             request = request.header("Authorization", format!("Bearer {token}"));
         }
 
@@ -426,7 +426,7 @@ impl HubApiClient {
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
             .json(body);
-        if let Some(ref token) = *self.auth_token.read().unwrap() {
+        if let Some(ref token) = *self.auth_token.read().unwrap_or_else(|e| e.into_inner()) {
             request = request.header("Authorization", format!("Bearer {token}"));
         }
 

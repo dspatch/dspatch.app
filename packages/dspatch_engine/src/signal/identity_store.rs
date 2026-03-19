@@ -2,7 +2,9 @@
 
 //! SQLite-backed identity key store implementing `libsignal_protocol::IdentityKeyStore`.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use async_trait::async_trait;
 use libsignal_protocol::*;
@@ -68,7 +70,7 @@ impl IdentityKeyStore for SqliteIdentityStore {
         let device_id: u32 = address.device_id().into();
         let key_bytes = identity.serialize().to_vec();
 
-        let conn = self.conn.lock().map_err(|e| store_err("save_identity", e.to_string()))?;
+        let conn = self.conn.lock();
 
         let existing: Option<Vec<u8>> = conn
             .query_row(
@@ -112,7 +114,7 @@ impl IdentityKeyStore for SqliteIdentityStore {
         let addr_name = address.name().to_string();
         let device_id: u32 = address.device_id().into();
 
-        let conn = self.conn.lock().map_err(|e| store_err("is_trusted_identity", e.to_string()))?;
+        let conn = self.conn.lock();
 
         let existing: Option<Vec<u8>> = conn
             .query_row(
@@ -135,7 +137,7 @@ impl IdentityKeyStore for SqliteIdentityStore {
         let addr_name = address.name().to_string();
         let device_id: u32 = address.device_id().into();
 
-        let conn = self.conn.lock().map_err(|e| store_err("get_identity", e.to_string()))?;
+        let conn = self.conn.lock();
 
         let key_bytes: Option<Vec<u8>> = conn
             .query_row(

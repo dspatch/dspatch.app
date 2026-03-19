@@ -11,6 +11,8 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use parking_lot::Mutex as ParkingMutex;
+
 use axum::extract::ws::WebSocket;
 
 use crate::db::dao::WorkspaceDao;
@@ -43,7 +45,7 @@ pub struct HostRouter {
 
     /// Tracks the last time a heartbeat was logged per (run_id, agent_name).
     /// Used to throttle heartbeat logging to once per 3 minutes.
-    heartbeat_log_times: std::sync::Mutex<HashMap<(String, String), std::time::Instant>>,
+    heartbeat_log_times: ParkingMutex<HashMap<(String, String), std::time::Instant>>,
 }
 
 impl HostRouter {
@@ -77,7 +79,7 @@ impl HostRouter {
             package_inspector: inspector,
             workspace_dao,
             promoted_runs: tokio::sync::Mutex::new(HashSet::new()),
-            heartbeat_log_times: std::sync::Mutex::new(HashMap::new()),
+            heartbeat_log_times: ParkingMutex::new(HashMap::new()),
         })
     }
 
@@ -421,7 +423,7 @@ impl HostRouter {
                     tokio::spawn(async move {
                         // Log heartbeat summary — throttled to once per 3 minutes.
                         let should_log = {
-                            let mut times = router.heartbeat_log_times.lock().unwrap_or_else(|e| e.into_inner());
+                            let mut times = router.heartbeat_log_times.lock();
                             let key = (r_id.clone(), agent_name.clone());
                             let now = std::time::Instant::now();
                             match times.get(&key) {

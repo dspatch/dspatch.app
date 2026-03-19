@@ -2,7 +2,9 @@
 
 //! SQLite-backed signed prekey store implementing `libsignal_protocol::SignedPreKeyStore`.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use async_trait::async_trait;
 use libsignal_protocol::*;
 use rusqlite::Connection;
@@ -38,7 +40,7 @@ impl SqliteSignedPreKeyStore {
 impl SignedPreKeyStore for SqliteSignedPreKeyStore {
     async fn get_signed_pre_key(&self, signed_prekey_id: SignedPreKeyId) -> Result<SignedPreKeyRecord, SignalProtocolError> {
         let id: u32 = signed_prekey_id.into();
-        let conn = self.conn.lock().map_err(|e| store_err("get_signed_pre_key", e.to_string()))?;
+        let conn = self.conn.lock();
 
         let record_bytes: Vec<u8> = conn
             .query_row("SELECT record FROM signal_signed_prekeys WHERE id = ?1", rusqlite::params![id], |row| row.get(0))
@@ -51,7 +53,7 @@ impl SignedPreKeyStore for SqliteSignedPreKeyStore {
         let id: u32 = signed_prekey_id.into();
         let record_bytes = record.serialize()?;
         let created_at = chrono::Utc::now().to_rfc3339();
-        let conn = self.conn.lock().map_err(|e| store_err("save_signed_pre_key", e.to_string()))?;
+        let conn = self.conn.lock();
 
         conn.execute("INSERT OR REPLACE INTO signal_signed_prekeys (id, record, created_at) VALUES (?1, ?2, ?3)", rusqlite::params![id, &record_bytes, &created_at])
             .map_err(|e| store_err("save_signed_pre_key", e.to_string()))?;

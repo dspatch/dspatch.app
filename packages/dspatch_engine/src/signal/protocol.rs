@@ -2,7 +2,9 @@
 
 //! SignalService — wrapper around `libsignal-protocol` for E2E encrypted messaging.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use std::time::SystemTime;
 
 use libsignal_protocol::*;

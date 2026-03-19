@@ -100,19 +100,19 @@ pub mod testing {
 
     impl SecretStore for InMemorySecretStore {
         fn read(&self, key: &str) -> Result<Option<String>> {
-            Ok(self.data.lock().unwrap().get(key).cloned())
+            Ok(self.data.lock().unwrap_or_else(|e| e.into_inner()).get(key).cloned())
         }
 
         fn write(&self, key: &str, value: &str) -> Result<()> {
             self.data
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .insert(key.to_string(), value.to_string());
             Ok(())
         }
 
         fn delete(&self, key: &str) -> Result<()> {
-            self.data.lock().unwrap().remove(key);
+            self.data.lock().unwrap_or_else(|e| e.into_inner()).remove(key);
             Ok(())
         }
     }

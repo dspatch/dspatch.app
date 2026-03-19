@@ -63,21 +63,21 @@ impl LocalDeviceService {
     /// Sets the device ID. Called when the device registers with the backend.
     /// Thread-safe via interior mutability.
     pub fn set_device_id(&self, device_id: &str) {
-        self.device.write().unwrap().id = device_id.to_string();
+        self.device.write().unwrap_or_else(|e| e.into_inner()).id = device_id.to_string();
     }
 
     /// Returns `true` if multi-device sync is active (device has a server-assigned ID).
     pub fn is_multi_device_enabled(&self) -> bool {
-        self.device.read().unwrap().id != "local"
+        self.device.read().unwrap_or_else(|e| e.into_inner()).id != "local"
     }
 
     /// Returns a clone of the current device.
     pub fn current_device(&self) -> Device {
-        self.device.read().unwrap().clone()
+        self.device.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Returns the local device as the only "online desktop".
     pub fn online_desktops(&self) -> Vec<Device> {
-        vec![self.device.read().unwrap().clone()]
+        vec![self.device.read().unwrap_or_else(|e| e.into_inner()).clone()]
     }
 }

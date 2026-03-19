@@ -9,13 +9,14 @@
 
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use futures::Stream;
 use rusqlite::Connection;
 use tokio::sync::broadcast;
 
-use crate::util::error::AppError;
 use crate::util::result::Result;
 
 /// Capacity of each per-table broadcast channel.  Slow receivers that fall
@@ -51,7 +52,7 @@ impl TableChangeTracker {
 
         conn.update_hook(Some(
             move |_action: rusqlite::hooks::Action, _db: &str, table: &str, _rowid: i64| {
-                let senders = senders.lock().unwrap();
+                let senders = senders.lock();
                 if let Some(tx) = senders.get(table) {
                     // Ignore send errors — they just mean no active receivers.
                     let _ = tx.send(());
@@ -72,7 +73,7 @@ impl TableChangeTracker {
     /// receiver from a *merged* channel.  For the common case (watching 1-3
     /// tables) this is efficient enough.
     pub fn subscribe(&self, tables: &[&str]) -> broadcast::Receiver<()> {
-        let mut senders = self.senders.lock().unwrap();
+        let mut senders = self.senders.lock();
 
         // We create a dedicated merge channel for this subscription.
         // Each table sender will forward into it.
@@ -106,7 +107,7 @@ impl TableChangeTracker {
     /// Fires a manual change notification for the given table.
     /// Useful for testing or when changes happen outside the update hook.
     pub fn notify(&self, table: &str) {
-        let senders = self.senders.lock().unwrap();
+        let senders = self.senders.lock();
         if let Some(tx) = senders.get(table) {
             let _ = tx.send(());
         }
@@ -136,7 +137,7 @@ where
 {
     // Collect receivers for all tables.
     let mut receivers: Vec<broadcast::Receiver<()>> = {
-        let mut senders = tracker.senders.lock().unwrap();
+        let mut senders = tracker.senders.lock();
         tables
             .iter()
             .map(|&t| {
@@ -157,9 +158,7 @@ where
         let db = Arc::clone(&db);
         let query = Arc::clone(&query);
         move || -> Result<Vec<T>> {
-            let conn = db.lock().map_err(|e| {
-                AppError::Storage(format!("Failed to acquire database lock: {e}"))
-            })?;
+            let conn = db.lock();
             query(&conn)
         }
     };

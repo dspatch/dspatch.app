@@ -49,17 +49,17 @@ impl SessionStore {
     /// Registers the hub client so that backend token updates are
     /// automatically forwarded to it.
     pub fn set_hub_client(&self, client: Arc<HubApiClient>) {
-        *self.hub_client.write().unwrap() = Some(client);
+        *self.hub_client.write().unwrap_or_else(|e| e.into_inner()) = Some(client);
     }
 
     /// Returns the shared hub client, if registered.
     pub fn hub_client(&self) -> Option<Arc<HubApiClient>> {
-        self.hub_client.read().unwrap().clone()
+        self.hub_client.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Propagates a backend token to the hub client, if one is registered.
     fn sync_hub_token(&self, token: Option<&String>) {
-        if let Some(hub) = self.hub_client.read().unwrap().as_ref() {
+        if let Some(hub) = self.hub_client.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
             hub.set_auth_token(token.cloned());
         }
     }
@@ -83,16 +83,16 @@ impl SessionStore {
             device_id,
             identity_key_seed,
         };
-        self.sessions.write().unwrap().insert(token.clone(), session);
+        self.sessions.write().unwrap_or_else(|e| e.into_inner()).insert(token.clone(), session);
         token
     }
 
     pub fn validate(&self, token: &str) -> Option<Session> {
-        let session = self.sessions.read().unwrap().get(token).cloned()?;
+        let session = self.sessions.read().unwrap_or_else(|e| e.into_inner()).get(token).cloned()?;
 
         if let Some(exp) = session.expires_at {
             if Utc::now().timestamp() >= exp {
-                self.sessions.write().unwrap().remove(token);
+                self.sessions.write().unwrap_or_else(|e| e.into_inner()).remove(token);
                 return None;
             }
         }
@@ -101,11 +101,11 @@ impl SessionStore {
     }
 
     pub fn has_sessions(&self) -> bool {
-        !self.sessions.read().unwrap().is_empty()
+        !self.sessions.read().unwrap_or_else(|e| e.into_inner()).is_empty()
     }
 
     pub fn remove(&self, token: &str) {
-        self.sessions.write().unwrap().remove(token);
+        self.sessions.write().unwrap_or_else(|e| e.into_inner()).remove(token);
     }
 
     pub fn update_session(
@@ -115,7 +115,7 @@ impl SessionStore {
         expires_at: Option<i64>,
     ) -> bool {
         self.sync_hub_token(backend_token.as_ref());
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
         match sessions.get_mut(token) {
             Some(session) => {
                 session.backend_token = backend_token;
@@ -134,7 +134,7 @@ impl SessionStore {
         identity_key_seed: Option<String>,
     ) {
         self.sync_hub_token(Some(&backend_token));
-        if let Some(session) = self.sessions.write().unwrap().get_mut(session_token) {
+        if let Some(session) = self.sessions.write().unwrap_or_else(|e| e.into_inner()).get_mut(session_token) {
             session.backend_token = Some(backend_token);
             if let Some(id) = device_id {
                 session.device_id = Some(id);
@@ -149,7 +149,7 @@ impl SessionStore {
     /// from a session without removing it. Called on WS disconnect so
     /// credentials don't linger in memory.
     pub fn clear_credentials(&self, session_token: &str) {
-        if let Some(session) = self.sessions.write().unwrap().get_mut(session_token) {
+        if let Some(session) = self.sessions.write().unwrap_or_else(|e| e.into_inner()).get_mut(session_token) {
             session.device_id = None;
             session.identity_key_seed = None;
         }
@@ -159,7 +159,10 @@ impl SessionStore {
         let now = Utc::now().timestamp();
         self.sessions
             .write()
-            .unwrap()
+            .unwrap_or_else(|e| {
+                tracing::warn!("Sessions RwLock poisoned in remove_expired, recovering: {e}");
+                e.into_inner()
+            })
             .retain(|_, session| match session.expires_at {
                 Some(exp) => now < exp,
                 None => true,
@@ -169,7 +172,10 @@ impl SessionStore {
     pub fn backend_token(&self, session_token: &str) -> Option<String> {
         self.sessions
             .read()
-            .unwrap()
+            .unwrap_or_else(|e| {
+                tracing::warn!("Sessions RwLock poisoned in backend_token, recovering: {e}");
+                e.into_inner()
+            })
             .get(session_token)
             .and_then(|s| s.backend_token.clone())
     }

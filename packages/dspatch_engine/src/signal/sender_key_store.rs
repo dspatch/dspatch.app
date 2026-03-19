@@ -2,7 +2,9 @@
 
 //! SQLite-backed sender key store implementing `libsignal_protocol::SenderKeyStore`.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use async_trait::async_trait;
 use libsignal_protocol::*;
 use rusqlite::Connection;
@@ -43,7 +45,7 @@ impl SenderKeyStore for SqliteSenderKeyStore {
         let dist_id = distribution_id.to_string();
         let record_bytes = record.serialize()?;
 
-        let conn = self.conn.lock().map_err(|e| store_err("store_sender_key", e.to_string()))?;
+        let conn = self.conn.lock();
 
         conn.execute("INSERT OR REPLACE INTO signal_sender_keys (sender_address, device_id, distribution_id, record) VALUES (?1, ?2, ?3, ?4)", rusqlite::params![&addr, device_id, &dist_id, &record_bytes])
             .map_err(|e| store_err("store_sender_key", e.to_string()))?;
@@ -55,7 +57,7 @@ impl SenderKeyStore for SqliteSenderKeyStore {
         let device_id: u32 = sender.device_id().into();
         let dist_id = distribution_id.to_string();
 
-        let conn = self.conn.lock().map_err(|e| store_err("load_sender_key", e.to_string()))?;
+        let conn = self.conn.lock();
 
         let record_bytes: Option<Vec<u8>> = conn
             .query_row("SELECT record FROM signal_sender_keys WHERE sender_address = ?1 AND device_id = ?2 AND distribution_id = ?3", rusqlite::params![&addr, device_id, &dist_id], |row| row.get(0))

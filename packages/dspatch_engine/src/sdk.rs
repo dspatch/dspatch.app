@@ -794,7 +794,7 @@ impl DspatchSdk {
             .map_err(|e| AppError::Storage(format!("Signal schema migration failed: {e}")))?;
 
         let signal_service = crate::signal::SignalService::new(
-            Arc::new(std::sync::Mutex::new(signal_conn)),
+            Arc::new(parking_lot::Mutex::new(signal_conn)),
             registration_id,
             identity_key_pair,
         );
