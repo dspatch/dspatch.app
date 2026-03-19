@@ -662,24 +662,39 @@ impl EventService {
 
         let target_instance_id = if instance_alive && continue_conv {
             // Case A: continue existing conversation.
-            existing_instance_id.unwrap()
+            // Safety: instance_alive is only true when existing_instance_id is Some.
+            if let Some(id) = existing_instance_id {
+                id
+            } else {
+                // Should never happen: instance_alive implies Some.
+                tracing::error!("BUG: instance_alive=true but existing_instance_id=None");
+                self.open_new_instance(workspace_id, target_agent, &conv_key, &extended_chain)
+                    .await
+            }
         } else if instance_alive && !continue_conv {
             // Case C: old instance alive but continue=false.
             // Send TerminatePackage, wait for instance gone, then open new.
-            let old_id = existing_instance_id.unwrap();
-            {
-                let sth = self.send_to_host.lock().await;
-                if let Some(ref sth) = *sth {
-                    let terminate_pkg = Package::Terminate(TerminatePackage {
-                        instance_id: old_id.clone(),
-                    });
-                    sth(workspace_id, target_agent, &terminate_pkg);
+            // Safety: instance_alive is only true when existing_instance_id is Some.
+            if let Some(old_id) = existing_instance_id {
+                {
+                    let sth = self.send_to_host.lock().await;
+                    if let Some(ref sth) = *sth {
+                        let terminate_pkg = Package::Terminate(TerminatePackage {
+                            instance_id: old_id.clone(),
+                        });
+                        sth(workspace_id, target_agent, &terminate_pkg);
+                    }
                 }
+                self.wait_for_instance_gone(workspace_id, target_agent, &old_id)
+                    .await;
+                self.open_new_instance(workspace_id, target_agent, &conv_key, &extended_chain)
+                    .await
+            } else {
+                // Should never happen: instance_alive implies Some.
+                tracing::error!("BUG: instance_alive=true but existing_instance_id=None in Case C");
+                self.open_new_instance(workspace_id, target_agent, &conv_key, &extended_chain)
+                    .await
             }
-            self.wait_for_instance_gone(workspace_id, target_agent, &old_id)
-                .await;
-            self.open_new_instance(workspace_id, target_agent, &conv_key, &extended_chain)
-                .await
         } else {
             // Case B: no existing instance or not alive.
             self.open_new_instance(workspace_id, target_agent, &conv_key, &extended_chain)
