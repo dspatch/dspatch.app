@@ -68,3 +68,19 @@ impl PreKeyStore for SqlitePreKeyStore {
         Ok(())
     }
 }
+
+impl SqlitePreKeyStore {
+    /// Returns the number of prekeys currently stored (i.e. not yet consumed).
+    pub async fn count_available(&self) -> usize {
+        let conn = self.conn.lock();
+        conn.query_row("SELECT COUNT(*) FROM signal_prekeys", [], |row| row.get::<_, i64>(0))
+            .unwrap_or(0) as usize
+    }
+
+    /// Returns the highest prekey ID currently stored, or 0 if none exist.
+    pub async fn max_id(&self) -> u32 {
+        let conn = self.conn.lock();
+        conn.query_row("SELECT COALESCE(MAX(id), 0) FROM signal_prekeys", [], |row| row.get::<_, i64>(0))
+            .unwrap_or(0) as u32
+    }
+}

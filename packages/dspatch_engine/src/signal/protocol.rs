@@ -89,6 +89,27 @@ impl SignalService {
         Ok(record)
     }
 
+    /// Returns the number of prekeys currently available in the local store.
+    pub async fn available_prekey_count(&self) -> usize {
+        self.prekey_store.count_available().await
+    }
+
+    /// Generates additional prekeys until the stored count reaches `target_count`.
+    ///
+    /// Returns the newly generated records (empty if already at or above target).
+    pub async fn replenish_prekeys<R: Rng + CryptoRng>(
+        &mut self, target_count: u32, csprng: &mut R,
+    ) -> Result<Vec<PreKeyRecord>, SignalProtocolError> {
+        let current = self.available_prekey_count().await;
+        if current >= target_count as usize {
+            return Ok(vec![]);
+        }
+        let needed = target_count as usize - current;
+        // Start new IDs immediately after the current highest ID.
+        let next_id = self.prekey_store.max_id().await + 1;
+        self.generate_prekeys(next_id, needed as u32, csprng).await
+    }
+
     pub async fn process_prekey_bundle<R: Rng + CryptoRng>(
         &mut self, remote_address: &ProtocolAddress, bundle: &PreKeyBundle, csprng: &mut R,
     ) -> Result<(), SignalProtocolError> {
