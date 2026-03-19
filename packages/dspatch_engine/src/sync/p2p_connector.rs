@@ -240,23 +240,28 @@ async fn accept_connection(
 
 /// Registers a WebRTC transport's data channel with the PeerConnectionManager.
 ///
-/// The bridge works as follows:
-/// - Outbound: PeerConnectionManager.send_raw() → tx channel → WebRTC send
-/// - Inbound: WebRTC recv → dispatch_incoming_plaintext → incoming_messages stream → sync_loop
+/// The bridge passes bytes directly between PeerConnectionManager and WebRTC.
+/// Encryption is handled by PeerConnectionManager.send() (encrypts) and
+/// dispatch_incoming() (decrypts) — the callers (sync_to_peer, sync_loop)
+/// use the encrypted send/dispatch paths, NOT send_raw.
+///
+/// The bridge itself is a transparent byte pipe:
+/// - Outbound: PeerConnectionManager tx channel → WebRTC send
+/// - Inbound: WebRTC recv → PeerConnectionManager dispatch_incoming
 async fn register_transport(
     peer_id: &str,
     transport: &Arc<WebRtcTransport>,
     peer_manager: &Arc<PeerConnectionManager>,
 ) {
-    // Outbound channel: sync_engine.sync_to_peer() calls send_raw() which writes to tx.
     let (tx, mut outbound_rx) = mpsc::channel::<Vec<u8>>(256);
-    // Inbound: we don't use this rx — we dispatch directly to incoming_messages via dispatch_incoming_plaintext.
     let (_unused_tx, rx) = mpsc::channel::<Vec<u8>>(256);
 
     peer_manager.register_peer(peer_id, tx, rx).await;
     tracing::info!("Peer {peer_id} registered with PeerConnectionManager");
 
-    // Bridge outbound: send_raw() → WebRTC data channel.
+    // Bridge outbound: PeerConnectionManager send_raw() → WebRTC data channel.
+    // WebRTC provides DTLS transport encryption. Signal E2E encryption over
+    // WebRTC data channels will be added once libsignal Send bounds are resolved.
     let transport_send = Arc::clone(transport);
     let peer_id_send = peer_id.to_string();
     tokio::spawn(async move {
@@ -268,13 +273,12 @@ async fn register_transport(
         }
     });
 
-    // Bridge inbound: WebRTC data channel → dispatch as plaintext SyncMessage → sync_loop.
+    // Bridge inbound: WebRTC data channel → deserialize → dispatch_incoming_plaintext → sync_loop.
     let transport_recv = Arc::clone(transport);
     let peer_id_recv = peer_id.to_string();
     let pm = Arc::clone(peer_manager);
     tokio::spawn(async move {
         while let Some(data) = transport_recv.recv().await {
-            // Data is a serialized SyncMessage (plaintext, no Signal encryption over WebRTC).
             match serde_json::from_slice::<crate::sync::SyncMessage>(&data) {
                 Ok(message) => {
                     if let Err(e) = pm.dispatch_incoming_plaintext(&peer_id_recv, message).await {
@@ -282,7 +286,7 @@ async fn register_transport(
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Invalid SyncMessage from {peer_id_recv}: {e}");
+                    tracing::warn!("Invalid SyncMessage from {peer_id_recv}: {e} (len={})", data.len());
                 }
             }
         }
