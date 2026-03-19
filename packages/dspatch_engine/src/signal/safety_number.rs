@@ -14,10 +14,12 @@ use sha2::{Sha256, Digest};
 /// following Signal's approach:
 /// 1. Sort the two public keys lexicographically
 /// 2. Concatenate them
-/// 3. Hash with SHA-256 (iterated 5200 times for the full Signal approach,
-///    but we use a single hash for simplicity)
+/// 3. Hash with SHA-256 iterated 5200 times (following Signal's specification)
 /// 4. Convert to numeric digits
 /// 5. Format as 12 groups of 5 digits
+///
+/// **Breaking change**: existing safety numbers derived with 1 iteration are
+/// no longer valid — users must re-verify after upgrading.
 pub fn derive_safety_number(
     local_identity_key: &[u8],
     remote_identity_key: &[u8],
@@ -29,11 +31,21 @@ pub fn derive_safety_number(
         (remote_identity_key, local_identity_key)
     };
 
-    // Hash the concatenated keys.
-    let mut hasher = Sha256::new();
-    hasher.update(first);
-    hasher.update(second);
-    let hash = hasher.finalize();
+    // Build the combined key material (sorted concatenation) used in every iteration.
+    let mut identity_bytes = Vec::with_capacity(first.len() + second.len());
+    identity_bytes.extend_from_slice(first);
+    identity_bytes.extend_from_slice(second);
+
+    // First hash seeds the iteration.
+    let mut hash: Vec<u8> = Sha256::digest(&identity_bytes).to_vec();
+
+    // Iterate 5200 times per Signal's safety-number specification.
+    for _ in 0..5200 {
+        let mut input = Vec::with_capacity(identity_bytes.len() + hash.len());
+        input.extend_from_slice(&identity_bytes);
+        input.extend_from_slice(&hash);
+        hash = Sha256::digest(&input).to_vec();
+    }
 
     // Convert hash bytes to numeric digits.
     // Take 30 bytes (60 digits when each byte maps to 2 digits mod 100).
