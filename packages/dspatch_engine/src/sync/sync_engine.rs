@@ -42,15 +42,28 @@ impl SyncEngine {
         peer_manager: Arc<PeerConnectionManager>,
         device_id: &str,
     ) -> Self {
-        // Bootstrap the lamport clock from persisted outbox.
+        // Bootstrap the Lamport clock from the persisted value.
+        //
+        // Take the max of sync_lamport (which captures merge_lamport writes) and
+        // the outbox high-water mark, so we never go backwards after a restart
+        // regardless of which source is higher.
         let initial_lamport = {
             let conn = db.conn();
-            conn.query_row(
-                "SELECT COALESCE(MAX(lamport_ts), 0) FROM sync_outbox",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .unwrap_or(0)
+            let from_lamport_table: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(ts, 0) FROM sync_lamport WHERE id = 1",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap_or(0);
+            let from_outbox: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(MAX(lamport_ts), 0) FROM sync_outbox",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap_or(0);
+            from_lamport_table.max(from_outbox)
         };
 
         Self {
@@ -77,17 +90,24 @@ impl SyncEngine {
     }
 
     /// Updates the Lamport clock to be at least `remote_ts` (merge rule).
+    ///
+    /// Also persists the new value to `sync_lamport` so the in-memory
+    /// `AtomicI64` and the DB cannot diverge across restarts.
+    ///
+    /// The DB write is best-effort via `try_lock` to avoid deadlocking callers
+    /// that already hold the DB mutex (e.g. inside `apply_remote_changes`).
     fn merge_lamport(&self, remote_ts: i64) {
-        loop {
-            let current = self.lamport_clock.load(Ordering::SeqCst);
-            let new_val = std::cmp::max(current, remote_ts);
-            if self
-                .lamport_clock
-                .compare_exchange(current, new_val, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
-                break;
-            }
+        let new_val = self
+            .lamport_clock
+            .fetch_max(remote_ts + 1, Ordering::SeqCst)
+            .max(remote_ts + 1);
+
+        // Deferred DB sync: skip if the mutex is already held on this thread.
+        if let Some(conn) = self.db.conn_arc().try_lock() {
+            let _ = conn.execute(
+                "UPDATE sync_lamport SET ts = MAX(ts, ?1) WHERE id = 1",
+                rusqlite::params![new_val],
+            );
         }
     }
 
