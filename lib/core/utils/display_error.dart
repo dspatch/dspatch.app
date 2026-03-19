@@ -31,11 +31,18 @@ String displayError(Object error) {
 
 /// Returns true if the error indicates the engine process is unreachable
 /// (connection refused, timeout, etc.).
+///
+/// Uses OS error codes instead of locale-dependent strings so the check
+/// works regardless of the system language.
 bool isEngineUnreachableError(Object error) {
+  if (error is SocketException) {
+    final code = error.osError?.errorCode;
+    // ECONNREFUSED: Linux=111, Windows(WSAECONNREFUSED)=10061, macOS=61
+    if (code == 111 || code == 10061 || code == 61) return true;
+  }
+  // Fallback for HttpClient / WebSocket wrapped errors that surface as
+  // SocketException messages or ClientException with errno.
   final s = error.toString();
-  return s.contains('Connection refused') ||
-      s.contains('Netzwerkverbindung abgelehnt') ||
-      s.contains('SocketException') ||
-      s.contains('TimeoutException') ||
+  return s.contains('TimeoutException') ||
       (s.contains('ClientException') && s.contains('errno'));
 }
