@@ -14,6 +14,7 @@ import '../../engine_client/models/auth_token.dart';
 import '../../engine_client/models/db_state.dart';
 import '../../engine_client/secure_token_store.dart';
 import '../../models/commands/session.dart';
+import '../hub/hub_providers.dart';
 
 part 'auth_controller.g.dart';
 
@@ -478,6 +479,10 @@ class AuthController extends _$AuthController {
     ref.read(dbStateProvider.notifier).state = DbState.unknown;
     ref.read(engineSessionProvider.notifier).state = false;
     ref.read(databaseReadyProvider.notifier).state = false;
+
+    // Clear liked slugs so they don't bleed into the next session.
+    ref.read(likedAgentSlugsProvider.notifier).state = {};
+    ref.read(likedWorkspaceSlugsProvider.notifier).state = {};
 
     // Atomic: clear token, then set phase. Router reacts to phase only.
     _transition(AuthPhase.unauthenticated, clearToken: true);

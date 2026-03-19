@@ -44,25 +44,24 @@ class EngineController extends _$EngineController {
     _setInProgress(true);
     _appendLog('─── Build started ───');
 
-    try {
-      // Attach listener BEFORE sending command to avoid missing early lines.
-      final completer = Completer<bool>();
-      final subscription = _client.events.listen((event) {
-        if (event.name == 'build_log_line') {
-          final line = event.data['line'] as String?;
-          if (line != null) _appendLog(line);
-        } else if (event.name == 'build_complete') {
-          if (!completer.isCompleted) completer.complete(true);
-        } else if (event.name == 'build_failed') {
-          if (!completer.isCompleted) completer.complete(false);
-        }
-      });
+    // Attach listener BEFORE sending command to avoid missing early lines.
+    final completer = Completer<bool>();
+    final subscription = _client.events.listen((event) {
+      if (event.name == 'build_log_line') {
+        final line = event.data['line'] as String?;
+        if (line != null) _appendLog(line);
+      } else if (event.name == 'build_complete') {
+        if (!completer.isCompleted) completer.complete(true);
+      } else if (event.name == 'build_failed') {
+        if (!completer.isCompleted) completer.complete(false);
+      }
+    });
 
+    try {
       // Send command — returns immediately, build runs in background.
       await _client.send(BuildRuntimeImage());
 
       final success = await completer.future;
-      await subscription.cancel();
 
       if (success) {
         _appendLog('─── Build complete ───');
@@ -80,6 +79,7 @@ class EngineController extends _$EngineController {
       toast('Image build failed: $e', type: ToastType.error);
       state = AsyncError(e, StackTrace.current);
     } finally {
+      await subscription.cancel();
       _setInProgress(false);
     }
   }
@@ -295,7 +295,10 @@ class EngineController extends _$EngineController {
 
   void _appendLog(String line) {
     final current = ref.read(operationLogsProvider);
-    ref.read(operationLogsProvider.notifier).state = [...current, line];
+    final updated = [...current, line];
+    // Cap at 1000 entries to prevent unbounded memory growth.
+    ref.read(operationLogsProvider.notifier).state =
+        updated.length > 1000 ? updated.sublist(updated.length - 1000) : updated;
   }
 
   void _clearLogs() {

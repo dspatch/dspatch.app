@@ -200,7 +200,8 @@ final workspaceConfigProvider = FutureProvider.autoDispose
     final response = await ref.read(engineClientProvider)
         .send(RawEngineCommand(method: 'parse_workspace_config', params: {'yaml': file}));
     return response.data;
-  } catch (_) {
+  } catch (e) {
+    debugPrint('[workspaceConfigProvider] Failed to load workspace config: $e');
     return null;
   }
 });

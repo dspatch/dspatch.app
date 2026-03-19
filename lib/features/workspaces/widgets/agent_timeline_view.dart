@@ -1887,9 +1887,14 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
   }
 
   Future<void> _interruptAgent() async {
+    final agentKey = widget.agents
+        .where((a) => a.instanceId == widget.instanceId)
+        .firstOrNull
+        ?.agentKey ?? '';
     await ref.read(workspaceControllerProvider.notifier).interruptInstance(
           widget.runId,
           widget.instanceId,
+          agentKey: agentKey,
         );
   }
 

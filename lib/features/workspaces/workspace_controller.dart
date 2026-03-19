@@ -137,13 +137,13 @@ class WorkspaceController extends _$WorkspaceController {
   }
 
   /// Sends an interrupt signal to a running agent instance.
-  // TODO: InterruptInstance now requires agentKey — callers need to provide it.
   Future<bool> interruptInstance(
     String runId,
-    String instanceId,
-  ) async {
+    String instanceId, {
+    String agentKey = '',
+  }) async {
     try {
-      await _client.send(InterruptInstance(runId: runId, agentKey: '', instanceId: instanceId));
+      await _client.send(InterruptInstance(runId: runId, agentKey: agentKey, instanceId: instanceId));
       return true;
     } catch (e) {
       toast('Failed to interrupt agent: $e', type: ToastType.error);
