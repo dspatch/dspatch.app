@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'package:dspatch_ui/dspatch_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -254,8 +255,9 @@ class _SyncStatusBar extends StatelessWidget {
                 ),
             ],
           ),
+          // Diagnostics (debug builds only)
+          if (kDebugMode) ...[
           const SizedBox(height: Spacing.sm),
-          // Diagnostics
           Wrap(
             spacing: Spacing.md,
             runSpacing: 4,
@@ -277,6 +279,7 @@ class _SyncStatusBar extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ],
+          ], // end kDebugMode
         ],
       ),
     );
