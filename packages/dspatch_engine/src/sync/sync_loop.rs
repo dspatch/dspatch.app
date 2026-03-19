@@ -83,7 +83,13 @@ async fn flush_outbox(engine: &SyncEngine) -> crate::util::result::Result<()> {
             }
             Ok(_) => {} // Nothing to sync.
             Err(e) => {
-                tracing::warn!("Failed to sync to {peer_id}: {e}");
+                let err_str = e.to_string();
+                if err_str.contains("channel closed") || err_str.contains("Not connected") {
+                    tracing::info!("Peer {peer_id} disconnected — removing from sync targets");
+                    engine.peer_manager().disconnect(peer_id).await;
+                } else {
+                    tracing::warn!("Failed to sync to {peer_id}: {e}");
+                }
             }
         }
     }
