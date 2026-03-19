@@ -304,16 +304,22 @@ async fn request_delta_sync(peer_id: &str, peer_manager: &PeerConnectionManager,
 ///
 /// The bridge itself is a transparent byte pipe:
 /// - Outbound: PeerConnectionManager tx channel → WebRTC send
-/// - Inbound: WebRTC recv → PeerConnectionManager dispatch_incoming
+/// - Inbound: WebRTC recv → PeerConnectionManager dispatch_incoming_plaintext
+///
+/// The inbound channel registered with PeerConnectionManager feeds `recv_raw`.
+/// The inbound bridge writes raw WebRTC bytes into this channel so that any
+/// sync_loop code that calls `recv_raw` can also consume inbound messages.
+/// Previously, a dead channel (dropped sender) was registered here, which
+/// made `recv_raw` return `None` immediately for all WebRTC peers.
 async fn register_transport(
     peer_id: &str,
     transport: &Arc<WebRtcTransport>,
     peer_manager: &Arc<PeerConnectionManager>,
 ) {
     let (tx, mut outbound_rx) = mpsc::channel::<Vec<u8>>(256);
-    let (_unused_tx, rx) = mpsc::channel::<Vec<u8>>(256);
+    let (inbound_tx, inbound_rx) = mpsc::channel::<Vec<u8>>(256);
 
-    peer_manager.register_peer(peer_id, tx, rx).await;
+    peer_manager.register_peer(peer_id, tx, inbound_rx).await;
     tracing::info!("Peer {peer_id} registered with PeerConnectionManager");
 
     // Bridge outbound: PeerConnectionManager send_raw() → WebRTC data channel.
@@ -330,12 +336,22 @@ async fn register_transport(
         }
     });
 
-    // Bridge inbound: WebRTC data channel → deserialize → dispatch_incoming_plaintext → sync_loop.
+    // Bridge inbound: WebRTC data channel → inbound_tx (recv_raw) +
+    //                  dispatch_incoming_plaintext (sync_loop direct path).
+    //
+    // Both paths receive every inbound byte:
+    // - inbound_tx feeds recv_raw() for callers that pull from the channel.
+    // - dispatch_incoming_plaintext handles the message immediately in the
+    //   sync loop without requiring an explicit recv_raw poll.
     let transport_recv = Arc::clone(transport);
     let peer_id_recv = peer_id.to_string();
     let pm = Arc::clone(peer_manager);
     spawn_guarded("p2p_webrtc_inbound_bridge", async move {
         while let Some(data) = transport_recv.recv().await {
+            // Feed recv_raw() callers. Drop silently if the channel is full
+            // (back-pressure: the dispatch path below still processes the msg).
+            let _ = inbound_tx.try_send(data.clone());
+
             match serde_json::from_slice::<crate::sync::SyncMessage>(&data) {
                 Ok(message) => {
                     if let Err(e) = pm.dispatch_incoming_plaintext(&peer_id_recv, message).await {
