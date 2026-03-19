@@ -6,12 +6,17 @@
 
 use std::fmt;
 use std::process::Output;
+use std::time::Duration;
 
 use tokio::process::{Child, Command};
+use tokio::time::timeout;
 
 /// Prevents child processes from spawning visible console windows on Windows.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Maximum time to wait for any Docker CLI command to complete.
+const DOCKER_CLI_TIMEOUT: Duration = Duration::from_secs(120);
 
 use once_cell::sync::OnceCell;
 
@@ -75,13 +80,21 @@ impl DockerCli {
     }
 
     /// Runs `docker <args>` and waits for completion.
+    ///
+    /// Times out after [`DOCKER_CLI_TIMEOUT`] to prevent hung Docker daemons
+    /// from stalling the engine indefinitely.
     pub async fn run(&self, args: &[&str]) -> std::io::Result<Output> {
         let binary = self.docker_binary().await;
         let mut cmd = Command::new(binary);
         cmd.args(args);
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd.output().await
+        timeout(DOCKER_CLI_TIMEOUT, cmd.output())
+            .await
+            .map_err(|_| std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("Docker command timed out after {}s", DOCKER_CLI_TIMEOUT.as_secs()),
+            ))?
     }
 
     /// Starts `docker <args>` for streaming stdout (builds, logs).
