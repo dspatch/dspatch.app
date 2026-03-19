@@ -111,6 +111,11 @@ fn reset_and_reopen(
             error!("Failed to delete corrupt DB file: {e}");
         }
     }
+    let db_path_str = db_path.to_string_lossy();
+    let wal_path = format!("{db_path_str}-wal");
+    let shm_path = format!("{db_path_str}-shm");
+    let _ = std::fs::remove_file(&wal_path);
+    let _ = std::fs::remove_file(&shm_path);
     let db = Database::open(db_path, passphrase)?;
     Ok((DbHealthStatus::Reset, db))
 }
