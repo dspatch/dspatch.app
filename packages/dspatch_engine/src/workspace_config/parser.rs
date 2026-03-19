@@ -12,11 +12,11 @@ use super::config::{AgentConfig, WorkspaceConfig};
 /// and `sub_agent_order` fields.
 pub fn parse_workspace_config(yaml: &str) -> Result<WorkspaceConfig> {
     // First pass: extract key ordering from the raw YAML mapping.
-    let value: serde_yaml::Value =
-        serde_yaml::from_str(yaml).context("Invalid workspace config YAML")?;
+    let value: serde_yml::Value =
+        serde_yml::from_str(yaml).context("Invalid workspace config YAML")?;
     // Second pass: deserialize into the typed struct.
     let mut config: WorkspaceConfig =
-        serde_yaml::from_value(value.clone()).context("Invalid workspace config schema")?;
+        serde_yml::from_value(value.clone()).context("Invalid workspace config schema")?;
 
     // Populate ordering fields from the YAML mapping key order.
     if let Some(agents_mapping) = value.get("agents").and_then(|v| v.as_mapping()) {
@@ -33,7 +33,7 @@ pub fn parse_workspace_config(yaml: &str) -> Result<WorkspaceConfig> {
 /// Recursively populates `sub_agent_order` on each `AgentConfig` from the
 /// YAML value tree.
 fn populate_sub_agent_order(
-    parent_value: &serde_yaml::Value,
+    parent_value: &serde_yml::Value,
     agents: &mut std::collections::HashMap<String, AgentConfig>,
 ) {
     let agents_map = match parent_value.get("agents").and_then(|v| v.as_mapping()) {
@@ -60,7 +60,7 @@ fn populate_sub_agent_order(
 
 /// Recursive helper that walks nested sub_agents in the YAML tree.
 fn populate_sub_agent_order_recursive(
-    agent_value: &serde_yaml::Value,
+    agent_value: &serde_yml::Value,
     sub_agents: &mut std::collections::HashMap<String, AgentConfig>,
 ) {
     let sub_map = match agent_value.get("sub_agents").and_then(|v| v.as_mapping()) {
@@ -113,5 +113,5 @@ pub async fn write_workspace_config(project_path: &Path, config: &WorkspaceConfi
 
 /// Encodes a [`WorkspaceConfig`] as a YAML string.
 pub fn encode_yaml(config: &WorkspaceConfig) -> Result<String> {
-    serde_yaml::to_string(config).context("Failed to encode workspace config as YAML")
+    serde_yml::to_string(config).context("Failed to encode workspace config as YAML")
 }
