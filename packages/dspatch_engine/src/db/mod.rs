@@ -71,9 +71,14 @@ impl Database {
 
     /// Common initialisation: schema creation, migrations, hook installation.
     fn init(mut conn: Connection) -> Result<Self> {
-        // Enable WAL mode for better concurrent read performance.
-        conn.execute_batch("PRAGMA journal_mode = WAL;")
-            .map_err(|e| AppError::Storage(format!("Failed to set WAL mode: {e}")))?;
+        // Enable WAL mode, enforce foreign-key constraints, and set a busy
+        // timeout so concurrent writers retry instead of failing immediately.
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA foreign_keys = ON;
+             PRAGMA busy_timeout = 5000;",
+        )
+        .map_err(|e| AppError::Storage(format!("Failed to set connection PRAGMAs: {e}")))?;
 
         // Read stored schema version (SQLite user_version pragma).
         let stored_version: i32 = conn

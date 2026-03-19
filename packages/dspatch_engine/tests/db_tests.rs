@@ -271,6 +271,49 @@ fn test_open_checked_corrupt_database_resets() {
 }
 
 // ---------------------------------------------------------------------------
+// PRAGMA safety (Task 1.3)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_foreign_keys_enabled() {
+    let db = Database::open_in_memory().expect("Failed to open in-memory database");
+    let conn = db.conn();
+    let fk: i32 = conn
+        .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(fk, 1, "foreign_keys must be ON");
+}
+
+#[test]
+fn test_busy_timeout_set() {
+    let db = Database::open_in_memory().expect("Failed to open in-memory database");
+    let conn = db.conn();
+    let bt: i32 = conn
+        .query_row("PRAGMA busy_timeout", [], |r| r.get(0))
+        .unwrap();
+    assert!(bt >= 5000, "busy_timeout must be >= 5000ms, got {bt}");
+}
+
+#[test]
+fn test_wal_mode_enabled() {
+    let db = Database::open_in_memory().expect("Failed to open in-memory database");
+    let conn = db.conn();
+    // In-memory databases report "memory" rather than "wal", so we verify for
+    // on-disk databases via a tempfile.
+    drop(conn);
+    drop(db);
+
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("wal_test.db");
+    let db = Database::open(&db_path, None).expect("Failed to open on-disk database");
+    let conn = db.conn();
+    let mode: String = conn
+        .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(mode, "wal", "journal_mode must be WAL for on-disk databases");
+}
+
+// ---------------------------------------------------------------------------
 // Migration v11 — ephemeral state tables
 // ---------------------------------------------------------------------------
 
