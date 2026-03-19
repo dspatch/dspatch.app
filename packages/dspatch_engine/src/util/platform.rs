@@ -32,15 +32,27 @@ pub fn is_mobile() -> bool {
     is_ios() || is_android()
 }
 
-/// Returns the platform-specific Docker daemon socket path.
+/// Returns the platform-specific Docker daemon socket path, or `None` on
+/// mobile platforms where Docker is unavailable.
 ///
-/// Used by container management to connect to the Docker engine.
-pub fn docker_socket_path() -> &'static str {
-    if cfg!(target_os = "macos") || cfg!(target_os = "linux") {
-        "/var/run/docker.sock"
-    } else if cfg!(target_os = "windows") {
-        r"\\.\pipe\docker_engine"
-    } else {
-        ""
-    }
+/// Callers should treat `None` as "Docker not supported on this platform"
+/// and refuse to create or launch local workspaces accordingly.
+pub fn docker_socket_path() -> Option<&'static str> {
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    return None;
+
+    #[cfg(target_os = "windows")]
+    return Some(r"\\.\pipe\docker_engine");
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    return Some("/var/run/docker.sock");
+
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "linux",
+    )))]
+    return None;
 }

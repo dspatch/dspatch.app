@@ -40,10 +40,15 @@ class PlatformInfo {
   /// Device type category: 'mobile' or 'desktop'.
   static String get deviceType => isMobile ? 'mobile' : 'desktop';
 
-  /// Returns the platform-specific Docker daemon socket path.
-  static String get dockerSocketPath {
-    if (isMacOS || isLinux) return '/var/run/docker.sock';
+  /// Returns the platform-specific Docker daemon socket path, or null on
+  /// mobile platforms where Docker is unavailable.
+  ///
+  /// Callers should treat a null return as "Docker not supported on this
+  /// platform" and suppress any Docker-related UI or logic accordingly.
+  static String? get dockerSocketPath {
+    if (isMobile) return null;
     if (isWindows) return r'\\.\pipe\docker_engine';
-    return '';
+    if (isMacOS || isLinux) return '/var/run/docker.sock';
+    return null;
   }
 }
