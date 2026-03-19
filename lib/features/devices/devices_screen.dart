@@ -260,13 +260,22 @@ class _SyncStatusBar extends StatelessWidget {
             spacing: Spacing.md,
             runSpacing: 4,
             children: [
-              _DiagChip('Device ID', deviceId == 'local' ? 'not set' : '${deviceId.substring(0, 8)}...', deviceId != 'local'),
+              _DiagChip('Device ID', deviceId == 'local' ? 'not set' : '${deviceId.substring(0, 8.clamp(0, deviceId.length))}...', deviceId != 'local'),
               _DiagChip('Database', null, diag['database_open'] == true),
               _DiagChip('Identity key', null, diag['identity_key_stored'] == true),
               _DiagChip('Signal', null, diag['signal_bootstrapped'] == true),
               _DiagChip('Sync engine', null, diag['sync_engine_running'] == true),
             ],
           ),
+          if (diag['last_error'] != null) ...[
+            const SizedBox(height: Spacing.xs),
+            Text(
+              diag['last_error'] as String,
+              style: const TextStyle(fontSize: 11, color: AppColors.error),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ],
       ),
     );

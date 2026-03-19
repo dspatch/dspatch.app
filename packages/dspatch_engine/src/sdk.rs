@@ -131,6 +131,8 @@ pub struct DspatchSdk {
     sync_engine: Arc<RwLock<Option<Arc<crate::sync::SyncEngine>>>>,
     /// Cancellation token for the sync loop.
     sync_cancel: Arc<RwLock<Option<tokio_util::sync::CancellationToken>>>,
+    /// Last error from sync activation (for diagnostics).
+    last_sync_error: Arc<RwLock<Option<String>>>,
 
     /// Shared secret store reference for keyring access outside DatabaseKeyManager.
     secret_store: Arc<dyn SecretStore>,
@@ -232,6 +234,7 @@ impl DspatchSdk {
             signal_service: Arc::new(RwLock::new(None)),
             sync_engine: Arc::new(RwLock::new(None)),
             sync_cancel: Arc::new(RwLock::new(None)),
+            last_sync_error: Arc::new(RwLock::new(None)),
             secret_store: store_arc,
             database: Arc::new(RwLock::new(None)),
             current_db_path: Arc::new(RwLock::new(None)),
@@ -665,15 +668,20 @@ impl DspatchSdk {
             .map_err(|e| AppError::Internal(format!("Failed to store identity key seed: {e}")))?;
 
         // 3. Bootstrap Signal + start sync if DB is ready.
+        *self.last_sync_error.write().await = None;
         if let Some(db) = self.database.read().await.clone() {
             if let Err(e) = self.bootstrap_signal(&db).await {
-                tracing::warn!("Signal bootstrap failed: {e}");
-                return Err(e);
+                let msg = format!("Signal bootstrap failed: {e}");
+                tracing::warn!("{msg}");
+                *self.last_sync_error.write().await = Some(msg.clone());
+                return Err(AppError::Internal(msg));
             }
             if self.signal_service.read().await.is_some() {
                 if let Err(e) = self.start_sync().await {
-                    tracing::warn!("Sync start failed: {e}");
-                    return Err(e);
+                    let msg = format!("Sync start failed: {e}");
+                    tracing::warn!("{msg}");
+                    *self.last_sync_error.write().await = Some(msg.clone());
+                    return Err(AppError::Internal(msg));
                 }
             }
         }
@@ -752,13 +760,12 @@ impl DspatchSdk {
             .map_err(|e| AppError::Internal(format!("Failed to read identity key: {e}")))?
             .ok_or_else(|| AppError::Internal("No identity key seed in keyring".into()))?;
 
-        let seed: [u8; 32] = base64::engine::general_purpose::STANDARD
-            .decode(&seed_bytes)
-            .map_err(|e| AppError::Internal(format!("Invalid identity key seed: {e}")))?
-            .try_into()
-            .map_err(|_| AppError::Internal("Identity key seed must be 32 bytes".into()))?;
+        // The identity key seed arrives as hex-encoded private key bytes from the
+        // Dart client (identityKeyPair.extractPrivateKeyBytes() → hex string).
+        let key_bytes = hex_decode(&seed_bytes)
+            .map_err(|e| AppError::Internal(format!("Invalid identity key hex: {e}")))?;
 
-        let private_key = libsignal_protocol::PrivateKey::deserialize(&seed)
+        let private_key = libsignal_protocol::PrivateKey::deserialize(&key_bytes)
             .map_err(|e| AppError::Internal(format!("Failed to deserialize identity key: {e}")))?;
         let identity_key_pair = libsignal_protocol::IdentityKeyPair::new(
             libsignal_protocol::IdentityKey::new(private_key.public_key()
@@ -930,6 +937,8 @@ impl DspatchSdk {
             false
         };
 
+        let last_error = self.last_sync_error.read().await.clone();
+
         serde_json::json!({
             "state": state,
             "device_id": device_id,
@@ -941,6 +950,7 @@ impl DspatchSdk {
                 "identity_key_stored": has_identity_key,
                 "signal_bootstrapped": has_signal,
                 "sync_engine_running": has_sync_engine,
+                "last_error": last_error,
             }
         })
     }
@@ -983,6 +993,19 @@ impl SecretStore for ArcSecretStoreAdapter {
     fn delete(&self, key: &str) -> Result<()> {
         self.0.delete(key)
     }
+}
+
+// ── Hex decoding ──────────────────────────────────────────────────────
+
+/// Decodes a hex string to bytes.
+fn hex_decode(hex: &str) -> std::result::Result<Vec<u8>, String> {
+    if hex.len() % 2 != 0 {
+        return Err("Odd-length hex string".into());
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).map_err(|e| e.to_string()))
+        .collect()
 }
 
 // ── Default data directory ─────────────────────────────────────────────
