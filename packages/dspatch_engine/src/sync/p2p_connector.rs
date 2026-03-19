@@ -13,26 +13,20 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 
+use super::backend_client::BackendWsClient;
 use super::peer_connection::PeerConnectionManager;
-use super::signaling::{SignalingClient, SignalingEvent};
+use super::signaling::{SignalingEvent, WsClientMessage};
 use super::webrtc_transport::WebRtcTransport;
 
 /// Spawns the P2P connection orchestrator as a background task.
-///
-/// - `my_device_id`: this device's ID (for glare resolution — lower ID initiates)
-/// - `signaling_rx`: receives events from BackendWsClient
-/// - `signaling_client`: sends SDP/ICE through the backend WS
-/// - `peer_manager`: registers data channels for sync
-/// - `cancel`: stops the task
 pub fn spawn_p2p_connector(
     my_device_id: String,
     signaling_rx: Arc<Mutex<mpsc::Receiver<SignalingEvent>>>,
-    signaling_client: Arc<Mutex<SignalingClient>>,
+    ws_client: Arc<BackendWsClient>,
     peer_manager: Arc<PeerConnectionManager>,
     cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        // Track active WebRTC transports by peer device ID.
         let transports: Arc<Mutex<HashMap<String, Arc<WebRtcTransport>>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
@@ -46,21 +40,28 @@ pub fn spawn_p2p_connector(
 
                     match event {
                         SignalingEvent::DeviceOnline { device_id } => {
+                            // Skip self.
+                            if device_id == my_device_id { continue; }
+                            // Skip if already connected.
+                            if peer_manager.connected_devices().await.contains(&device_id) {
+                                tracing::debug!("Already connected to {device_id}, skipping");
+                                continue;
+                            }
+
                             // Glare prevention: lower device ID initiates.
                             if my_device_id < device_id {
                                 tracing::info!("Peer {device_id} online — initiating WebRTC offer");
                                 let transports = Arc::clone(&transports);
-                                let sig = Arc::clone(&signaling_client);
+                                let ws = Arc::clone(&ws_client);
                                 let pm = Arc::clone(&peer_manager);
                                 let peer_id = device_id.clone();
-                                let my_id = my_device_id.clone();
                                 tokio::spawn(async move {
-                                    if let Err(e) = initiate_connection(&my_id, &peer_id, &transports, &sig, &pm).await {
+                                    if let Err(e) = initiate_connection(&peer_id, &transports, &ws, &pm).await {
                                         tracing::warn!("WebRTC offer to {peer_id} failed: {e}");
                                     }
                                 });
                             } else {
-                                tracing::info!("Peer {device_id} online — waiting for their offer (they have lower ID)");
+                                tracing::info!("Peer {device_id} online — waiting for their offer");
                             }
                         }
 
@@ -73,11 +74,11 @@ pub fn spawn_p2p_connector(
                         SignalingEvent::SdpOffer { from_device, sdp } => {
                             tracing::info!("Received SDP offer from {from_device}");
                             let transports = Arc::clone(&transports);
-                            let sig = Arc::clone(&signaling_client);
+                            let ws = Arc::clone(&ws_client);
                             let pm = Arc::clone(&peer_manager);
                             let peer_id = from_device.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = accept_connection(&peer_id, &sdp, &transports, &sig, &pm).await {
+                                if let Err(e) = accept_connection(&peer_id, &sdp, &transports, &ws, &pm).await {
                                     tracing::warn!("WebRTC answer to {peer_id} failed: {e}");
                                 }
                             });
@@ -112,12 +113,23 @@ pub fn spawn_p2p_connector(
     })
 }
 
+/// Sends a signaling message through the backend WS.
+async fn send_signaling(ws: &BackendWsClient, msg: WsClientMessage) -> crate::util::result::Result<()> {
+    let tx = ws.ws_sender().await.ok_or_else(|| {
+        crate::util::error::AppError::Server("Backend WS not connected — cannot send signaling".into())
+    })?;
+    let json = serde_json::to_string(&msg)
+        .map_err(|e| crate::util::error::AppError::Internal(format!("Serialize signaling: {e}")))?;
+    tx.send(json).await
+        .map_err(|_| crate::util::error::AppError::Server("Backend WS channel closed".into()))?;
+    Ok(())
+}
+
 /// Initiates a WebRTC connection to a peer (offerer side).
 async fn initiate_connection(
-    my_device_id: &str,
     peer_id: &str,
     transports: &Arc<Mutex<HashMap<String, Arc<WebRtcTransport>>>>,
-    signaling: &Arc<Mutex<SignalingClient>>,
+    ws: &Arc<BackendWsClient>,
     peer_manager: &Arc<PeerConnectionManager>,
 ) -> crate::util::result::Result<()> {
     let ice_servers = vec![RTCIceServer {
@@ -125,30 +137,45 @@ async fn initiate_connection(
         ..Default::default()
     }];
 
-    // Create offer.
     let (transport, offer_sdp) = WebRtcTransport::create_offer(ice_servers).await?;
     let transport = Arc::new(transport);
 
-    // Store transport for answer/ICE handling.
     transports.lock().await.insert(peer_id.to_string(), Arc::clone(&transport));
 
-    // Send offer via signaling.
-    {
-        let sig = signaling.lock().await;
-        sig.send_sdp_offer(peer_id, &offer_sdp).await?;
-    }
+    // Send offer.
+    send_signaling(ws, WsClientMessage::WebRtcOffer {
+        target_device_id: peer_id.to_string(),
+        encrypted_sdp: offer_sdp,
+    }).await?;
 
-    // Send ICE candidates.
-    send_ice_candidates(&transport, peer_id, signaling).await;
+    tracing::info!("SDP offer sent to {peer_id}");
 
-    // Wait for data channel to open.
-    let transport_clone = Arc::clone(&transport);
+    // Send ICE candidates after a brief gathering delay.
+    let ws_ice = Arc::clone(ws);
+    let transport_ice = Arc::clone(&transport);
+    let peer_id_ice = peer_id.to_string();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let candidates = transport_ice.pending_ice_candidates().await;
+        tracing::info!("Sending {} ICE candidates to {peer_id_ice}", candidates.len());
+        for candidate in candidates {
+            if let Err(e) = send_signaling(&ws_ice, WsClientMessage::WebRtcIce {
+                target_device_id: peer_id_ice.clone(),
+                encrypted_candidate: candidate,
+            }).await {
+                tracing::warn!("Failed to send ICE candidate to {peer_id_ice}: {e}");
+            }
+        }
+    });
+
+    // Wait for data channel to open and register with peer manager.
+    let transport_ready = Arc::clone(&transport);
     let peer_id_owned = peer_id.to_string();
     let pm = Arc::clone(peer_manager);
     tokio::spawn(async move {
-        transport_clone.wait_ready().await;
+        transport_ready.wait_ready().await;
         tracing::info!("WebRTC data channel open with {peer_id_owned}");
-        register_transport(&peer_id_owned, &transport_clone, &pm).await;
+        register_transport(&peer_id_owned, &transport_ready, &pm).await;
     });
 
     Ok(())
@@ -159,7 +186,7 @@ async fn accept_connection(
     peer_id: &str,
     offer_sdp: &str,
     transports: &Arc<Mutex<HashMap<String, Arc<WebRtcTransport>>>>,
-    signaling: &Arc<Mutex<SignalingClient>>,
+    ws: &Arc<BackendWsClient>,
     peer_manager: &Arc<PeerConnectionManager>,
 ) -> crate::util::result::Result<()> {
     let ice_servers = vec![RTCIceServer {
@@ -167,51 +194,48 @@ async fn accept_connection(
         ..Default::default()
     }];
 
-    // Create answer.
     let (transport, answer_sdp) = WebRtcTransport::create_answer(ice_servers, offer_sdp).await?;
     let transport = Arc::new(transport);
 
-    // Store transport.
     transports.lock().await.insert(peer_id.to_string(), Arc::clone(&transport));
 
-    // Send answer via signaling.
-    {
-        let sig = signaling.lock().await;
-        sig.send_sdp_answer(peer_id, &answer_sdp).await?;
-    }
+    // Send answer.
+    send_signaling(ws, WsClientMessage::WebRtcAnswer {
+        target_device_id: peer_id.to_string(),
+        encrypted_sdp: answer_sdp,
+    }).await?;
+
+    tracing::info!("SDP answer sent to {peer_id}");
 
     // Send ICE candidates.
-    send_ice_candidates(&transport, peer_id, signaling).await;
+    let ws_ice = Arc::clone(ws);
+    let transport_ice = Arc::clone(&transport);
+    let peer_id_ice = peer_id.to_string();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let candidates = transport_ice.pending_ice_candidates().await;
+        tracing::info!("Sending {} ICE candidates to {peer_id_ice}", candidates.len());
+        for candidate in candidates {
+            if let Err(e) = send_signaling(&ws_ice, WsClientMessage::WebRtcIce {
+                target_device_id: peer_id_ice.clone(),
+                encrypted_candidate: candidate,
+            }).await {
+                tracing::warn!("Failed to send ICE candidate to {peer_id_ice}: {e}");
+            }
+        }
+    });
 
-    // Wait for data channel to open.
-    let transport_clone = Arc::clone(&transport);
+    // Wait for data channel to open and register.
+    let transport_ready = Arc::clone(&transport);
     let peer_id_owned = peer_id.to_string();
     let pm = Arc::clone(peer_manager);
     tokio::spawn(async move {
-        transport_clone.wait_ready().await;
+        transport_ready.wait_ready().await;
         tracing::info!("WebRTC data channel open with {peer_id_owned}");
-        register_transport(&peer_id_owned, &transport_clone, &pm).await;
+        register_transport(&peer_id_owned, &transport_ready, &pm).await;
     });
 
     Ok(())
-}
-
-/// Sends gathered ICE candidates through the signaling channel.
-async fn send_ice_candidates(
-    transport: &WebRtcTransport,
-    peer_id: &str,
-    signaling: &Arc<Mutex<SignalingClient>>,
-) {
-    // Small delay for ICE gathering.
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    let candidates = transport.pending_ice_candidates().await;
-    let sig = signaling.lock().await;
-    for candidate in candidates {
-        if let Err(e) = sig.send_ice_candidate(peer_id, &candidate).await {
-            tracing::warn!("Failed to send ICE candidate to {peer_id}: {e}");
-        }
-    }
 }
 
 /// Registers a WebRTC transport's data channel with the PeerConnectionManager.
@@ -220,14 +244,13 @@ async fn register_transport(
     transport: &Arc<WebRtcTransport>,
     peer_manager: &Arc<PeerConnectionManager>,
 ) {
-    // Create mpsc channels that bridge between WebRtcTransport and PeerConnectionManager.
     let (tx, mut bridge_rx) = mpsc::channel::<Vec<u8>>(256);
     let (bridge_tx, rx) = mpsc::channel::<Vec<u8>>(256);
 
-    // Register with peer manager.
     peer_manager.register_peer(peer_id, tx, rx).await;
+    tracing::info!("Peer {peer_id} registered with PeerConnectionManager");
 
-    // Bridge: forward from peer_manager's tx → webrtc send.
+    // Bridge: peer_manager sends → webrtc transport.
     let transport_send = Arc::clone(transport);
     let peer_id_send = peer_id.to_string();
     tokio::spawn(async move {
@@ -239,7 +262,7 @@ async fn register_transport(
         }
     });
 
-    // Bridge: forward from webrtc recv → peer_manager's rx.
+    // Bridge: webrtc transport receives → peer_manager.
     let transport_recv = Arc::clone(transport);
     let peer_id_recv = peer_id.to_string();
     tokio::spawn(async move {

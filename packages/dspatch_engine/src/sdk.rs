@@ -894,23 +894,13 @@ impl DspatchSdk {
             ));
             ws.clone().start(cancel.clone());
 
-            // Create signaling client wired to the backend WS.
-            let mut sig_client = crate::sync::SignalingClient::new(&device_id);
-            // Wait briefly for WS to connect and get the sender.
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            if let Some(ws_tx) = ws.ws_sender().await {
-                sig_client.set_ws_sender(ws_tx);
-                tracing::info!("Signaling client wired to backend WS");
-            } else {
-                tracing::warn!("Backend WS not yet connected — signaling will retry");
-            }
-
             // Spawn P2P connector to drive WebRTC handshakes.
+            // Pass the WS client so the connector can get the WS sender when needed.
             let signaling_rx = ws.signaling_rx();
             crate::sync::p2p_connector::spawn_p2p_connector(
                 device_id.clone(),
                 signaling_rx,
-                Arc::new(tokio::sync::Mutex::new(sig_client)),
+                Arc::clone(&ws),
                 Arc::clone(engine.peer_manager()),
                 cancel.clone(),
             );
