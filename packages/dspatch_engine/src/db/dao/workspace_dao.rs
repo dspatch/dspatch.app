@@ -179,27 +179,54 @@ impl WorkspaceDao {
     }
 
     /// Deletes a workspace and cascades to all runs and child data.
+    ///
+    /// Everything — the SELECT of run IDs, all per-run child DELETEs, and the
+    /// final workspace DELETE — runs inside a single transaction so that a
+    /// crash mid-delete never leaves the database in a partially-cleaned state.
     pub fn delete_workspace(&self, id: &str) -> Result<()> {
-        // Find all runs for this workspace.
+        let mut conn = self.db.conn();
+        let tx = conn
+            .transaction()
+            .map_err(|e| AppError::Storage(format!("Failed to begin transaction: {e}")))?;
+
+        // Collect run IDs within the same transaction.
         let run_ids: Vec<String> = {
-            let conn = self.db.conn();
-            let mut stmt = conn
+            let mut stmt = tx
                 .prepare("SELECT id FROM workspace_runs WHERE workspace_id = ?1")
                 .map_err(|e| AppError::Storage(format!("Prepare failed: {e}")))?;
-            let ids = stmt
-                .query_map(rusqlite::params![id], |row| row.get(0))
+            let ids = stmt.query_map(rusqlite::params![id], |row| row.get(0))
                 .map_err(|e| AppError::Storage(format!("Query failed: {e}")))?
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(|e| AppError::Storage(format!("Row mapping failed: {e}")))?;
             ids
         };
+
+        // Delete each run's child data within the same transaction.
         for run_id in &run_ids {
-            self.delete_workspace_run(run_id)?;
+            tx.execute("DELETE FROM workspace_agents WHERE run_id = ?1", rusqlite::params![run_id])
+                .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+            tx.execute("DELETE FROM agent_messages WHERE run_id = ?1", rusqlite::params![run_id])
+                .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+            tx.execute("DELETE FROM agent_activity_events WHERE run_id = ?1", rusqlite::params![run_id])
+                .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+            tx.execute("DELETE FROM agent_logs WHERE run_id = ?1", rusqlite::params![run_id])
+                .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+            tx.execute("DELETE FROM agent_usage_records WHERE run_id = ?1", rusqlite::params![run_id])
+                .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+            tx.execute("DELETE FROM agent_files WHERE run_id = ?1", rusqlite::params![run_id])
+                .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+            tx.execute("DELETE FROM workspace_inquiries WHERE run_id = ?1", rusqlite::params![run_id])
+                .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+            tx.execute("DELETE FROM instance_results WHERE run_id = ?1", rusqlite::params![run_id])
+                .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+            tx.execute("DELETE FROM workspace_runs WHERE id = ?1", rusqlite::params![run_id])
+                .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
         }
-        self.db.execute(
-            "DELETE FROM workspaces WHERE id = ?1",
-            &[&id as &dyn rusqlite::types::ToSql],
-        )?;
+
+        tx.execute("DELETE FROM workspaces WHERE id = ?1", rusqlite::params![id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.commit()
+            .map_err(|e| AppError::Storage(format!("Failed to commit transaction: {e}")))?;
         Ok(())
     }
 
@@ -349,17 +376,35 @@ impl WorkspaceDao {
     }
 
     /// Deletes a run and all its child data (cascade).
+    ///
+    /// All nine DELETE statements are executed inside a single transaction so
+    /// that a crash mid-delete never leaves the database in a partially-cleaned
+    /// state.
     pub fn delete_workspace_run(&self, run_id: &str) -> Result<()> {
-        let p: &[&dyn rusqlite::types::ToSql] = &[&run_id];
-        self.db.execute("DELETE FROM workspace_agents WHERE run_id = ?1", p)?;
-        self.db.execute("DELETE FROM agent_messages WHERE run_id = ?1", p)?;
-        self.db.execute("DELETE FROM agent_activity_events WHERE run_id = ?1", p)?;
-        self.db.execute("DELETE FROM agent_logs WHERE run_id = ?1", p)?;
-        self.db.execute("DELETE FROM agent_usage_records WHERE run_id = ?1", p)?;
-        self.db.execute("DELETE FROM agent_files WHERE run_id = ?1", p)?;
-        self.db.execute("DELETE FROM workspace_inquiries WHERE run_id = ?1", p)?;
-        self.db.execute("DELETE FROM instance_results WHERE run_id = ?1", p)?;
-        self.db.execute("DELETE FROM workspace_runs WHERE id = ?1", p)?;
+        let mut conn = self.db.conn();
+        let tx = conn
+            .transaction()
+            .map_err(|e| AppError::Storage(format!("Failed to begin transaction: {e}")))?;
+        tx.execute("DELETE FROM workspace_agents WHERE run_id = ?1", rusqlite::params![run_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM agent_messages WHERE run_id = ?1", rusqlite::params![run_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM agent_activity_events WHERE run_id = ?1", rusqlite::params![run_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM agent_logs WHERE run_id = ?1", rusqlite::params![run_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM agent_usage_records WHERE run_id = ?1", rusqlite::params![run_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM agent_files WHERE run_id = ?1", rusqlite::params![run_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM workspace_inquiries WHERE run_id = ?1", rusqlite::params![run_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM instance_results WHERE run_id = ?1", rusqlite::params![run_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM workspace_runs WHERE id = ?1", rusqlite::params![run_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.commit()
+            .map_err(|e| AppError::Storage(format!("Failed to commit transaction: {e}")))?;
         Ok(())
     }
 
@@ -560,16 +605,33 @@ impl WorkspaceDao {
     }
 
     /// Deletes an agent instance and all its child data.
+    ///
+    /// All eight DELETE statements are executed inside a single transaction so
+    /// that a crash mid-delete never leaves the database in a partially-cleaned
+    /// state.
     pub fn delete_agent_instance(&self, instance_id: &str) -> Result<()> {
-        let p: &[&dyn rusqlite::types::ToSql] = &[&instance_id];
-        self.db.execute("DELETE FROM agent_messages WHERE instance_id = ?1", p)?;
-        self.db.execute("DELETE FROM agent_activity_events WHERE instance_id = ?1", p)?;
-        self.db.execute("DELETE FROM agent_logs WHERE instance_id = ?1", p)?;
-        self.db.execute("DELETE FROM agent_usage_records WHERE instance_id = ?1", p)?;
-        self.db.execute("DELETE FROM agent_files WHERE instance_id = ?1", p)?;
-        self.db.execute("DELETE FROM workspace_inquiries WHERE instance_id = ?1", p)?;
-        self.db.execute("DELETE FROM instance_results WHERE instance_id = ?1", p)?;
-        self.db.execute("DELETE FROM workspace_agents WHERE instance_id = ?1", p)?;
+        let mut conn = self.db.conn();
+        let tx = conn
+            .transaction()
+            .map_err(|e| AppError::Storage(format!("Failed to begin transaction: {e}")))?;
+        tx.execute("DELETE FROM agent_messages WHERE instance_id = ?1", rusqlite::params![instance_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM agent_activity_events WHERE instance_id = ?1", rusqlite::params![instance_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM agent_logs WHERE instance_id = ?1", rusqlite::params![instance_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM agent_usage_records WHERE instance_id = ?1", rusqlite::params![instance_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM agent_files WHERE instance_id = ?1", rusqlite::params![instance_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM workspace_inquiries WHERE instance_id = ?1", rusqlite::params![instance_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM instance_results WHERE instance_id = ?1", rusqlite::params![instance_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.execute("DELETE FROM workspace_agents WHERE instance_id = ?1", rusqlite::params![instance_id])
+            .map_err(|e| AppError::Storage(format!("SQL execution failed: {e}")))?;
+        tx.commit()
+            .map_err(|e| AppError::Storage(format!("Failed to commit transaction: {e}")))?;
         Ok(())
     }
 

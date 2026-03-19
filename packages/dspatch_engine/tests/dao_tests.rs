@@ -15,9 +15,10 @@ use dspatch_engine::db::dao::agent_connection_status_dao::AgentConnectionStatusD
 use dspatch_engine::db::dao::container_health_dao::ContainerHealthDao;
 use dspatch_engine::db::dao::workspace_run_status_dao::WorkspaceRunStatusDao;
 use dspatch_engine::db::Database;
-use dspatch_engine::domain::enums::{AgentState, InquiryPriority, InquiryStatus};
+use dspatch_engine::domain::enums::{AgentState, InquiryPriority, InquiryStatus, LogLevel, LogSource};
 use dspatch_engine::domain::models::{
-    AgentMessage, Workspace, WorkspaceAgent, WorkspaceInquiry, WorkspaceRun,
+    AgentActivity, AgentFile, AgentLog, AgentMessage, AgentUsage,
+    Workspace, WorkspaceAgent, WorkspaceInquiry, WorkspaceRun,
 };
 
 fn now() -> NaiveDateTime {
@@ -745,4 +746,234 @@ fn test_workspace_run_status_upsert_and_get() {
     dao.upsert(&conn, "run-1", "running").unwrap();
     let status = dao.get(&conn, "run-1").unwrap().unwrap();
     assert_eq!(status.status, "running");
+}
+
+// ── Transaction safety: multi-step deletes ─────────────────────────
+
+/// Populate every child table for a run so delete tests can verify
+/// all rows are removed. The `prefix` is used to make IDs unique across
+/// multiple calls (e.g. different runs in the same test).
+fn populate_run_children(dao: &WorkspaceDao, run_id: &str, instance_id: &str, prefix: &str) {
+    let ts = now();
+
+    // workspace_agents
+    dao.insert_workspace_agent(&make_agent(
+        &format!("{prefix}-ag"),
+        run_id,
+        "coder",
+        instance_id,
+    ))
+    .unwrap();
+
+    // agent_messages
+    dao.insert_agent_message(&make_message(
+        &format!("{prefix}-msg"),
+        run_id,
+        instance_id,
+        "hello",
+    ))
+    .unwrap();
+
+    // agent_activity_events
+    dao.insert_agent_activity(&AgentActivity {
+        id: format!("{prefix}-act"),
+        run_id: run_id.to_string(),
+        agent_key: "coder".to_string(),
+        instance_id: instance_id.to_string(),
+        turn_id: None,
+        event_type: "tool_call".to_string(),
+        data_json: None,
+        content: None,
+        timestamp: ts,
+    })
+    .unwrap();
+
+    // agent_logs
+    dao.insert_agent_log(&AgentLog {
+        id: format!("{prefix}-log"),
+        run_id: run_id.to_string(),
+        agent_key: "coder".to_string(),
+        instance_id: instance_id.to_string(),
+        turn_id: None,
+        level: LogLevel::Info,
+        message: "test".to_string(),
+        source: LogSource::Agent,
+        timestamp: ts,
+    })
+    .unwrap();
+
+    // agent_usage_records
+    dao.insert_agent_usage(&AgentUsage {
+        id: format!("{prefix}-usage"),
+        run_id: run_id.to_string(),
+        agent_key: "coder".to_string(),
+        instance_id: instance_id.to_string(),
+        turn_id: None,
+        model: "claude-3".to_string(),
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+        cost_usd: 0.001,
+        timestamp: ts,
+    })
+    .unwrap();
+
+    // agent_files
+    dao.insert_agent_file(&AgentFile {
+        id: format!("{prefix}-file"),
+        run_id: run_id.to_string(),
+        agent_key: "coder".to_string(),
+        instance_id: instance_id.to_string(),
+        turn_id: None,
+        file_path: "/tmp/test.txt".to_string(),
+        operation: "write".to_string(),
+        timestamp: ts,
+    })
+    .unwrap();
+
+    // workspace_inquiries
+    dao.insert_workspace_inquiry(&WorkspaceInquiry {
+        id: format!("{prefix}-inq"),
+        run_id: run_id.to_string(),
+        agent_key: "coder".to_string(),
+        instance_id: instance_id.to_string(),
+        status: InquiryStatus::Pending,
+        priority: InquiryPriority::Normal,
+        content_markdown: "question".to_string(),
+        attachments_json: None,
+        suggestions_json: None,
+        response_text: None,
+        response_suggestion_index: None,
+        responded_by_agent_key: None,
+        forwarding_chain_json: None,
+        created_at: ts,
+        responded_at: None,
+    })
+    .unwrap();
+
+    // instance_results
+    dao.insert_instance_result(
+        &format!("{prefix}-res"),
+        run_id,
+        "coder",
+        instance_id,
+        "turn-1",
+        None,
+    )
+    .unwrap();
+}
+
+fn count_rows(conn: &rusqlite::Connection, table: &str, col: &str, val: &str) -> i64 {
+    conn.query_row(
+        &format!("SELECT COUNT(*) FROM {table} WHERE {col} = ?1"),
+        rusqlite::params![val],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+#[test]
+fn test_delete_workspace_run_removes_all_child_tables() {
+    let db = db();
+    let dao = WorkspaceDao::new(Arc::clone(&db));
+
+    dao.insert_workspace(&make_workspace("ws-t1", "WS")).unwrap();
+    dao.insert_workspace_run(&make_run("run-t1", "ws-t1", 1, "stopped"))
+        .unwrap();
+    populate_run_children(&dao, "run-t1", "inst-t1", "t1");
+
+    // Sanity: child rows exist before delete.
+    {
+        let conn = db.conn();
+        assert_eq!(count_rows(&conn, "workspace_agents", "run_id", "run-t1"), 1);
+        assert_eq!(count_rows(&conn, "agent_messages", "run_id", "run-t1"), 1);
+        assert_eq!(count_rows(&conn, "agent_activity_events", "run_id", "run-t1"), 1);
+        assert_eq!(count_rows(&conn, "agent_logs", "run_id", "run-t1"), 1);
+        assert_eq!(count_rows(&conn, "agent_usage_records", "run_id", "run-t1"), 1);
+        assert_eq!(count_rows(&conn, "agent_files", "run_id", "run-t1"), 1);
+        assert_eq!(count_rows(&conn, "workspace_inquiries", "run_id", "run-t1"), 1);
+        assert_eq!(count_rows(&conn, "instance_results", "run_id", "run-t1"), 1);
+        assert_eq!(count_rows(&conn, "workspace_runs", "id", "run-t1"), 1);
+    }
+
+    // Execute the transactional delete.
+    dao.delete_workspace_run("run-t1").unwrap();
+
+    // All rows must be gone.
+    let conn = db.conn();
+    assert_eq!(count_rows(&conn, "workspace_agents", "run_id", "run-t1"), 0);
+    assert_eq!(count_rows(&conn, "agent_messages", "run_id", "run-t1"), 0);
+    assert_eq!(count_rows(&conn, "agent_activity_events", "run_id", "run-t1"), 0);
+    assert_eq!(count_rows(&conn, "agent_logs", "run_id", "run-t1"), 0);
+    assert_eq!(count_rows(&conn, "agent_usage_records", "run_id", "run-t1"), 0);
+    assert_eq!(count_rows(&conn, "agent_files", "run_id", "run-t1"), 0);
+    assert_eq!(count_rows(&conn, "workspace_inquiries", "run_id", "run-t1"), 0);
+    assert_eq!(count_rows(&conn, "instance_results", "run_id", "run-t1"), 0);
+    assert_eq!(count_rows(&conn, "workspace_runs", "id", "run-t1"), 0);
+}
+
+#[test]
+fn test_delete_agent_instance_removes_all_child_tables() {
+    let db = db();
+    let dao = WorkspaceDao::new(Arc::clone(&db));
+
+    dao.insert_workspace(&make_workspace("ws-t2", "WS")).unwrap();
+    dao.insert_workspace_run(&make_run("run-t2", "ws-t2", 1, "running"))
+        .unwrap();
+    populate_run_children(&dao, "run-t2", "inst-t2", "t2");
+
+    // Sanity: child rows exist.
+    {
+        let conn = db.conn();
+        assert_eq!(count_rows(&conn, "workspace_agents", "instance_id", "inst-t2"), 1);
+        assert_eq!(count_rows(&conn, "agent_messages", "instance_id", "inst-t2"), 1);
+    }
+
+    // Execute the transactional delete.
+    dao.delete_agent_instance("inst-t2").unwrap();
+
+    // All per-instance rows must be gone.
+    let conn = db.conn();
+    assert_eq!(count_rows(&conn, "workspace_agents", "instance_id", "inst-t2"), 0);
+    assert_eq!(count_rows(&conn, "agent_messages", "instance_id", "inst-t2"), 0);
+    assert_eq!(count_rows(&conn, "agent_activity_events", "instance_id", "inst-t2"), 0);
+    assert_eq!(count_rows(&conn, "agent_logs", "instance_id", "inst-t2"), 0);
+    assert_eq!(count_rows(&conn, "agent_usage_records", "instance_id", "inst-t2"), 0);
+    assert_eq!(count_rows(&conn, "agent_files", "instance_id", "inst-t2"), 0);
+    assert_eq!(count_rows(&conn, "workspace_inquiries", "instance_id", "inst-t2"), 0);
+    assert_eq!(count_rows(&conn, "instance_results", "instance_id", "inst-t2"), 0);
+
+    // The run itself should still exist (delete_agent_instance only clears
+    // per-instance data, not the run row).
+    assert_eq!(count_rows(&conn, "workspace_runs", "id", "run-t2"), 1);
+}
+
+#[test]
+fn test_delete_workspace_is_fully_atomic_across_all_runs() {
+    let db = db();
+    let dao = WorkspaceDao::new(Arc::clone(&db));
+
+    dao.insert_workspace(&make_workspace("ws-t3", "WS")).unwrap();
+    dao.insert_workspace_run(&make_run("run-t3a", "ws-t3", 1, "stopped"))
+        .unwrap();
+    dao.insert_workspace_run(&make_run("run-t3b", "ws-t3", 2, "stopped"))
+        .unwrap();
+    populate_run_children(&dao, "run-t3a", "inst-t3a", "t3a");
+    populate_run_children(&dao, "run-t3b", "inst-t3b", "t3b");
+
+    // Delete the entire workspace in one transaction.
+    dao.delete_workspace("ws-t3").unwrap();
+
+    let conn = db.conn();
+    // Workspace row gone.
+    assert_eq!(count_rows(&conn, "workspaces", "id", "ws-t3"), 0);
+    // Both runs gone.
+    assert_eq!(count_rows(&conn, "workspace_runs", "id", "run-t3a"), 0);
+    assert_eq!(count_rows(&conn, "workspace_runs", "id", "run-t3b"), 0);
+    // All child data gone.
+    assert_eq!(count_rows(&conn, "agent_messages", "run_id", "run-t3a"), 0);
+    assert_eq!(count_rows(&conn, "agent_messages", "run_id", "run-t3b"), 0);
+    assert_eq!(count_rows(&conn, "agent_logs", "run_id", "run-t3a"), 0);
+    assert_eq!(count_rows(&conn, "workspace_inquiries", "run_id", "run-t3b"), 0);
 }
