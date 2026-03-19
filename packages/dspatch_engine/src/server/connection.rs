@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
@@ -233,44 +234,66 @@ impl ConnectionService {
         let (inbound_tx, mut inbound_rx) = tokio::sync::mpsc::channel::<String>(256);
 
         // Spawn a task that reads from the WebSocket and forwards into the channel.
+        // Also sends periodic Ping frames to detect dead connections before the
+        // next message attempt.
         let r_id_reader = r_id.clone();
         let a_name_reader = a_name.clone();
-        let reader_handle = crate::util::panic_guard::spawn_guarded("connection_ws_reader", async move {
-            loop {
-                match ws_stream.next().await {
-                    Some(Ok(Message::Text(t))) => {
-                        let s = t.to_string();
-                        match inbound_tx.try_send(s) {
-                            Ok(_) => {}
-                            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                                tracing::warn!(
+        let reader_handle = {
+            let sender_for_ping = Arc::clone(&sender);
+            crate::util::panic_guard::spawn_guarded("connection_ws_reader", async move {
+                let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
+                ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    tokio::select! {
+                        _ = ping_interval.tick() => {
+                            let mut sink = sender_for_ping.lock().await;
+                            if sink.send(Message::Ping(vec![].into())).await.is_err() {
+                                tracing::debug!(
                                     run_id = r_id_reader.as_str(),
                                     agent_name = a_name_reader.as_str(),
-                                    "Inbound channel full — dropping message (backpressure)"
+                                    "Keepalive ping failed — connection dead"
                                 );
-                            }
-                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
                                 break;
                             }
                         }
-                    }
-                    Some(Ok(Message::Pong(_))) => {} // ignore pong frames
-                    Some(Ok(Message::Close(_))) | None => break,
-                    Some(Ok(_)) => {} // ignore binary/other
-                    Some(Err(e)) => {
-                        tracing::warn!(
-                            run_id = r_id_reader.as_str(),
-                            agent_name = a_name_reader.as_str(),
-                            error = %e,
-                            "WebSocket error"
-                        );
-                        break;
+                        msg = ws_stream.next() => {
+                            match msg {
+                                Some(Ok(Message::Text(t))) => {
+                                    let s = t.to_string();
+                                    match inbound_tx.try_send(s) {
+                                        Ok(_) => {}
+                                        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                                            tracing::warn!(
+                                                run_id = r_id_reader.as_str(),
+                                                agent_name = a_name_reader.as_str(),
+                                                "Inbound channel full — dropping message (backpressure)"
+                                            );
+                                        }
+                                        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                            break;
+                                        }
+                                    }
+                                }
+                                Some(Ok(Message::Pong(_))) => {} // ignore pong response frames
+                                Some(Ok(Message::Close(_))) | None => break,
+                                Some(Ok(_)) => {} // ignore binary/other
+                                Some(Err(e)) => {
+                                    tracing::warn!(
+                                        run_id = r_id_reader.as_str(),
+                                        agent_name = a_name_reader.as_str(),
+                                        error = %e,
+                                        "WebSocket error"
+                                    );
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
-            }
-            // Drop the channel sender to signal EOF to the processing loop.
-            drop(inbound_tx);
-        });
+                // Drop the channel sender to signal EOF to the processing loop.
+                drop(inbound_tx);
+            })
+        };
 
         // Auth timeout: 10 seconds
         let auth_sender = Arc::clone(&sender);
@@ -495,6 +518,17 @@ impl ConnectionService {
         // Disconnection.
         auth_handle.abort();
         reader_handle.abort();
+
+        // Clear stale instance states for this agent so that heartbeat-reported
+        // states from the disconnected run do not linger in memory.
+        {
+            let key = (r_id.clone(), a_name.clone());
+            service
+                .instance_states
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&key);
+        }
 
         // Fix connection replacement race: only remove the connection from the
         // map if the stored sender is the same Arc as the one created in this
