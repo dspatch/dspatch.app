@@ -239,22 +239,28 @@ async fn accept_connection(
 }
 
 /// Registers a WebRTC transport's data channel with the PeerConnectionManager.
+///
+/// The bridge works as follows:
+/// - Outbound: PeerConnectionManager.send_raw() → tx channel → WebRTC send
+/// - Inbound: WebRTC recv → dispatch_incoming_plaintext → incoming_messages stream → sync_loop
 async fn register_transport(
     peer_id: &str,
     transport: &Arc<WebRtcTransport>,
     peer_manager: &Arc<PeerConnectionManager>,
 ) {
-    let (tx, mut bridge_rx) = mpsc::channel::<Vec<u8>>(256);
-    let (bridge_tx, rx) = mpsc::channel::<Vec<u8>>(256);
+    // Outbound channel: sync_engine.sync_to_peer() calls send_raw() which writes to tx.
+    let (tx, mut outbound_rx) = mpsc::channel::<Vec<u8>>(256);
+    // Inbound: we don't use this rx — we dispatch directly to incoming_messages via dispatch_incoming_plaintext.
+    let (_unused_tx, rx) = mpsc::channel::<Vec<u8>>(256);
 
     peer_manager.register_peer(peer_id, tx, rx).await;
     tracing::info!("Peer {peer_id} registered with PeerConnectionManager");
 
-    // Bridge: peer_manager sends → webrtc transport.
+    // Bridge outbound: send_raw() → WebRTC data channel.
     let transport_send = Arc::clone(transport);
     let peer_id_send = peer_id.to_string();
     tokio::spawn(async move {
-        while let Some(data) = bridge_rx.recv().await {
+        while let Some(data) = outbound_rx.recv().await {
             if let Err(e) = transport_send.send(&data).await {
                 tracing::warn!("WebRTC send to {peer_id_send} failed: {e}");
                 break;
@@ -262,15 +268,24 @@ async fn register_transport(
         }
     });
 
-    // Bridge: webrtc transport receives → peer_manager.
+    // Bridge inbound: WebRTC data channel → dispatch as plaintext SyncMessage → sync_loop.
     let transport_recv = Arc::clone(transport);
     let peer_id_recv = peer_id.to_string();
+    let pm = Arc::clone(peer_manager);
     tokio::spawn(async move {
         while let Some(data) = transport_recv.recv().await {
-            if bridge_tx.send(data).await.is_err() {
-                tracing::warn!("Bridge channel closed for {peer_id_recv}");
-                break;
+            // Data is a serialized SyncMessage (plaintext, no Signal encryption over WebRTC).
+            match serde_json::from_slice::<crate::sync::SyncMessage>(&data) {
+                Ok(message) => {
+                    if let Err(e) = pm.dispatch_incoming_plaintext(&peer_id_recv, message).await {
+                        tracing::warn!("Failed to dispatch incoming from {peer_id_recv}: {e}");
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Invalid SyncMessage from {peer_id_recv}: {e}");
+                }
             }
         }
+        tracing::info!("WebRTC receive bridge closed for {peer_id_recv}");
     });
 }
