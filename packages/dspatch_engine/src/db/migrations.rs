@@ -404,7 +404,22 @@ fn run_migration(conn: &Connection, from_version: i32, to_version: i32) -> Resul
 pub fn run_migrations(conn: &Connection, from_version: i32) -> Result<()> {
     let mut current = from_version;
     while current < SCHEMA_VERSION {
+        // Migration v17 (step 16→17) rebuilds tables to add ON DELETE CASCADE.
+        // PRAGMA foreign_keys must be OFF during table-rebuild operations
+        // (SQLite checks FKs on INSERT even for data-copy migrations).
+        // PRAGMA foreign_keys cannot be changed inside a transaction.
+        if current == 16 {
+            conn.execute_batch("PRAGMA foreign_keys = OFF;")
+                .map_err(|e| AppError::Storage(format!("Failed to disable FK for v17: {e}")))?;
+        }
+
         run_migration(conn, current, current + 1)?;
+
+        if current == 16 {
+            conn.execute_batch("PRAGMA foreign_keys = ON;")
+                .map_err(|e| AppError::Storage(format!("Failed to re-enable FK after v17: {e}")))?;
+        }
+
         current += 1;
     }
     Ok(())
