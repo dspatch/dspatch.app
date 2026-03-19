@@ -42,7 +42,9 @@ pub struct PeerConnectionManager {
     connections: Arc<Mutex<HashMap<String, PeerConnection>>>,
     /// Broadcast channel for incoming messages from all peers.
     incoming_tx: mpsc::Sender<(String, SyncMessage)>,
-    incoming_rx: Arc<Mutex<mpsc::Receiver<(String, SyncMessage)>>>,
+    /// Wrapped in a standard Mutex Option so it can be taken exactly once,
+    /// enforcing a single consumer of the incoming message stream.
+    incoming_rx: std::sync::Mutex<Option<mpsc::Receiver<(String, SyncMessage)>>>,
 }
 
 impl PeerConnectionManager {
@@ -53,7 +55,7 @@ impl PeerConnectionManager {
             signal_service,
             connections: Arc::new(Mutex::new(HashMap::new())),
             incoming_tx,
-            incoming_rx: Arc::new(Mutex::new(incoming_rx)),
+            incoming_rx: std::sync::Mutex::new(Some(incoming_rx)),
         }
     }
 
@@ -137,10 +139,15 @@ impl PeerConnectionManager {
 
     /// Sends an encrypted `SyncMessage` to a connected peer.
     pub async fn send(&self, device_id: &str, message: &SyncMessage) -> Result<()> {
-        let conns = self.connections.lock().await;
-        let peer = conns.get(device_id).ok_or_else(|| {
-            AppError::Server(format!("Not connected to peer {device_id}"))
-        })?;
+        // Clone the tx channel out of the lock so we don't hold the lock
+        // while awaiting the (potentially blocking) channel send.
+        let tx = {
+            let conns = self.connections.lock().await;
+            let peer = conns.get(device_id).ok_or_else(|| {
+                AppError::Server(format!("Not connected to peer {device_id}"))
+            })?;
+            peer.tx.clone()
+        }; // lock dropped here
 
         // Serialize the message.
         let plaintext = serde_json::to_vec(message)
@@ -154,8 +161,7 @@ impl PeerConnectionManager {
                 .map_err(|e| AppError::Internal(format!("Signal encrypt failed: {e}")))?
         };
 
-        peer.tx
-            .send(encrypted)
+        tx.send(encrypted)
             .await
             .map_err(|_| AppError::Server(format!("Peer channel closed for {device_id}")))?;
 
@@ -166,13 +172,16 @@ impl PeerConnectionManager {
     ///
     /// Used in tests to bypass Signal encryption.
     pub async fn send_raw(&self, device_id: &str, data: Vec<u8>) -> Result<()> {
-        let conns = self.connections.lock().await;
-        let peer = conns.get(device_id).ok_or_else(|| {
-            AppError::Server(format!("Not connected to peer {device_id}"))
-        })?;
+        // Clone tx out of the lock before awaiting the send.
+        let tx = {
+            let conns = self.connections.lock().await;
+            let peer = conns.get(device_id).ok_or_else(|| {
+                AppError::Server(format!("Not connected to peer {device_id}"))
+            })?;
+            peer.tx.clone()
+        }; // lock dropped here
 
-        peer.tx
-            .send(data)
+        tx.send(data)
             .await
             .map_err(|_| AppError::Server(format!("Peer channel closed for {device_id}")))?;
 
@@ -198,20 +207,32 @@ impl PeerConnectionManager {
     ///
     /// Each item is `(device_id, SyncMessage)`. Messages are decrypted
     /// using the Signal Protocol before being yielded.
+    ///
+    /// **Single-consumer contract**: the underlying receiver is moved out on
+    /// the first call. Subsequent calls return an immediately-closed stream.
+    /// This prevents two tasks from racing on the same receiver.
     pub fn incoming_messages(
         &self,
     ) -> Pin<Box<dyn Stream<Item = (String, SyncMessage)> + Send>>
     where
         Self: 'static,
     {
-        let rx = Arc::clone(&self.incoming_rx);
-        let stream = async_stream::stream! {
-            let mut rx = rx.lock().await;
-            while let Some(item) = rx.recv().await {
-                yield item;
+        let rx = self.incoming_rx.lock().unwrap().take();
+        match rx {
+            Some(mut rx) => {
+                let stream = async_stream::stream! {
+                    while let Some(item) = rx.recv().await {
+                        yield item;
+                    }
+                };
+                Box::pin(stream)
             }
-        };
-        Box::pin(stream)
+            None => {
+                // Receiver already taken — return an empty stream.
+                tracing::warn!("incoming_messages() called more than once — returning empty stream");
+                Box::pin(futures::stream::empty())
+            }
+        }
     }
 
     /// Dispatches a received encrypted message from a peer into the incoming
