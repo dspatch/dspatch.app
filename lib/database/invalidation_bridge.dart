@@ -2,6 +2,8 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 /// Bridges engine invalidation events to the Drift database.
 ///
 /// Listens to a stream of table-name lists (from the Engine Client's
@@ -30,6 +32,7 @@ class InvalidationBridge {
   final void Function(List<String> tableNames) onInvalidation;
 
   StreamSubscription<List<String>>? _subscription;
+  bool _disposed = false;
 
   InvalidationBridge({
     required this.invalidationStream,
@@ -38,12 +41,37 @@ class InvalidationBridge {
 
   /// Start listening for invalidation events.
   void start() {
+    if (_disposed) return;
     _subscription?.cancel();
-    _subscription = invalidationStream.listen(onInvalidation);
+    _subscription = invalidationStream.listen(
+      _onInvalidation,
+      onError: (Object e) {
+        debugPrint('[InvalidationBridge] Stream error: $e');
+        Future.delayed(const Duration(seconds: 1), _reconnect);
+      },
+      onDone: () {
+        debugPrint('[InvalidationBridge] Stream closed');
+        if (!_disposed) {
+          Future.delayed(const Duration(seconds: 1), _reconnect);
+        }
+      },
+    );
+  }
+
+  void _onInvalidation(List<String> tables) {
+    if (_disposed) return;
+    onInvalidation(tables);
+  }
+
+  void _reconnect() {
+    if (_disposed) return;
+    debugPrint('[InvalidationBridge] Reconnecting...');
+    start();
   }
 
   /// Stop listening for invalidation events.
   void dispose() {
+    _disposed = true;
     _subscription?.cancel();
     _subscription = null;
   }
