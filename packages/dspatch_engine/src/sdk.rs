@@ -133,6 +133,10 @@ pub struct DspatchSdk {
     sync_cancel: Arc<RwLock<Option<tokio_util::sync::CancellationToken>>>,
     /// Last error from sync activation (for diagnostics).
     last_sync_error: Arc<RwLock<Option<String>>>,
+    /// Backend auth token (stored during activate_sync for WS client).
+    backend_token: Arc<RwLock<Option<String>>>,
+    /// Engine WS client for backend real-time events (device presence, signaling).
+    ws_client: Arc<RwLock<Option<Arc<crate::sync::ws_client::EngineWsClient>>>>,
 
     /// Shared secret store reference for keyring access outside DatabaseKeyManager.
     secret_store: Arc<dyn SecretStore>,
@@ -235,6 +239,8 @@ impl DspatchSdk {
             sync_engine: Arc::new(RwLock::new(None)),
             sync_cancel: Arc::new(RwLock::new(None)),
             last_sync_error: Arc::new(RwLock::new(None)),
+            backend_token: Arc::new(RwLock::new(None)),
+            ws_client: Arc::new(RwLock::new(None)),
             secret_store: store_arc,
             database: Arc::new(RwLock::new(None)),
             current_db_path: Arc::new(RwLock::new(None)),
@@ -657,7 +663,7 @@ impl DspatchSdk {
     ///
     /// Called from the `/auth/connect` handler when the Dart client passes
     /// device credentials after backend authentication.
-    pub async fn activate_sync(&self, device_id: &str, identity_key_seed: &str) -> Result<()> {
+    pub async fn activate_sync(&self, device_id: &str, identity_key_seed: &str, backend_token: Option<&str>) -> Result<()> {
         // 1. Set the device ID on the device service (was "local").
         self.device_service.set_device_id(device_id);
         tracing::info!(device_id, "Device ID set for sync");
@@ -666,6 +672,11 @@ impl DspatchSdk {
         let ik_key = format!("identity_key_seed_{}", device_id);
         self.secret_store.write(&ik_key, identity_key_seed)
             .map_err(|e| AppError::Internal(format!("Failed to store identity key seed: {e}")))?;
+
+        // Store backend token for WS client.
+        if let Some(token) = backend_token {
+            *self.backend_token.write().await = Some(token.to_string());
+        }
 
         // 3. Bootstrap Signal + start sync if DB is ready.
         *self.last_sync_error.write().await = None;
@@ -869,22 +880,35 @@ impl DspatchSdk {
         crate::sync::start_sync_loop(Arc::clone(&engine), cancel.clone());
 
         *self.sync_engine.write().await = Some(engine);
-        *self.sync_cancel.write().await = Some(cancel);
+        *self.sync_cancel.write().await = Some(cancel.clone());
 
-        // TODO: When the WS client is integrated into the SDK lifecycle, spawn
-        // a listener task here that receives from `ws_client.prekey_low_rx()`
-        // and calls `self.replenish_prekeys(remaining)` for each notification.
+        // Start engine WS client for backend real-time events (presence, signaling).
+        if let Some(token) = self.backend_token.read().await.clone() {
+            let backend_url = self.config.backend_url.clone()
+                .unwrap_or_else(|| DEFAULT_BACKEND_URL.to_string());
+            let ws = Arc::new(crate::sync::ws_client::EngineWsClient::new(
+                backend_url,
+                Arc::new(RwLock::new(token)),
+                device_id.clone(),
+            ));
+            ws.clone().start(cancel);
+            *self.ws_client.write().await = Some(ws);
+            tracing::info!("Engine WS client started for backend events");
+        } else {
+            tracing::warn!("No backend token — engine WS client not started (no presence events)");
+        }
 
         tracing::info!("Sync engine started for device {device_id}");
         Ok(())
     }
 
-    /// Stops the sync engine.
+    /// Stops the sync engine and WS client.
     pub async fn stop_sync(&self) {
         if let Some(cancel) = self.sync_cancel.write().await.take() {
             cancel.cancel();
         }
         *self.sync_engine.write().await = None;
+        *self.ws_client.write().await = None;
         tracing::info!("Sync engine stopped");
     }
 
@@ -900,6 +924,7 @@ impl DspatchSdk {
         let device_id = self.device_service.current_device().id.clone();
         let has_signal = self.signal_service.read().await.is_some();
         let has_sync_engine = self.sync_engine.read().await.is_some();
+        let has_ws_client = self.ws_client.read().await.is_some();
         let has_database = self.database.read().await.is_some();
 
         let state = if has_sync_engine {
@@ -950,6 +975,7 @@ impl DspatchSdk {
                 "identity_key_stored": has_identity_key,
                 "signal_bootstrapped": has_signal,
                 "sync_engine_running": has_sync_engine,
+                "ws_client_connected": has_ws_client,
                 "last_error": last_error,
             }
         })
@@ -957,10 +983,14 @@ impl DspatchSdk {
 
     /// Returns device IDs of currently online peer devices.
     ///
-    /// NOTE: Currently returns P2P-connected peers only. Backend-online
-    /// peers (from EngineWsClient) are not yet tracked here because the
-    /// WS client isn't started in the SDK lifecycle yet.
+    /// Uses the engine WS client's online peer tracking (from backend
+    /// device:online/device:offline/device:roster events).
     pub async fn online_devices(&self) -> Vec<String> {
+        // Primary: WS client tracks online peers from backend events.
+        if let Some(ws) = self.ws_client.read().await.as_ref() {
+            return ws.online_peers().await;
+        }
+        // Fallback: P2P-connected peers from sync engine.
         match self.sync_engine.read().await.as_ref() {
             Some(engine) => engine.peer_manager().connected_devices().await,
             None => Vec::new(),

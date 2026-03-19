@@ -265,6 +265,7 @@ class _SyncStatusBar extends StatelessWidget {
               _DiagChip('Identity key', null, diag['identity_key_stored'] == true),
               _DiagChip('Signal', null, diag['signal_bootstrapped'] == true),
               _DiagChip('Sync engine', null, diag['sync_engine_running'] == true),
+              _DiagChip('Backend WS', null, diag['ws_client_connected'] == true),
             ],
           ),
           if (diag['last_error'] != null) ...[
