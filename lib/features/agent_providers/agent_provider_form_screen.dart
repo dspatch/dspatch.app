@@ -389,7 +389,9 @@ class _AgentProviderFormScreenState
       // Clean up temp directory.
       try {
         if (tmpDir.existsSync()) await tmpDir.delete(recursive: true);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[AgentProviderFormScreen] Failed to clean up temp dir: $e');
+      }
     }
   }
 

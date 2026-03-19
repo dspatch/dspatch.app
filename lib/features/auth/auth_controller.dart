@@ -465,7 +465,9 @@ class AuthController extends _$AuthController {
       _connection.sendRaw(
         '{"type":"command","id":"logout","method":"logout","params":{}}',
       );
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[AuthController] logout send failed (non-fatal): $e');
+    }
 
     await _connection.disconnect();
 

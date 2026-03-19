@@ -291,7 +291,9 @@ class EngineConnection {
     _subscription = null;
     try {
       await _channel?.sink.close();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[EngineConnection] dispose: sink close failed: $e');
+    }
     _channel = null;
     _setConnected(false);
 

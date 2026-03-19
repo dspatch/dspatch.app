@@ -172,7 +172,9 @@ class _HubCloneTemplateDialogState
         if (clonedDir.existsSync()) {
           await clonedDir.delete(recursive: true);
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[HubCloneTemplateDialog] Failed to clean up cloned dir on error: $e');
+      }
 
       if (mounted) {
         setState(() {

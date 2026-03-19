@@ -174,7 +174,9 @@ class EngineProcessManager {
       final appDir = File(Platform.resolvedExecutable).parent.path;
       final pidFile = File('$appDir/engine.pid');
       if (pidFile.existsSync()) await pidFile.delete();
-    } catch (_) {}
+    } catch (e) {
+      developer.log('Failed to delete PID file: $e', name: 'EngineProcessManager');
+    }
   }
 
   /// Resolves the path to the engine binary based on the current platform

@@ -97,7 +97,9 @@ String _activityDescription(AgentActivityEvent a) {
         parsed['continue_previous_conversation'] as bool? ?? false,
       );
     }
-  } catch (_) {}
+  } catch (e) {
+    debugPrint('[AgentTimelineView] _parseTalkToInput JSON parse failed: $e');
+  }
 
   return (raw, false);
 }
@@ -116,7 +118,9 @@ Map<String, dynamic>? _parseInputField(Map<String, dynamic> data) {
   try {
     final parsed = jsonDecode(str);
     if (parsed is Map) return Map<String, dynamic>.from(parsed);
-  } catch (_) {}
+  } catch (e) {
+    debugPrint('[AgentTimelineView] _parseInputField JSON parse failed (will try Python repr): $e');
+  }
 
   // Try fixing Python repr: True→true, False→false, None→null, '→"
   // Note: this breaks when values contain apostrophes, so it's best-effort.
@@ -128,7 +132,9 @@ Map<String, dynamic>? _parseInputField(Map<String, dynamic> data) {
         .replaceAll("'", '"');
     final parsed = jsonDecode(fixed);
     if (parsed is Map) return Map<String, dynamic>.from(parsed);
-  } catch (_) {}
+  } catch (e) {
+    debugPrint('[AgentTimelineView] _parseInputField Python repr parse failed: $e');
+  }
 
   return null;
 }
@@ -1233,7 +1239,9 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
       try {
         final parsed = jsonDecode(act.content!);
         if (parsed is Map) input = Map<String, dynamic>.from(parsed);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[AgentTimelineView] Failed to parse plan content JSON: $e');
+      }
     }
     final rawInput = data?['input']?.toString() ?? '';
     final plan = input?['plan'] as String?
@@ -1387,7 +1395,9 @@ class _AgentTimelineViewState extends ConsumerState<AgentTimelineView> {
       try {
         final parsed = jsonDecode(act.content!);
         if (parsed is Map) input = Map<String, dynamic>.from(parsed);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[AgentTimelineView] Failed to parse todos content JSON: $e');
+      }
     }
     final todos = (input?['todos'] as List<dynamic>?) ?? [];
 
