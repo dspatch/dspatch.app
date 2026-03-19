@@ -701,19 +701,34 @@ impl WorkspaceBridge {
         self.workspace_dao
             .update_run_status(run_id, "stopping", None)?;
 
-        // 2. Send terminate command to all connected agents.
+        // 2. Send terminate command to all connected instances.
         {
             let server = self.server.lock().await;
             if let Some(ref router) = server.host_router() {
                 let agents = router.connection_service.connected_agents(run_id);
                 for agent in &agents {
-                    let pkg = Package::Terminate(TerminatePackage {
-                        instance_id: agent.clone(),
-                    });
-                    let _ = router
-                        .connection_service
-                        .send_to_agent(run_id, agent, &pkg)
-                        .await;
+                    let instances = router.connection_service.connected_instances(run_id, agent);
+                    if instances.is_empty() {
+                        // No known instances for this agent — send a single terminate
+                        // with empty instance_id so the agent can still shut down.
+                        let pkg = Package::Terminate(TerminatePackage {
+                            instance_id: String::new(),
+                        });
+                        let _ = router
+                            .connection_service
+                            .send_to_agent(run_id, agent, &pkg)
+                            .await;
+                    } else {
+                        for instance_id in &instances {
+                            let pkg = Package::Terminate(TerminatePackage {
+                                instance_id: instance_id.clone(),
+                            });
+                            let _ = router
+                                .connection_service
+                                .send_to_agent(run_id, agent, &pkg)
+                                .await;
+                        }
+                    }
                 }
             }
         }
