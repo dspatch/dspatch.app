@@ -251,6 +251,13 @@ class EngineConnection {
     return completer.future;
   }
 
+  /// Removes a pending command by [id] without completing it.
+  ///
+  /// Used by [EngineClient] to clean up timed-out commands.
+  void removePendingCommand(String id) {
+    _pendingCommands.remove(id);
+  }
+
   /// Routes a [ServerFrame] to the appropriate handler.
   ///
   /// Exposed for testing. In production, frames arrive via the WebSocket.
@@ -323,6 +330,22 @@ class EngineConnection {
     _subscription = null;
     _channel = null;
     _setConnected(false);
+
+    // Fail all pending commands immediately — callers should not hang
+    // waiting for responses that will never arrive. The 30s timeout in
+    // EngineClient is a last resort; this provides faster failure.
+    if (_pendingCommands.isNotEmpty) {
+      print('[CONN] Failing ${_pendingCommands.length} pending commands on disconnect');
+      for (final entry in _pendingCommands.entries) {
+        if (!entry.value.isCompleted) {
+          entry.value.completeError(
+            StateError('Connection lost while waiting for response to "${entry.key}"'),
+          );
+        }
+      }
+      _pendingCommands.clear();
+    }
+
     if (!_disposed) {
       print('[CONN] Scheduling reconnect...');
       _scheduleReconnect();

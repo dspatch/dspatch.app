@@ -77,8 +77,14 @@ class EngineClient {
     // Send the frame.
     connection.sendRaw(jsonEncode(frame.toJson()));
 
-    // Wait for the response.
-    final response = await responseFuture;
+    // Wait for the response, with a timeout to avoid hanging indefinitely.
+    final response = await responseFuture.timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        connection.removePendingCommand(id);
+        throw TimeoutException('Engine command "$method" timed out after 30s');
+      },
+    );
 
     return switch (response) {
       ResultFrame(:final data) => data,
