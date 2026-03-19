@@ -18,6 +18,9 @@ class EngineProcessManager {
 
   late final EngineHealth _health;
 
+  /// The PID of the engine process spawned by [start], if any.
+  int? _enginePid;
+
   EngineProcessManager({
     required this.engineBinaryPath,
     required this.host,
@@ -53,13 +56,22 @@ class EngineProcessManager {
     );
 
     try {
-      await Process.start(
+      final process = await Process.start(
         engineBinaryPath,
         [],
         mode: ProcessStartMode.detached,
         environment: {
           'DSPATCH_PORT': port.toString(),
         },
+      );
+      _enginePid = process.pid;
+      // Write PID file for recovery in case the in-memory PID is lost.
+      final appDir = File(Platform.resolvedExecutable).parent.path;
+      final pidFile = File('$appDir/engine.pid');
+      await pidFile.writeAsString('${process.pid}');
+      developer.log(
+        'Engine spawned with PID ${process.pid}',
+        name: 'EngineProcessManager',
       );
     } catch (e) {
       throw EngineStartException(
@@ -86,43 +98,83 @@ class EngineProcessManager {
     return status;
   }
 
-  /// Stops the engine by finding its PID via port and sending SIGTERM.
+  /// Stops the engine process.
   ///
-  /// Returns `true` if the engine was stopped, `false` if it wasn't running
-  /// or couldn't be stopped.
+  /// Attempts a graceful HTTP shutdown via `POST /shutdown` first.
+  /// Falls back to killing the process by stored PID (or the PID file).
+  ///
+  /// Returns `true` if a stop was attempted, `false` if the engine was not
+  /// running or no PID could be resolved.
   Future<bool> stop() async {
     final existing = await _health.checkHealth();
     if (existing == null || !existing.isRunning) return false;
 
+    // 1. Try graceful HTTP shutdown.
     try {
-      // Find the PID of the process *listening* on the engine port.
-      // -sTCP:LISTEN ensures we only match the server, not connected clients
-      // (which would include this app).
-      final result = await Process.run(
-        'lsof',
-        ['-ti', 'tcp:$port', '-sTCP:LISTEN'],
-      );
-
-      final output = (result.stdout as String).trim();
-      if (output.isEmpty) return false;
-
-      // lsof may return multiple PIDs (one per line). Kill them all.
-      for (final pidStr in output.split('\n')) {
-        final pid = int.tryParse(pidStr.trim());
-        if (pid != null) {
-          Process.killPid(pid, ProcessSignal.sigterm);
-        }
-      }
-
-      developer.log('Sent SIGTERM to engine', name: 'EngineProcessManager');
-      return true;
-    } catch (e) {
+      final client = HttpClient();
+      final request = await client
+          .post(host, port, '/shutdown')
+          .timeout(const Duration(seconds: 5));
+      await request.close().timeout(const Duration(seconds: 5));
+      client.close();
       developer.log(
-        'Failed to stop engine: $e',
+        'Engine stopped via HTTP /shutdown',
+        name: 'EngineProcessManager',
+      );
+      return true;
+    } catch (_) {
+      // Engine may be unresponsive — fall through to PID kill.
+    }
+
+    // 2. Fallback: kill by stored PID or PID file.
+    final pid = _enginePid ?? await _readPidFile();
+    if (pid == null) {
+      developer.log(
+        'No PID available to stop engine',
         name: 'EngineProcessManager',
       );
       return false;
     }
+
+    try {
+      Process.killPid(pid, ProcessSignal.sigterm);
+      developer.log(
+        'Sent SIGTERM to engine (PID $pid)',
+        name: 'EngineProcessManager',
+      );
+    } catch (e) {
+      developer.log(
+        'Failed to kill engine PID $pid: $e',
+        name: 'EngineProcessManager',
+      );
+    }
+
+    // Clean up PID file.
+    await _deletePidFile();
+    _enginePid = null;
+    return true;
+  }
+
+  /// Reads the engine PID from the on-disk PID file, or returns `null`.
+  Future<int?> _readPidFile() async {
+    try {
+      final appDir = File(Platform.resolvedExecutable).parent.path;
+      final pidFile = File('$appDir/engine.pid');
+      if (!pidFile.existsSync()) return null;
+      final contents = (await pidFile.readAsString()).trim();
+      return int.tryParse(contents);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Deletes the PID file if it exists.
+  Future<void> _deletePidFile() async {
+    try {
+      final appDir = File(Platform.resolvedExecutable).parent.path;
+      final pidFile = File('$appDir/engine.pid');
+      if (pidFile.existsSync()) await pidFile.delete();
+    } catch (_) {}
   }
 
   /// Resolves the path to the engine binary based on the current platform
