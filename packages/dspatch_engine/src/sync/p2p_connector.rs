@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -176,16 +177,24 @@ async fn initiate_connection(
 
     // Wait for data channel to open and register with peer manager.
     let transport_ready = Arc::clone(&transport);
+    let transports_cleanup = Arc::clone(transports);
     let peer_id_owned = peer_id.to_string();
     let pm = Arc::clone(peer_manager);
     let se = Arc::clone(sync_engine);
     spawn_guarded("p2p_wait_ready_offer", async move {
-        transport_ready.wait_ready().await;
-        tracing::info!("WebRTC data channel open with {peer_id_owned}");
-        register_transport(&peer_id_owned, &transport_ready, &pm).await;
-        // Request delta from peer — send our max lamport so they know what to skip.
-        let max_ts = se.max_lamport_ts();
-        request_delta_sync(&peer_id_owned, &pm, max_ts).await;
+        match tokio::time::timeout(Duration::from_secs(30), transport_ready.wait_ready()).await {
+            Ok(()) => {
+                tracing::info!("WebRTC data channel open with {peer_id_owned}");
+                register_transport(&peer_id_owned, &transport_ready, &pm).await;
+                // Request delta from peer — send our max lamport so they know what to skip.
+                let max_ts = se.max_lamport_ts();
+                request_delta_sync(&peer_id_owned, &pm, max_ts).await;
+            }
+            Err(_) => {
+                tracing::warn!("WebRTC connection to {peer_id_owned} timed out, falling back to relay");
+                transports_cleanup.lock().await.remove(&peer_id_owned);
+            }
+        }
     });
 
     Ok(())
@@ -238,16 +247,24 @@ async fn accept_connection(
 
     // Wait for data channel to open and register.
     let transport_ready = Arc::clone(&transport);
+    let transports_cleanup = Arc::clone(transports);
     let peer_id_owned = peer_id.to_string();
     let pm = Arc::clone(peer_manager);
     let se = Arc::clone(sync_engine);
     spawn_guarded("p2p_wait_ready_answer", async move {
-        transport_ready.wait_ready().await;
-        tracing::info!("WebRTC data channel open with {peer_id_owned}");
-        register_transport(&peer_id_owned, &transport_ready, &pm).await;
-        // Request delta from peer.
-        let max_ts = se.max_lamport_ts();
-        request_delta_sync(&peer_id_owned, &pm, max_ts).await;
+        match tokio::time::timeout(Duration::from_secs(30), transport_ready.wait_ready()).await {
+            Ok(()) => {
+                tracing::info!("WebRTC data channel open with {peer_id_owned}");
+                register_transport(&peer_id_owned, &transport_ready, &pm).await;
+                // Request delta from peer.
+                let max_ts = se.max_lamport_ts();
+                request_delta_sync(&peer_id_owned, &pm, max_ts).await;
+            }
+            Err(_) => {
+                tracing::warn!("WebRTC connection to {peer_id_owned} timed out, falling back to relay");
+                transports_cleanup.lock().await.remove(&peer_id_owned);
+            }
+        }
     });
 
     Ok(())
