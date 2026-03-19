@@ -222,8 +222,10 @@ Future<void> main(List<String> args) async {
       backendAuthForValidation.dispose();
       debugPrint('[BOOT] Stored token validated against backend');
     } on BackendAuthException catch (e) {
-      if (e.statusCode == 401) {
-        debugPrint('[BOOT] Stored token revoked (401) — clearing session');
+      if (e.statusCode == 401 || e.statusCode == 404) {
+        // Backend uses stealth 404 for rejected tokens (hides protected
+        // endpoints from unauthenticated scanners), so 404 = token rejected.
+        debugPrint('[BOOT] Stored token rejected (${e.statusCode}) — clearing session');
         await tokenStore.clearSession();
         validatedSession = null;
       } else {

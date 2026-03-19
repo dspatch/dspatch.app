@@ -231,8 +231,11 @@ async fn validate_backend_token(
         .map_err(|e| format!("Backend request failed: {e}"))?;
 
     if resp.status() != reqwest::StatusCode::OK {
+        // The backend uses stealth 404 for unauthorized requests (hides
+        // protected endpoints from unauthenticated scanners). Treat 404
+        // the same as 401 — both mean the token was rejected.
         return Err(format!(
-            "Backend returned status {}",
+            "Backend rejected token (status {})",
             resp.status().as_u16()
         ));
     }

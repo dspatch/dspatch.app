@@ -9,6 +9,7 @@ import '../../core/utils/display_error.dart';
 import '../../core/utils/platform_info.dart';
 import '../../database/engine_database.dart';
 import '../../di/providers.dart';
+import '../../engine_client/backend_auth.dart';
 import '../../engine_client/engine_auth.dart';
 import '../../engine_client/models/auth_phase.dart';
 import '../../engine_client/models/auth_token.dart';
@@ -77,6 +78,18 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             await ref.read(authControllerProvider.notifier).logout();
             return;
           }
+        } on BackendAuthException catch (e) {
+          if (e.statusCode == 401 || e.statusCode == 404) {
+            // Backend uses stealth 404 for rejected tokens. Clear session
+            // so the app falls back to anonymous auth instead of failing
+            // during engine connect.
+            debugPrint('[SETUP] Backend rejected token (${e.statusCode}), logging out');
+            if (!mounted) return;
+            await ref.read(authControllerProvider.notifier).logout();
+            return;
+          }
+          // Other errors (5xx, network) — proceed offline.
+          debugPrint('[SETUP] Backend status check failed (proceeding): $e');
         } catch (e) {
           // Backend unreachable — proceed with local state for offline resilience.
           debugPrint('[SETUP] Backend status check failed (proceeding): $e');
