@@ -8,6 +8,8 @@
 //!
 //! Ported from `database_key_manager.dart`.
 
+use std::sync::Mutex;
+
 use base64::Engine;
 use sha2::{Digest, Sha256};
 
@@ -34,11 +36,18 @@ pub trait SecretStore: Send + Sync {
 /// Manages per-database encryption keys backed by a [`SecretStore`].
 pub struct DatabaseKeyManager {
     store: Box<dyn SecretStore>,
+    /// Guards the check-then-create sequence to prevent TOCTOU races where
+    /// two concurrent callers both observe a missing key and generate
+    /// different values, causing the second write to silently win.
+    creation_lock: Mutex<()>,
 }
 
 impl DatabaseKeyManager {
     pub fn new(store: Box<dyn SecretStore>) -> Self {
-        Self { store }
+        Self {
+            store,
+            creation_lock: Mutex::new(()),
+        }
     }
 
     /// Returns the storage key name for a given user hash (or anonymous).
@@ -51,9 +60,24 @@ impl DatabaseKeyManager {
 
     /// Retrieves the encryption key for a database.  If none exists,
     /// generates a random 256-bit key and stores it.
+    ///
+    /// The check-then-create sequence is protected by an internal mutex so
+    /// that concurrent calls (e.g. from parallel provider initialization)
+    /// cannot both observe a missing key and generate conflicting values.
     pub fn get_or_create_key(&self, username_hash: Option<&str>) -> Result<String> {
         let key = Self::storage_key(username_hash);
 
+        // Fast path: key already exists — no lock needed for reads.
+        if let Some(existing) = self.store.read(&key)? {
+            return Ok(existing);
+        }
+
+        // Slow path: key is absent — hold the lock for the full
+        // check-then-create sequence to prevent TOCTOU races.
+        let _guard = self.creation_lock.lock().unwrap_or_else(|e| e.into_inner());
+
+        // Re-check under lock in case another thread created the key
+        // between our first read and acquiring the lock.
         if let Some(existing) = self.store.read(&key)? {
             return Ok(existing);
         }
