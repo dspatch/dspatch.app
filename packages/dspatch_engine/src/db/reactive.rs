@@ -208,18 +208,22 @@ where
 /// Waits for any of the receivers to fire.  Returns `false` if all are
 /// closed.
 async fn wait_any_receiver(receivers: &mut [broadcast::Receiver<()>]) -> bool {
-    loop {
-        for rx in receivers.iter_mut() {
-            match rx.try_recv() {
-                Ok(()) => return true,
-                Err(broadcast::error::TryRecvError::Lagged(_)) => return true,
-                Err(broadcast::error::TryRecvError::Closed) => return false,
-                Err(broadcast::error::TryRecvError::Empty) => {}
-            }
-        }
-        // Yield and retry — this is a simple polling approach.  In production
-        // the hook fires synchronously with the write, so this polling loop
-        // only runs briefly between writes.
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    if receivers.is_empty() {
+        return false;
+    }
+
+    // Build one future per receiver, each resolving when that channel fires.
+    // `select_all` resolves as soon as any one of them does.
+    let futs: Vec<_> = receivers
+        .iter_mut()
+        .map(|r| Box::pin(r.recv()))
+        .collect();
+
+    let (result, _, _) = futures::future::select_all(futs).await;
+
+    match result {
+        Ok(()) => true,
+        Err(broadcast::error::RecvError::Lagged(_)) => true, // messages dropped; re-query
+        Err(broadcast::error::RecvError::Closed) => false,
     }
 }

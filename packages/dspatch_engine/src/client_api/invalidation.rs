@@ -13,6 +13,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use futures::future::select_all;
 use tokio::sync::broadcast;
 
 use crate::db::reactive::TableChangeTracker;
@@ -140,36 +141,43 @@ async fn run_aggregation_loop(
     let debounce = std::time::Duration::from_millis(debounce_ms);
 
     loop {
-        // Phase 1: Wait for the first change (or shutdown).
-        let first_table = loop {
-            // Check shutdown.
+        // Phase 1: Wait for the first change (or shutdown) without busy-polling.
+        // Build one future per receiver and race them against a shutdown watch.
+        let first_table = {
+            // Check shutdown immediately before building futures.
             if *shutdown_rx.borrow() {
                 return;
             }
 
-            let mut found = None;
-            for (name, rx) in &mut table_receivers {
-                match rx.try_recv() {
-                    Ok(()) | Err(broadcast::error::TryRecvError::Lagged(_)) => {
-                        found = Some(name.clone());
-                        break;
-                    }
-                    Err(broadcast::error::TryRecvError::Empty) => {}
-                    Err(broadcast::error::TryRecvError::Closed) => return,
-                }
-            }
+            // Each future resolves to `Some(table_name)` on change or `None` on close.
+            let recv_futs: Vec<_> = table_receivers
+                .iter_mut()
+                .map(|(name, rx)| {
+                    let name = name.clone();
+                    Box::pin(async move {
+                        match rx.recv().await {
+                            Ok(()) | Err(broadcast::error::RecvError::Lagged(_)) => {
+                                Some(name)
+                            }
+                            Err(broadcast::error::RecvError::Closed) => None,
+                        }
+                    })
+                })
+                .collect();
 
-            if let Some(table) = found {
-                break table;
-            }
-
-            // No changes yet — sleep briefly and check again.
             tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_millis(5)) => {}
+                (result, _, _) = select_all(recv_futs) => {
+                    match result {
+                        Some(name) => name,
+                        None => return, // a channel closed — shut down
+                    }
+                }
                 _ = shutdown_rx.changed() => {
                     if *shutdown_rx.borrow() {
                         return;
                     }
+                    // Spurious change — loop back to rebuild futures.
+                    continue;
                 }
             }
         };
