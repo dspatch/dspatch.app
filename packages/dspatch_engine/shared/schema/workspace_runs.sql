@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS workspace_runs (
     id TEXT NOT NULL PRIMARY KEY,
-    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     run_number INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'starting',
     container_id TEXT,

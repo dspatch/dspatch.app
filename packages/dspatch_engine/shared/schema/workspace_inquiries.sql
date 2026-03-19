@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS workspace_inquiries (
     id TEXT NOT NULL PRIMARY KEY,
-    run_id TEXT NOT NULL REFERENCES workspace_runs(id),
+    run_id TEXT NOT NULL REFERENCES workspace_runs(id) ON DELETE CASCADE,
     agent_key TEXT NOT NULL,
     instance_id TEXT NOT NULL,
     status TEXT NOT NULL,

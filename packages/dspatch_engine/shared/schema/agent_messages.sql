@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS agent_messages (
     id TEXT NOT NULL PRIMARY KEY,
-    run_id TEXT NOT NULL REFERENCES workspace_runs(id),
+    run_id TEXT NOT NULL REFERENCES workspace_runs(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
     content TEXT NOT NULL,
     model TEXT,

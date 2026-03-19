@@ -19,6 +19,7 @@
 //!   v14 → add sync_lamport and sync_config tables for trigger-based outbox
 //!   v15 → add sync_tombstones table for soft deletes
 //!   v16 → add _lamport_ts and _sync_device_id columns to all synced tables for per-row LWW
+//!   v17 → rebuild all FK tables with ON DELETE CASCADE (SQLite requires table-rebuild to add CASCADE)
 
 use rusqlite::Connection;
 
@@ -28,7 +29,7 @@ use crate::util::result::Result;
 use super::schema::ALL_TABLES;
 
 /// Current schema version. Must match the Dart SDK's `schemaVersion`.
-pub const SCHEMA_VERSION: i32 = 16;
+pub const SCHEMA_VERSION: i32 = 17;
 
 /// Creates all tables from scratch (fresh database, version 0 → current).
 pub fn create_tables(conn: &Connection) -> Result<()> {
@@ -164,6 +165,218 @@ fn run_migration(conn: &Connection, from_version: i32, to_version: i32) -> Resul
                      ALTER TABLE {table} ADD COLUMN _sync_device_id TEXT NOT NULL DEFAULT '';"
                 )).map_err(|e| AppError::Storage(format!("Migration v16 ({table} version columns) failed: {e}")))?;
             }
+        }
+        16 => {
+            // Rebuild all tables that have REFERENCES without ON DELETE CASCADE.
+            // SQLite cannot ALTER TABLE to add CASCADE; the only option is table-rebuild.
+            // Pattern: RENAME old → _old_, CREATE new (schema SQL now has CASCADE), copy all
+            // rows including sync columns, DROP old.
+
+            // --- workspace_runs (REFERENCES workspaces(id)) ---
+            tx.execute_batch(
+                "ALTER TABLE workspace_runs RENAME TO _old_workspace_runs;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename workspace_runs) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_WORKSPACE_RUNS)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create workspace_runs) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO workspace_runs \
+                    (id, workspace_id, run_number, status, container_id, server_port, api_key, \
+                     started_at, stopped_at, _lamport_ts, _sync_device_id) \
+                 SELECT id, workspace_id, run_number, status, container_id, server_port, api_key, \
+                        started_at, stopped_at, _lamport_ts, _sync_device_id \
+                 FROM _old_workspace_runs; \
+                 DROP TABLE _old_workspace_runs;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate workspace_runs) failed: {e}")))?;
+
+            // --- workspace_agents (REFERENCES workspace_runs(id)) ---
+            tx.execute_batch(
+                "ALTER TABLE workspace_agents RENAME TO _old_workspace_agents;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename workspace_agents) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_WORKSPACE_AGENTS)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create workspace_agents) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO workspace_agents \
+                    (id, run_id, agent_key, instance_id, display_name, chain_json, status, \
+                     created_at, updated_at, _lamport_ts, _sync_device_id) \
+                 SELECT id, run_id, agent_key, instance_id, display_name, chain_json, status, \
+                        created_at, updated_at, _lamport_ts, _sync_device_id \
+                 FROM _old_workspace_agents; \
+                 DROP TABLE _old_workspace_agents;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate workspace_agents) failed: {e}")))?;
+
+            // --- agent_messages (REFERENCES workspace_runs(id)) ---
+            tx.execute_batch(
+                "ALTER TABLE agent_messages RENAME TO _old_agent_messages;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename agent_messages) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_AGENT_MESSAGES)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create agent_messages) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO agent_messages \
+                    (id, run_id, role, content, model, input_tokens, output_tokens, instance_id, \
+                     turn_id, sender_name, created_at, _lamport_ts, _sync_device_id) \
+                 SELECT id, run_id, role, content, model, input_tokens, output_tokens, instance_id, \
+                        turn_id, sender_name, created_at, _lamport_ts, _sync_device_id \
+                 FROM _old_agent_messages; \
+                 DROP TABLE _old_agent_messages;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate agent_messages) failed: {e}")))?;
+
+            // --- agent_logs (REFERENCES workspace_runs(id)) ---
+            tx.execute_batch(
+                "ALTER TABLE agent_logs RENAME TO _old_agent_logs;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename agent_logs) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_AGENT_LOGS)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create agent_logs) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO agent_logs \
+                    (id, run_id, agent_key, instance_id, turn_id, level, message, source, \
+                     timestamp, _lamport_ts, _sync_device_id) \
+                 SELECT id, run_id, agent_key, instance_id, turn_id, level, message, source, \
+                        timestamp, _lamport_ts, _sync_device_id \
+                 FROM _old_agent_logs; \
+                 DROP TABLE _old_agent_logs;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate agent_logs) failed: {e}")))?;
+
+            // --- agent_activity_events (REFERENCES workspace_runs(id)) ---
+            tx.execute_batch(
+                "ALTER TABLE agent_activity_events RENAME TO _old_agent_activity_events;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename agent_activity_events) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_AGENT_ACTIVITY_EVENTS)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create agent_activity_events) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO agent_activity_events \
+                    (id, run_id, agent_key, instance_id, turn_id, event_type, data_json, content, \
+                     timestamp, _lamport_ts, _sync_device_id) \
+                 SELECT id, run_id, agent_key, instance_id, turn_id, event_type, data_json, content, \
+                        timestamp, _lamport_ts, _sync_device_id \
+                 FROM _old_agent_activity_events; \
+                 DROP TABLE _old_agent_activity_events;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate agent_activity_events) failed: {e}")))?;
+
+            // --- agent_usage_records (REFERENCES workspace_runs(id)) ---
+            tx.execute_batch(
+                "ALTER TABLE agent_usage_records RENAME TO _old_agent_usage_records;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename agent_usage_records) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_AGENT_USAGE_RECORDS)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create agent_usage_records) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO agent_usage_records \
+                    (id, run_id, agent_key, instance_id, turn_id, model, input_tokens, \
+                     output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, \
+                     timestamp, _lamport_ts, _sync_device_id) \
+                 SELECT id, run_id, agent_key, instance_id, turn_id, model, input_tokens, \
+                        output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, \
+                        timestamp, _lamport_ts, _sync_device_id \
+                 FROM _old_agent_usage_records; \
+                 DROP TABLE _old_agent_usage_records;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate agent_usage_records) failed: {e}")))?;
+
+            // --- agent_files (REFERENCES workspace_runs(id)) ---
+            tx.execute_batch(
+                "ALTER TABLE agent_files RENAME TO _old_agent_files;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename agent_files) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_AGENT_FILES)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create agent_files) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO agent_files \
+                    (id, run_id, agent_key, instance_id, turn_id, file_path, operation, \
+                     timestamp, _lamport_ts, _sync_device_id) \
+                 SELECT id, run_id, agent_key, instance_id, turn_id, file_path, operation, \
+                        timestamp, _lamport_ts, _sync_device_id \
+                 FROM _old_agent_files; \
+                 DROP TABLE _old_agent_files;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate agent_files) failed: {e}")))?;
+
+            // --- workspace_inquiries (REFERENCES workspace_runs(id)) ---
+            tx.execute_batch(
+                "ALTER TABLE workspace_inquiries RENAME TO _old_workspace_inquiries;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename workspace_inquiries) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_WORKSPACE_INQUIRIES)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create workspace_inquiries) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO workspace_inquiries \
+                    (id, run_id, agent_key, instance_id, status, priority, content_markdown, \
+                     attachments_json, suggestions_json, response_text, response_suggestion_index, \
+                     responded_by_agent_key, forwarding_chain_json, created_at, responded_at, \
+                     _lamport_ts, _sync_device_id) \
+                 SELECT id, run_id, agent_key, instance_id, status, priority, content_markdown, \
+                        attachments_json, suggestions_json, response_text, response_suggestion_index, \
+                        responded_by_agent_key, forwarding_chain_json, created_at, responded_at, \
+                        _lamport_ts, _sync_device_id \
+                 FROM _old_workspace_inquiries; \
+                 DROP TABLE _old_workspace_inquiries;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate workspace_inquiries) failed: {e}")))?;
+
+            // --- instance_results (REFERENCES workspace_runs(id)) ---
+            tx.execute_batch(
+                "ALTER TABLE instance_results RENAME TO _old_instance_results;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename instance_results) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_INSTANCE_RESULTS)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create instance_results) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO instance_results \
+                    (id, run_id, agent_key, instance_id, turn_id, request_id, created_at, \
+                     _lamport_ts, _sync_device_id) \
+                 SELECT id, run_id, agent_key, instance_id, turn_id, request_id, created_at, \
+                        _lamport_ts, _sync_device_id \
+                 FROM _old_instance_results; \
+                 DROP TABLE _old_instance_results;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate instance_results) failed: {e}")))?;
+
+            // --- agent_instance_states (REFERENCES workspace_runs(id)) — ephemeral, no sync cols ---
+            tx.execute_batch(
+                "ALTER TABLE agent_instance_states RENAME TO _old_agent_instance_states;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename agent_instance_states) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_AGENT_INSTANCE_STATES)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create agent_instance_states) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO agent_instance_states \
+                    (instance_id, run_id, agent_key, state, updated_at) \
+                 SELECT instance_id, run_id, agent_key, state, updated_at \
+                 FROM _old_agent_instance_states; \
+                 DROP TABLE _old_agent_instance_states;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate agent_instance_states) failed: {e}")))?;
+
+            // --- agent_connection_status (REFERENCES workspace_runs(id)) — ephemeral, no sync cols ---
+            tx.execute_batch(
+                "ALTER TABLE agent_connection_status RENAME TO _old_agent_connection_status;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename agent_connection_status) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_AGENT_CONNECTION_STATUS)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create agent_connection_status) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO agent_connection_status \
+                    (agent_key, run_id, connected, updated_at) \
+                 SELECT agent_key, run_id, connected, updated_at \
+                 FROM _old_agent_connection_status; \
+                 DROP TABLE _old_agent_connection_status;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate agent_connection_status) failed: {e}")))?;
+
+            // --- container_health (REFERENCES workspace_runs(id)) — ephemeral, no sync cols ---
+            tx.execute_batch(
+                "ALTER TABLE container_health RENAME TO _old_container_health;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename container_health) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_CONTAINER_HEALTH)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create container_health) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO container_health \
+                    (run_id, status, error_message, updated_at) \
+                 SELECT run_id, status, error_message, updated_at \
+                 FROM _old_container_health; \
+                 DROP TABLE _old_container_health;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate container_health) failed: {e}")))?;
+
+            // --- workspace_run_status (REFERENCES workspace_runs(id)) — ephemeral, no sync cols ---
+            tx.execute_batch(
+                "ALTER TABLE workspace_run_status RENAME TO _old_workspace_run_status;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (rename workspace_run_status) failed: {e}")))?;
+            tx.execute_batch(super::schema::CREATE_WORKSPACE_RUN_STATUS)
+                .map_err(|e| AppError::Storage(format!("Migration v17 (create workspace_run_status) failed: {e}")))?;
+            tx.execute_batch(
+                "INSERT INTO workspace_run_status \
+                    (run_id, status, updated_at) \
+                 SELECT run_id, status, updated_at \
+                 FROM _old_workspace_run_status; \
+                 DROP TABLE _old_workspace_run_status;"
+            ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate workspace_run_status) failed: {e}")))?;
         }
         _ => {
             // No migration defined for this step; nothing to do.
