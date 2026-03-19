@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use crate::domain::models::ApiResponse;
 use crate::domain::services::ApiClient;
 use crate::util::result::Result;
+use crate::util::retry::with_retry;
 
 /// [`ApiClient`] implementation using `reqwest`.
 pub struct HttpApiClient {
@@ -101,21 +102,27 @@ impl ApiClient for HttpApiClient {
         let url = self.build_url(path, query_params);
         tracing::info!(tag = "api", "GET {path}");
 
-        let response = self
-            .client
-            .get(&url)
-            .headers(self.headers(false))
-            .send()
-            .await
-            .map_err(|e| crate::util::error::AppError::Api {
-                message: e.to_string(),
-                status_code: None,
-                body: None,
-            })?;
-
-        let status = response.status().as_u16();
-        let body = response.text().await.unwrap_or_default();
-        Ok(Self::parse_response(status, &body))
+        with_retry(3, Duration::from_millis(300), || {
+            let url = url.clone();
+            let client = self.client.clone();
+            let headers = self.headers(false);
+            async move {
+                let response = client
+                    .get(&url)
+                    .headers(headers)
+                    .send()
+                    .await
+                    .map_err(|e| crate::util::error::AppError::Api {
+                        message: e.to_string(),
+                        status_code: None,
+                        body: None,
+                    })?;
+                let status = response.status().as_u16();
+                let body = response.text().await.unwrap_or_default();
+                Ok(Self::parse_response(status, &body))
+            }
+        })
+        .await
     }
 
     async fn post(

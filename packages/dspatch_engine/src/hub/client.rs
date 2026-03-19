@@ -10,6 +10,7 @@ use std::sync::RwLock;
 use std::time::Duration;
 
 use super::models::*;
+use crate::util::retry::with_retry;
 
 /// HTTP client for the d:spatch Community Hub public and authenticated APIs.
 ///
@@ -402,20 +403,54 @@ impl HubApiClient {
         let url = format!("{}{}", self.base_url, path);
         tracing::info!(tag = "hub", "HUB GET {path}");
 
-        let mut request = self.client.get(&url).header("Accept", "application/json");
-        if let Some(params) = params {
-            request = request.query(params);
-        }
-        if let Some(ref token) = *self.auth_token.read().unwrap_or_else(|e| e.into_inner()) {
-            request = request.header("Authorization", format!("Bearer {token}"));
-        }
+        // Snapshot auth token once; the closure must be `FnMut` (no `&self` borrow inside).
+        let token_snapshot = self.auth_token.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let params_owned: Option<HashMap<String, String>> = params.cloned();
 
-        let response = request
-            .send()
-            .await
-            .map_err(|e| HubApiException::new(0, e.to_string()))?;
+        with_retry(3, Duration::from_millis(300), || {
+            let url = url.clone();
+            let client = self.client.clone();
+            let token = token_snapshot.clone();
+            let params_ref = params_owned.clone();
+            async move {
+                let mut request = client.get(&url).header("Accept", "application/json");
+                if let Some(ref p) = params_ref {
+                    request = request.query(p);
+                }
+                if let Some(ref t) = token {
+                    request = request.header("Authorization", format!("Bearer {t}"));
+                }
+                let response = request
+                    .send()
+                    .await
+                    .map_err(|e| HubApiException::new(0, e.to_string()))?;
 
-        self.parse_response(response).await
+                let status = response.status().as_u16();
+                let body = response
+                    .text()
+                    .await
+                    .map_err(|e| HubApiException::new(status, e.to_string()))?;
+
+                if status < 200 || status >= 300 {
+                    tracing::warn!(tag = "hub", "Hub API {status}");
+                    return Err(HubApiException::new(status, body));
+                }
+
+                if body.is_empty() {
+                    return Ok(serde_json::json!({}));
+                }
+
+                let decoded: serde_json::Value = serde_json::from_str(&body)
+                    .map_err(|e| HubApiException::new(status, format!("JSON parse error: {e}")))?;
+
+                if decoded.is_object() {
+                    Ok(decoded)
+                } else {
+                    Ok(serde_json::json!({ "data": decoded }))
+                }
+            }
+        })
+        .await
     }
 
     async fn post(

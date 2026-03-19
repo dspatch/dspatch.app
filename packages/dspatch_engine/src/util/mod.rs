@@ -8,6 +8,7 @@ pub mod logger;
 pub mod panic_guard;
 pub mod platform;
 pub mod result;
+pub mod retry;
 
 pub use dspatch_uri::DspatchUri;
 pub use id::new_id;
