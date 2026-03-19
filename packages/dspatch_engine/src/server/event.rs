@@ -238,6 +238,23 @@ impl EventService {
         if let Ok(mut pending) = self.pending_auto_start.try_lock() {
             pending.retain(|(ws, _)| ws != workspace_id);
         }
+        // Clean up in-memory maps to prevent unbounded growth across run restarts.
+        // These maps use tokio::sync::Mutex; use try_lock (non-blocking) since
+        // deregister_workspace_run is called from sync contexts. If the lock is
+        // contended, the entries will be cleaned up lazily on the next run start
+        // or via dispose().
+        if let Ok(mut links) = self.links.try_lock() {
+            links.retain(|_, link| link.workspace_id != workspace_id);
+        }
+        if let Ok(mut conv) = self.conversation_instances.try_lock() {
+            conv.retain(|(ws, _, _), _| ws != workspace_id);
+        }
+        if let Ok(mut bubbles) = self.pending_bubbles.try_lock() {
+            bubbles.retain(|_, b| b.workspace_id != workspace_id);
+        }
+        // Note: instance_chains is keyed by instance_id with no workspace reference;
+        // it is cleaned up by clear_workspace_chains() (called on stop) or dispose().
+        tracing::debug!(workspace_id, "Cleaned up in-memory maps for workspace run");
     }
 
     /// Sync-safe active run ID lookup.

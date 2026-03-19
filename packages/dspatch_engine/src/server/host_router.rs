@@ -188,8 +188,16 @@ impl HostRouter {
     }
 
     pub fn deregister_workspace_run(&self, workspace_id: &str) {
+        // Look up the run_id before deregistering so we can clean up
+        // heartbeat_log_times (keyed by run_id).
+        let run_id = self.event_service.active_run_id(workspace_id);
         self.event_service
             .deregister_workspace_run(workspace_id);
+        if let Some(run_id) = run_id {
+            self.heartbeat_log_times
+                .lock()
+                .retain(|(rid, _), _| rid != &run_id);
+        }
     }
 
     // ── Internal: promote run ──

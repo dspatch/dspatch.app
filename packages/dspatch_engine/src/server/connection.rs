@@ -218,14 +218,59 @@ impl ConnectionService {
         run_id: String,
         agent_name: String,
     ) {
-        let (sender, mut receiver) = ws.split();
-        let sender = Arc::new(Mutex::new(sender));
+        let (ws_sink, mut ws_stream) = ws.split();
+        let sender = Arc::new(Mutex::new(ws_sink));
         let service = Arc::clone(self);
 
         let mut authenticated = false;
         let mut registered = false;
         let r_id = run_id.clone();
         let a_name = agent_name.clone();
+
+        // Bounded inbound channel — provides backpressure: if the processing loop
+        // falls behind, incoming messages are dropped with a warning rather than
+        // buffering unboundedly in memory.
+        let (inbound_tx, mut inbound_rx) = tokio::sync::mpsc::channel::<String>(256);
+
+        // Spawn a task that reads from the WebSocket and forwards into the channel.
+        let r_id_reader = r_id.clone();
+        let a_name_reader = a_name.clone();
+        let reader_handle = crate::util::panic_guard::spawn_guarded("connection_ws_reader", async move {
+            loop {
+                match ws_stream.next().await {
+                    Some(Ok(Message::Text(t))) => {
+                        let s = t.to_string();
+                        match inbound_tx.try_send(s) {
+                            Ok(_) => {}
+                            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                                tracing::warn!(
+                                    run_id = r_id_reader.as_str(),
+                                    agent_name = a_name_reader.as_str(),
+                                    "Inbound channel full — dropping message (backpressure)"
+                                );
+                            }
+                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                break;
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Pong(_))) => {} // ignore pong frames
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Ok(_)) => {} // ignore binary/other
+                    Some(Err(e)) => {
+                        tracing::warn!(
+                            run_id = r_id_reader.as_str(),
+                            agent_name = a_name_reader.as_str(),
+                            error = %e,
+                            "WebSocket error"
+                        );
+                        break;
+                    }
+                }
+            }
+            // Drop the channel sender to signal EOF to the processing loop.
+            drop(inbound_tx);
+        });
 
         // Auth timeout: 10 seconds
         let auth_sender = Arc::clone(&sender);
@@ -258,26 +303,7 @@ impl ConnectionService {
             }
         });
 
-        while let Some(msg) = receiver.next().await {
-            let msg = match msg {
-                Ok(m) => m,
-                Err(e) => {
-                    tracing::warn!(
-                        run_id = r_id.as_str(),
-                        agent_name = a_name.as_str(),
-                        error = %e,
-                        "WebSocket error"
-                    );
-                    break;
-                }
-            };
-
-            let raw = match msg {
-                Message::Text(t) => t.to_string(),
-                Message::Close(_) => break,
-                _ => continue,
-            };
-
+        while let Some(raw) = inbound_rx.recv().await {
             // Try parse as JSON.
             let parsed = match Package::from_json(&raw) {
                 Ok(p) => p,
@@ -468,7 +494,13 @@ impl ConnectionService {
 
         // Disconnection.
         auth_handle.abort();
-        let was_registered = service.remove_connection(&r_id, &a_name);
+        reader_handle.abort();
+
+        // Fix connection replacement race: only remove the connection from the
+        // map if the stored sender is the same Arc as the one created in this
+        // handler invocation. If a newer connection has already replaced it,
+        // leave the map entry intact.
+        let was_registered = service.remove_connection_if_matches(&r_id, &a_name, &sender);
         service
             .registered_names
             .lock()
@@ -532,6 +564,35 @@ impl ConnectionService {
             conns.remove(run_id);
         }
         removed
+    }
+
+    /// Remove a connection only if the stored sender is the same Arc as
+    /// `disconnected_sender`. This prevents the disconnection path of a replaced
+    /// (stale) connection from evicting the newer connection that replaced it.
+    fn remove_connection_if_matches(
+        &self,
+        run_id: &str,
+        agent_name: &str,
+        disconnected_sender: &WsSender,
+    ) -> bool {
+        let mut conns = self.connections.write().unwrap_or_else(|e| e.into_inner());
+        let workspace = match conns.get_mut(run_id) {
+            Some(w) => w,
+            None => return false,
+        };
+        let matches = workspace
+            .get(agent_name)
+            .map(|existing| Arc::ptr_eq(existing, disconnected_sender))
+            .unwrap_or(false);
+        if matches {
+            workspace.remove(agent_name);
+            if workspace.is_empty() {
+                conns.remove(run_id);
+            }
+            true
+        } else {
+            false
+        }
     }
 
     // ── Public API ──
