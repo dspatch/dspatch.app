@@ -83,13 +83,8 @@ async fn flush_outbox(engine: &SyncEngine) -> crate::util::result::Result<()> {
             }
             Ok(_) => {} // Nothing to sync.
             Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("channel closed") || err_str.contains("Not connected") {
-                    tracing::info!("Peer {peer_id} disconnected — removing from sync targets");
-                    engine.peer_manager().disconnect(peer_id).await;
-                } else {
-                    tracing::warn!("Failed to sync to {peer_id}: {e}");
-                }
+                // Log at debug level to avoid spam — the 1-second flush retries automatically.
+                tracing::debug!("Sync flush to {peer_id} failed: {e}");
             }
         }
     }
@@ -183,21 +178,26 @@ async fn handle_incoming(engine: &SyncEngine, from_device: &str, message: SyncMe
                 Ok(tables) => {
                     let total_rows: usize = tables.iter().map(|(_, rows)| rows.len()).sum();
                     tracing::info!("Sending delta: {total_rows} rows across {} tables to {from_device}", tables.len());
+                    // Send in chunks of 50 rows to avoid overwhelming the WebRTC data channel.
                     for (table, rows) in tables {
-                        let msg = SyncMessage::DeltaResponse {
-                            table,
-                            rows,
-                        };
-                        if let Err(e) = engine
-                            .peer_manager()
-                            .send_raw(
-                                from_device,
-                                serde_json::to_vec(&msg).unwrap_or_default(),
-                            )
-                            .await
-                        {
-                            tracing::warn!("Failed to send delta to {from_device}: {e}");
-                            break;
+                        for chunk in rows.chunks(50) {
+                            let msg = SyncMessage::DeltaResponse {
+                                table: table.clone(),
+                                rows: chunk.to_vec(),
+                            };
+                            if let Err(e) = engine
+                                .peer_manager()
+                                .send_raw(
+                                    from_device,
+                                    serde_json::to_vec(&msg).unwrap_or_default(),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Failed to send delta chunk to {from_device}: {e}");
+                                break;
+                            }
+                            // Small yield to let the data channel flush.
+                            tokio::task::yield_now().await;
                         }
                     }
                     // Also send tombstones.
