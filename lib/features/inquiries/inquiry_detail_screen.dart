@@ -49,19 +49,51 @@ class _InquiryDetailScreenState extends ConsumerState<InquiryDetailScreen> {
 
     final inquiryAsync = ref.watch(workspaceInquiryProvider(widget.inquiryId));
 
-    return inquiryAsync.when(
-      data: (inquiry) {
-        if (inquiry == null) {
-          return ContentArea(
-            child: EmptyState(
-              icon: LucideIcons.circle_alert,
-              title: 'Inquiry Not Found',
-              description: 'This inquiry may have been deleted.',
+    return PopScope(
+      canPop: !(_customController.text.trim().isNotEmpty && !_isSubmitting),
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldLeave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: AppColors.card,
+            title: const Text(
+              'Discard response?',
+              style: TextStyle(color: AppColors.foreground),
             ),
-          );
+            content: const Text(
+              'You have unsaved text. Leave without submitting?',
+              style: TextStyle(color: AppColors.mutedForeground),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Stay'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Leave'),
+              ),
+            ],
+          ),
+        );
+        if (shouldLeave == true && context.mounted) {
+          context.pop();
         }
+      },
+      child: inquiryAsync.when(
+        data: (inquiry) {
+          if (inquiry == null) {
+            return ContentArea(
+              child: EmptyState(
+                icon: LucideIcons.circle_alert,
+                title: 'Inquiry Not Found',
+                description: 'This inquiry may have been deleted.',
+              ),
+            );
+          }
 
-        final isPending = inquiry.isPending;
+          final isPending = inquiry.isPending;
         final isExpired = inquiry.isExpired;
         final suggestions = _parseSuggestions(inquiry.suggestionsJson);
         final filePaths = _parseFilePaths(inquiry.attachmentsJson);
@@ -246,11 +278,12 @@ class _InquiryDetailScreenState extends ConsumerState<InquiryDetailScreen> {
           ),
         );
       },
-      loading: () => const Center(child: Spinner()),
-      error: (e, _) => EmptyState(
-        icon: LucideIcons.circle_alert,
-        title: 'Inquiry Not Found',
-        description: '$e',
+        loading: () => const Center(child: Spinner()),
+        error: (e, _) => EmptyState(
+          icon: LucideIcons.circle_alert,
+          title: 'Inquiry Not Found',
+          description: '$e',
+        ),
       ),
     );
   }

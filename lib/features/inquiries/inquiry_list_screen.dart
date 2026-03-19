@@ -126,7 +126,10 @@ class InquiryListScreen extends ConsumerWidget {
                 );
               },
               loading: () => const Center(child: Spinner()),
-              error: (e, _) => Center(child: Text('Error: $e')),
+              error: (e, _) => ErrorStateView(
+                message: e.toString(),
+                onRetry: () => ref.invalidate(allInquiriesProvider),
+              ),
             ),
           ),
         ],
