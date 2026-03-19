@@ -862,9 +862,10 @@ impl DspatchSdk {
             return Err(AppError::Internal("Cannot start sync — no server-assigned device ID".into()));
         }
 
-        // Set device ID in sync_config for triggers.
+        // Install outbox triggers and set device ID.
         {
             let conn = db.conn();
+            crate::sync::outbox_hook::install_outbox_triggers(&conn)?;
             crate::sync::outbox_hook::set_sync_device_id(&conn, &device_id)?;
             crate::sync::outbox_hook::bootstrap_lamport_clock(&conn)?;
         }
