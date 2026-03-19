@@ -424,9 +424,18 @@ impl SyncEngine {
             applied += 1;
         }
 
-        // Update cursor for the remote device.
-        if let Some(last) = changes.last() {
-            self.update_cursor(&last.device_id, &last.table, last.lamport_ts)?;
+        // Update cursors for every (device_id, table) pair seen in the batch,
+        // using the highest Lamport timestamp per pair. Previously only the last
+        // entry was used, which left cursors stale for earlier tables.
+        let mut max_lamport_per_key: std::collections::HashMap<(String, String), i64> =
+            std::collections::HashMap::new();
+        for change in &changes {
+            let key = (change.device_id.clone(), change.table.clone());
+            let entry = max_lamport_per_key.entry(key).or_insert(0);
+            *entry = (*entry).max(change.lamport_ts);
+        }
+        for ((dev_id, table), lamport) in &max_lamport_per_key {
+            self.update_cursor(dev_id, table, *lamport)?;
         }
 
         Ok(applied)
