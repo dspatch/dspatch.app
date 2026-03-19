@@ -880,7 +880,7 @@ impl DspatchSdk {
         let cancel = tokio_util::sync::CancellationToken::new();
         crate::sync::start_sync_loop(Arc::clone(&engine), cancel.clone());
 
-        *self.sync_engine.write().await = Some(engine);
+        *self.sync_engine.write().await = Some(Arc::clone(&engine));
         *self.sync_cancel.write().await = Some(cancel.clone());
 
         // Start engine WS client for backend real-time events (presence, signaling).
@@ -892,7 +892,30 @@ impl DspatchSdk {
                 Arc::new(RwLock::new(token)),
                 device_id.clone(),
             ));
-            ws.clone().start(cancel);
+            ws.clone().start(cancel.clone());
+
+            // Create signaling client wired to the backend WS.
+            let mut sig_client = crate::sync::SignalingClient::new(&device_id);
+            // Wait briefly for WS to connect and get the sender.
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            if let Some(ws_tx) = ws.ws_sender().await {
+                sig_client.set_ws_sender(ws_tx);
+                tracing::info!("Signaling client wired to backend WS");
+            } else {
+                tracing::warn!("Backend WS not yet connected — signaling will retry");
+            }
+
+            // Spawn P2P connector to drive WebRTC handshakes.
+            let signaling_rx = ws.signaling_rx();
+            crate::sync::p2p_connector::spawn_p2p_connector(
+                device_id.clone(),
+                signaling_rx,
+                Arc::new(tokio::sync::Mutex::new(sig_client)),
+                Arc::clone(engine.peer_manager()),
+                cancel.clone(),
+            );
+            tracing::info!("P2P connector spawned — will auto-connect peers");
+
             *self.ws_client.write().await = Some(ws);
             tracing::info!("Engine WS client started for backend events");
         } else {

@@ -119,6 +119,11 @@ impl BackendWsClient {
         Arc::clone(&self.prekey_low_rx)
     }
 
+    /// Returns the signaling event receiver (for the P2P connector to consume).
+    pub fn signaling_rx(&self) -> Arc<Mutex<mpsc::Receiver<SignalingEvent>>> {
+        Arc::clone(&self.signaling_rx)
+    }
+
     /// Starts the reconnecting WebSocket loop in a background task.
     ///
     /// The loop will keep reconnecting with exponential backoff until the
