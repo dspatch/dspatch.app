@@ -91,9 +91,9 @@ impl Database {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)
                 .map_err(|e| AppError::Storage(format!("Failed to set schema version: {e}")))?;
         } else if stored_version < SCHEMA_VERSION {
+            // Each migration step bumps user_version inside its own transaction,
+            // so no separate version update is needed here.
             run_migrations(&conn, stored_version)?;
-            conn.pragma_update(None, "user_version", SCHEMA_VERSION)
-                .map_err(|e| AppError::Storage(format!("Failed to set schema version: {e}")))?;
         }
 
         let tracker = Arc::new(TableChangeTracker::new());
