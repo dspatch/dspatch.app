@@ -4,6 +4,12 @@ use std::collections::{HashMap, HashSet};
 
 use super::config::{AgentConfig, DockerConfig, MountConfig, WorkspaceConfig};
 
+/// Maximum nesting depth for recursive agent parsing.
+///
+/// Prevents stack overflow or exponential work from pathological configs
+/// with deeply nested sub-agent trees.
+const MAX_DEPTH: usize = 10;
+
 /// A validation error found in a [`WorkspaceConfig`].
 ///
 /// Each error identifies the field path (e.g. `"agents.coder.template"`)
@@ -50,7 +56,7 @@ pub fn validate_config(config: &WorkspaceConfig) -> Vec<ConfigValidationError> {
 
     // Collect all agent keys for peer validation.
     let mut all_keys = HashSet::new();
-    collect_agent_keys(&config.agents, "", &mut all_keys, &mut errors);
+    collect_agent_keys(&config.agents, "", &mut all_keys, &mut errors, 0);
 
     // Validate peer references.
     validate_peer_references(&config.agents, "", &all_keys, &mut errors);
@@ -73,30 +79,52 @@ fn collect_agent_keys(
     prefix: &str,
     all_keys: &mut HashSet<String>,
     errors: &mut Vec<ConfigValidationError>,
+    depth: usize,
 ) {
+    if depth >= MAX_DEPTH {
+        errors.push(ConfigValidationError {
+            field: prefix.to_string(),
+            message: format!(
+                "Agent nesting depth exceeds maximum of {} levels",
+                MAX_DEPTH
+            ),
+        });
+        return;
+    }
+
     for (agent_key, agent_config) in agents {
-        let key = if prefix.is_empty() {
+        // Use the fully-qualified path as the unique key so that agents at
+        // different levels of the hierarchy can share the same local name
+        // without triggering false duplicate errors, while still detecting
+        // genuine duplicates within the same parent.
+        let qualified_key = if prefix.is_empty() {
             agent_key.clone()
         } else {
             format!("{}.{}", prefix, agent_key)
         };
 
-        if !all_keys.insert(agent_key.clone()) {
+        if !all_keys.insert(qualified_key.clone()) {
             errors.push(ConfigValidationError {
-                field: key.clone(),
-                message: format!("Duplicate agent key \"{}\"", agent_key),
+                field: qualified_key.clone(),
+                message: format!("Duplicate agent key \"{}\"", qualified_key),
             });
         }
 
         if agent_config.template.trim().is_empty() {
             errors.push(ConfigValidationError {
-                field: format!("{}.template", key),
+                field: format!("{}.template", qualified_key),
                 message: format!("Template name is required for agent \"{}\"", agent_key),
             });
         }
 
         if !agent_config.sub_agents.is_empty() {
-            collect_agent_keys(&agent_config.sub_agents, &key, all_keys, errors);
+            collect_agent_keys(
+                &agent_config.sub_agents,
+                &qualified_key,
+                all_keys,
+                errors,
+                depth + 1,
+            );
         }
     }
 }
@@ -115,7 +143,14 @@ fn validate_peer_references(
         };
 
         for peer in &agent_config.peers {
-            if !all_keys.contains(peer) {
+            // Peers may be referenced by their fully-qualified path (e.g.
+            // "parent.child") or by bare name (e.g. "child"). Accept either.
+            let peer_found = all_keys.contains(peer.as_str())
+                || all_keys.iter().any(|k| {
+                    k == peer
+                        || k.ends_with(&format!(".{}", peer))
+                });
+            if !peer_found {
                 errors.push(ConfigValidationError {
                     field: format!("{}.peers", key),
                     message: format!(
