@@ -78,8 +78,10 @@ impl HubApiClient {
         }
 
         let json = self.get("/public/agents", Some(&params)).await?;
-        let data: Vec<HubAgentSummary> = serde_json::from_value(json["data"].clone())
-            .unwrap_or_default();
+        let data: Vec<HubAgentSummary> = match serde_json::from_value(json["data"].clone()) {
+            Ok(val) => val,
+            Err(e) => { tracing::warn!("Failed to parse hub response: {e}"); Default::default() }
+        };
         let pagination: HubPagination = serde_json::from_value(json["pagination"].clone())
             .map_err(|e| HubApiException::new(0, format!("pagination parse error: {e}")))?;
         Ok((data, pagination))
@@ -88,7 +90,10 @@ impl HubApiClient {
     /// List available agent categories with counts.
     pub async fn agent_categories(&self) -> Result<Vec<HubCategoryCount>, HubApiException> {
         let json = self.get("/public/agents/categories", None).await?;
-        Ok(serde_json::from_value(json["data"].clone()).unwrap_or_default())
+        Ok(match serde_json::from_value(json["data"].clone()) {
+            Ok(val) => val,
+            Err(e) => { tracing::warn!("Failed to parse hub response: {e}"); Default::default() }
+        })
     }
 
     /// Resolve an agent slug to its repo URL and build metadata.
@@ -118,7 +123,10 @@ impl HubApiClient {
         let json = self
             .get("/public/agents/versions", Some(&params))
             .await?;
-        Ok(serde_json::from_value(json["data"].clone()).unwrap_or_default())
+        Ok(match serde_json::from_value(json["data"].clone()) {
+            Ok(val) => val,
+            Err(e) => { tracing::warn!("Failed to parse hub response: {e}"); Default::default() }
+        })
     }
 
     // ─── Public -- Workspaces ─────────────────────────────────────────
@@ -144,8 +152,10 @@ impl HubApiClient {
         }
 
         let json = self.get("/public/workspaces", Some(&params)).await?;
-        let data: Vec<HubWorkspaceSummary> =
-            serde_json::from_value(json["data"].clone()).unwrap_or_default();
+        let data: Vec<HubWorkspaceSummary> = match serde_json::from_value(json["data"].clone()) {
+            Ok(val) => val,
+            Err(e) => { tracing::warn!("Failed to parse hub response: {e}"); Default::default() }
+        };
         let pagination: HubPagination = serde_json::from_value(json["pagination"].clone())
             .map_err(|e| HubApiException::new(0, format!("pagination parse error: {e}")))?;
         Ok((data, pagination))
@@ -156,7 +166,10 @@ impl HubApiClient {
         let json = self
             .get("/public/workspaces/categories", None)
             .await?;
-        Ok(serde_json::from_value(json["data"].clone()).unwrap_or_default())
+        Ok(match serde_json::from_value(json["data"].clone()) {
+            Ok(val) => val,
+            Err(e) => { tracing::warn!("Failed to parse hub response: {e}"); Default::default() }
+        })
     }
 
     /// Resolve a workspace slug to its config YAML and agent references.
@@ -186,7 +199,10 @@ impl HubApiClient {
         let json = self
             .get("/public/workspaces/versions", Some(&params))
             .await?;
-        Ok(serde_json::from_value(json["data"].clone()).unwrap_or_default())
+        Ok(match serde_json::from_value(json["data"].clone()) {
+            Ok(val) => val,
+            Err(e) => { tracing::warn!("Failed to parse hub response: {e}"); Default::default() }
+        })
     }
 
     // ─── Public -- Tags ───────────────────────────────────────────────
@@ -211,7 +227,10 @@ impl HubApiClient {
         let json = self
             .get("/public/tags/search", Some(&params))
             .await?;
-        Ok(serde_json::from_value(json["data"].clone()).unwrap_or_default())
+        Ok(match serde_json::from_value(json["data"].clone()) {
+            Ok(val) => val,
+            Err(e) => { tracing::warn!("Failed to parse hub response: {e}"); Default::default() }
+        })
     }
 
     /// Get popular tags, optionally filtered by category.
@@ -228,7 +247,10 @@ impl HubApiClient {
         let json = self
             .get("/public/tags/popular", Some(&params))
             .await?;
-        Ok(serde_json::from_value(json["data"].clone()).unwrap_or_default())
+        Ok(match serde_json::from_value(json["data"].clone()) {
+            Ok(val) => val,
+            Err(e) => { tracing::warn!("Failed to parse hub response: {e}"); Default::default() }
+        })
     }
 
     // ─── Public -- Trending ───────────────────────────────────────────
@@ -236,7 +258,10 @@ impl HubApiClient {
     /// Get trending agents.
     pub async fn trending_agents(&self) -> Result<Vec<HubAgentSummary>, HubApiException> {
         let json = self.get("/public/agents/trending", None).await?;
-        Ok(serde_json::from_value(json["data"].clone()).unwrap_or_default())
+        Ok(match serde_json::from_value(json["data"].clone()) {
+            Ok(val) => val,
+            Err(e) => { tracing::warn!("Failed to parse hub response: {e}"); Default::default() }
+        })
     }
 
     /// Get trending workspaces.
@@ -246,7 +271,10 @@ impl HubApiClient {
         let json = self
             .get("/public/workspaces/trending", None)
             .await?;
-        Ok(serde_json::from_value(json["data"].clone()).unwrap_or_default())
+        Ok(match serde_json::from_value(json["data"].clone()) {
+            Ok(val) => val,
+            Err(e) => { tracing::warn!("Failed to parse hub response: {e}"); Default::default() }
+        })
     }
 
     // ─── Authenticated -- Votes ───────────────────────────────────────
