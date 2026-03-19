@@ -60,7 +60,8 @@ flutter:
     - assets/docker/runtime/
 
 msix_config:
-  display_name: dspatch
+  display_name: "d:spatch"
   publisher_display_name: oakisnotree
   identity_name: com.oakisnotree.dspatch
   msix_version: 0.1.0.0
+  capabilities: internetClient, internetClientServer, privateNetworkClientServer

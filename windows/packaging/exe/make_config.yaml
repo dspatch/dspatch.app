@@ -1,7 +1,7 @@
 app_id: "d7a8c3b2-4e5f-6a1b-9c0d-e2f3a4b5c6d7"
 publisher_name: oakisnotree
 display_name: dspatch
-executable_name: dspatch_app.exe
+executable_name: dspatch.exe
 create_desktop_icon: true
 setup_icon_file: windows/runner/resources/app_icon.ico
 privileges_required: lowest

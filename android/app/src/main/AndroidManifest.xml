@@ -4,7 +4,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:usesCleartextTraffic="true"
-        android:label="dspatch_app"
+        android:label="d:spatch"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
