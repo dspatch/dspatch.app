@@ -51,7 +51,7 @@ class WorkspaceConfig {
               networkMode: 'host',
               ports: [],
               gpu: false,
-              homePersistence: false,
+              homePersistence: true,
             ),
     );
   }
@@ -185,7 +185,7 @@ class DockerConfig {
               .toList() ??
           [],
       gpu: json['gpu'] as bool? ?? false,
-      homePersistence: json['home_persistence'] as bool? ?? false,
+      homePersistence: json['home_persistence'] as bool? ?? true,
       homeSize: json['home_size'] as String?,
     );
   }
