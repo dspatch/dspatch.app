@@ -7,5 +7,7 @@ CREATE TABLE IF NOT EXISTS agent_logs (
     level TEXT NOT NULL,
     message TEXT NOT NULL,
     source TEXT NOT NULL,
-    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    _lamport_ts INTEGER NOT NULL DEFAULT 0,
+    _sync_device_id TEXT NOT NULL DEFAULT ''
 );

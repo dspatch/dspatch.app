@@ -5,5 +5,7 @@ CREATE TABLE IF NOT EXISTS instance_results (
     instance_id TEXT NOT NULL,
     turn_id TEXT NOT NULL,
     request_id TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    _lamport_ts INTEGER NOT NULL DEFAULT 0,
+    _sync_device_id TEXT NOT NULL DEFAULT ''
 );

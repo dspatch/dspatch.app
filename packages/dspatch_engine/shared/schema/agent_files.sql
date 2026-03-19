@@ -6,5 +6,7 @@ CREATE TABLE IF NOT EXISTS agent_files (
     turn_id TEXT,
     file_path TEXT NOT NULL,
     operation TEXT NOT NULL,
-    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    _lamport_ts INTEGER NOT NULL DEFAULT 0,
+    _sync_device_id TEXT NOT NULL DEFAULT ''
 );

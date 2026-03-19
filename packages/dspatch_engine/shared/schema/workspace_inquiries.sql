@@ -13,5 +13,7 @@ CREATE TABLE IF NOT EXISTS workspace_inquiries (
     responded_by_agent_key TEXT,
     forwarding_chain_json TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    responded_at TEXT
+    responded_at TEXT,
+    _lamport_ts INTEGER NOT NULL DEFAULT 0,
+    _sync_device_id TEXT NOT NULL DEFAULT ''
 );

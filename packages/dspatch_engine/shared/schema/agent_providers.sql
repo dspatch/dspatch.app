@@ -19,5 +19,7 @@ CREATE TABLE IF NOT EXISTS agent_providers (
     hub_repo_url TEXT,
     hub_commit_hash TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    _lamport_ts INTEGER NOT NULL DEFAULT 0,
+    _sync_device_id TEXT NOT NULL DEFAULT ''
 );
