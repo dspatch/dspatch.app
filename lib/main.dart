@@ -29,6 +29,10 @@ const kAppName = 'd:spatch';
 StreamSubscription? _eventSub;
 StreamSubscription? _connectionSub;
 
+/// App lifecycle listener for engine shutdown on exit.
+/// Stored at file scope so hot restarts dispose the previous instance.
+AppLifecycleListener? _lifecycleListener;
+
 /// Minimum window dimensions enforced at startup.
 const kMinWindowWidth = 900.0;
 const kMinWindowHeight = 600.0;
@@ -95,11 +99,17 @@ Future<void> main(List<String> args) async {
       dbDir = p.join(appSupport.path, 'data');
     }
     debugPrint('[BOOT] Starting integrated engine on port $kEnginePort, dbDir=$dbDir');
-    NativeEngine.start(
-      clientApiPort: kEnginePort,
-      dbDir: dbDir,
-      backendUrl: backendUrl,
-    );
+    try {
+      await NativeEngine.startAndWaitReady(
+        clientApiPort: kEnginePort,
+        dbDir: dbDir,
+        backendUrl: backendUrl,
+        timeout: const Duration(seconds: 30),
+      );
+      debugPrint('[BOOT] Integrated engine is ready');
+    } on TimeoutException {
+      debugPrint('[BOOT] WARNING: Integrated engine did not become ready within 30s');
+    }
   }
 
   // Engine process manager — used by EngineStatusButton to start/stop
@@ -204,6 +214,23 @@ Future<void> main(List<String> args) async {
   }
   // If no valid session: both providers stay at defaults
   // (unauthenticated + null token), router shows login.
+
+  // Register shutdown handler for the integrated engine.
+  // Disposes the previous listener on hot restart before creating a new one.
+  _lifecycleListener?.dispose();
+  if (useIntegratedEngine) {
+    _lifecycleListener = AppLifecycleListener(
+      onDetach: () {
+        debugPrint('[SHUTDOWN] Stopping integrated engine...');
+        try {
+          NativeEngine.stop();
+          debugPrint('[SHUTDOWN] Integrated engine stopped');
+        } catch (e) {
+          debugPrint('[SHUTDOWN] Error stopping integrated engine: $e');
+        }
+      },
+    );
+  }
 
   debugPrint('[BOOT] Providers initialized, running app...');
   runApp(

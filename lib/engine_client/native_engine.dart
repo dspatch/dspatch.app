@@ -1,8 +1,9 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
-import 'dart:io' show Platform;
+import 'dart:io';
 
 import 'package:ffi/ffi.dart';
 
@@ -99,6 +100,49 @@ class NativeEngine {
     } finally {
       malloc.free(configPtr);
     }
+  }
+
+  /// Starts the engine in-process and polls /health until it accepts connections.
+  ///
+  /// Calls [start] as a fire-and-forget FFI call, then polls the engine's
+  /// `/health` endpoint on [clientApiPort] until it responds or [timeout]
+  /// expires. Throws [TimeoutException] if the engine does not become ready
+  /// in time.
+  static Future<void> startAndWaitReady({
+    required int clientApiPort,
+    required String dbDir,
+    String? backendUrl,
+    String logLevel = 'info',
+    int agentServerPort = 0,
+    int invalidationDebounceMs = 50,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    start(
+      clientApiPort: clientApiPort,
+      dbDir: dbDir,
+      backendUrl: backendUrl,
+      logLevel: logLevel,
+      agentServerPort: agentServerPort,
+      invalidationDebounceMs: invalidationDebounceMs,
+    );
+
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final client = HttpClient();
+        final req = await client
+            .getUrl(Uri.parse('http://localhost:$clientApiPort/health'));
+        final resp =
+            await req.close().timeout(const Duration(milliseconds: 200));
+        await resp.drain<void>();
+        client.close();
+        return; // engine ready
+      } catch (_) {
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+    }
+    throw TimeoutException(
+        'Engine did not become ready within $timeout', timeout);
   }
 
   /// Stop the engine gracefully.
