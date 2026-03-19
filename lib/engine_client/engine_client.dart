@@ -106,7 +106,7 @@ class EngineClient {
   // ── Lifecycle ─────────────────────────────────────────────────────────
 
   /// Disposes the client and closes the connection.
-  void dispose() {
-    connection.dispose();
+  Future<void> dispose() async {
+    await connection.dispose();
   }
 }

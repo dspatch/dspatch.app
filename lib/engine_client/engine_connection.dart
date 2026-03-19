@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -33,6 +34,8 @@ class EngineConnection {
   StreamSubscription? _subscription;
   bool _disposed = false;
   bool _connected = false;
+
+  final _random = Random();
 
   /// Called during auto-reconnect when `connect()` fails.
   ///
@@ -281,21 +284,21 @@ class EngineConnection {
 
   /// Closes the connection and releases all resources.
   ///
-  /// All pending command futures are completed with a CONNECTION_CLOSED error.
-  void dispose() {
+  /// All pending command futures are completed with an error.
+  Future<void> dispose() async {
     _disposed = true;
-    _subscription?.cancel();
-    _channel?.sink.close();
+    await _subscription?.cancel();
+    _subscription = null;
+    try {
+      await _channel?.sink.close();
+    } catch (_) {}
+    _channel = null;
     _setConnected(false);
 
     // Complete all pending commands with an error.
     for (final entry in _pendingCommands.entries) {
       if (!entry.value.isCompleted) {
-        entry.value.complete(ErrorFrame(
-          id: entry.key,
-          code: 'CONNECTION_CLOSED',
-          message: 'Engine connection was closed',
-        ));
+        entry.value.completeError(StateError('Connection disposed'));
       }
     }
     _pendingCommands.clear();
@@ -371,18 +374,30 @@ class EngineConnection {
     }
   }
 
-  void _scheduleReconnect() {
-    _reconnectWithBackoff(initialReconnectDelay, _connectEpoch);
+  /// Returns an exponentially increasing delay with ±50 % jitter, capped at
+  /// [maxReconnectDelay]. Jitter prevents reconnect storms when many clients
+  /// lose connection simultaneously.
+  Duration _reconnectDelay(int attempt) {
+    final base = initialReconnectDelay.inMilliseconds;
+    final exponential = (base * pow(2, attempt.clamp(0, 6))).toInt();
+    final capped = exponential.clamp(0, maxReconnectDelay.inMilliseconds);
+    final jitter = 0.5 + _random.nextDouble() * 0.5; // 0.5–1.0
+    return Duration(milliseconds: (capped * jitter).toInt());
   }
 
-  Future<void> _reconnectWithBackoff(Duration delay, int epoch) async {
+  void _scheduleReconnect() {
+    _reconnectWithBackoff(0, _connectEpoch);
+  }
+
+  Future<void> _reconnectWithBackoff(int attempt, int epoch) async {
     if (_disposed) return;
 
+    final delay = attempt == 0 ? initialReconnectDelay : _reconnectDelay(attempt);
     await Future.delayed(delay);
     if (_disposed || epoch != _connectEpoch) return;
 
     try {
-      print('[CONN] Attempting reconnect...');
+      print('[CONN] Attempting reconnect (attempt=$attempt)...');
       await connect();
       print('[CONN] Reconnected successfully');
     } catch (e) {
@@ -399,7 +414,7 @@ class EngineConnection {
             print('[CONN] Token refreshed, retrying immediately');
             _token = newToken;
             // Reset backoff — we have a fresh token, retry promptly.
-            _reconnectWithBackoff(initialReconnectDelay, _connectEpoch);
+            _reconnectWithBackoff(0, _connectEpoch);
             return;
           } else {
             // Callback returned null — it handled the failure (logout,
@@ -414,12 +429,7 @@ class EngineConnection {
         }
       }
 
-      final currentEpoch = _connectEpoch;
-      final nextDelay = Duration(
-        milliseconds: (delay.inMilliseconds * 2)
-            .clamp(0, maxReconnectDelay.inMilliseconds),
-      );
-      _reconnectWithBackoff(nextDelay, currentEpoch);
+      _reconnectWithBackoff(attempt + 1, _connectEpoch);
     }
   }
 }
