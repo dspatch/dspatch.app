@@ -541,6 +541,38 @@ impl SyncEngine {
         Ok(chunks)
     }
 
+    /// Returns all tombstones as SyncChange delete operations.
+    pub fn get_tombstones(&self) -> Result<Vec<SyncChange>> {
+        let conn = self.db.conn();
+        let mut stmt = conn.prepare(
+            "SELECT table_name, row_id, device_id, lamport_ts FROM sync_tombstones"
+        ).map_err(|e| AppError::Storage(format!("Failed to query tombstones: {e}")))?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        }).map_err(|e| AppError::Storage(format!("Tombstone query failed: {e}")))?;
+
+        let mut changes = Vec::new();
+        for row in rows {
+            let (table, row_id, device_id, lamport_ts) = row.map_err(|e| AppError::Storage(format!("Tombstone row failed: {e}")))?;
+            changes.push(SyncChange {
+                id: crate::util::new_id(),
+                table: table.clone(),
+                row_id: row_id.clone(),
+                operation: SyncOp::Delete,
+                data: serde_json::json!({"id": row_id}),
+                lamport_ts,
+                device_id,
+            });
+        }
+        Ok(changes)
+    }
+
     /// Exchanges cursors and syncs missing changes with a peer (reconciliation).
     ///
     /// This is the full reconciliation flow used when a peer reconnects:

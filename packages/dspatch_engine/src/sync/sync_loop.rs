@@ -177,8 +177,11 @@ async fn handle_incoming(engine: &SyncEngine, from_device: &str, message: SyncMe
         }
         SyncMessage::RequestFullState => {
             tracing::info!("Peer {from_device} requested full state snapshot");
+            // Send all rows from synced tables.
             match engine.generate_full_state(500) {
                 Ok(chunks) => {
+                    let total_rows: usize = chunks.iter().map(|(_, rows, _, _)| rows.len()).sum();
+                    tracing::info!("Sending {total_rows} rows in {} chunks to {from_device}", chunks.len());
                     for (table, rows, chunk_index, total_chunks) in chunks {
                         let msg = SyncMessage::FullState {
                             table,
@@ -204,6 +207,25 @@ async fn handle_incoming(engine: &SyncEngine, from_device: &str, message: SyncMe
                 Err(e) => {
                     tracing::warn!("Failed to generate snapshot for {from_device}: {e}");
                 }
+            }
+            // Also send tombstones so the peer knows about deletions.
+            match engine.get_tombstones() {
+                Ok(tombstones) if !tombstones.is_empty() => {
+                    tracing::info!("Sending {} tombstones to {from_device}", tombstones.len());
+                    let msg = SyncMessage::Changes(tombstones);
+                    if let Err(e) = engine
+                        .peer_manager()
+                        .send_raw(
+                            from_device,
+                            serde_json::to_vec(&msg).unwrap_or_default(),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to send tombstones to {from_device}: {e}");
+                    }
+                }
+                Ok(_) => {} // No tombstones.
+                Err(e) => tracing::warn!("Failed to read tombstones: {e}"),
             }
         }
         SyncMessage::FullState {

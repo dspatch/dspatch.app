@@ -242,9 +242,17 @@ async fn accept_connection(
     Ok(())
 }
 
-/// Sends a RequestFullState message to a peer to trigger initial data sync.
-/// The peer responds with FullState chunks containing all their synced table data.
+/// Triggers initial reconciliation with a peer on connection.
+///
+/// Instead of sending the full database, we use cursor-based delta sync:
+/// - Send all rows with `_lamport_ts > 0` that the peer hasn't seen (via outbox cursors)
+/// - Send all rows with `_lamport_ts = 0` (pre-existing data never synced)
+/// - Send tombstones for deleted rows
+///
+/// Both sides do this simultaneously, so both end up with each other's data.
 async fn request_full_state(peer_id: &str, peer_manager: &PeerConnectionManager) {
+    // Send RequestFullState — the sync_loop handler generates and sends all data.
+    // This includes pre-existing rows (_lamport_ts = 0) and all outbox changes.
     let msg = crate::sync::SyncMessage::RequestFullState;
     let data = match serde_json::to_vec(&msg) {
         Ok(d) => d,
