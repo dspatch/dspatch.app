@@ -203,14 +203,48 @@ Future<void> main(List<String> args) async {
   // Only full-scope tokens are restored. Partial registration tokens
   // are discarded on cold start — user restarts the registration flow.
   if (storedSession != null && storedSession.isFullyAuthenticated) {
-    container.read(authTokenProvider.notifier).state = BackendToken(
-      token: storedSession.backendToken,
-      expiresAt: storedSession.expiresAt,
-      scope: storedSession.scope,
-      username: storedSession.username,
-      email: storedSession.email,
-    );
-    container.read(authPhaseProvider.notifier).state = AuthPhase.authenticated;
+    // Validate the stored token against the backend before trusting it.
+    // This catches tokens that were revoked server-side (e.g. after a
+    // password reset or session invalidation). We do this inline so the
+    // app starts in the correct auth state rather than discovering the
+    // revocation later during normal operation.
+    //
+    // A 5-second timeout allows the app to proceed offline if the backend
+    // is unreachable — the token will be re-validated on the next server
+    // interaction. Any non-401 failure (network error, 5xx) is treated as
+    // a transient issue and the stored session is preserved.
+    StoredSession? validatedSession = storedSession;
+    try {
+      final backendAuthForValidation = BackendAuth(baseUrl: backendUrl);
+      await backendAuthForValidation
+          .checkStatus(token: storedSession.backendToken)
+          .timeout(const Duration(seconds: 5));
+      backendAuthForValidation.dispose();
+      debugPrint('[BOOT] Stored token validated against backend');
+    } on BackendAuthException catch (e) {
+      if (e.statusCode == 401) {
+        debugPrint('[BOOT] Stored token revoked (401) — clearing session');
+        await tokenStore.clearSession();
+        validatedSession = null;
+      } else {
+        debugPrint('[BOOT] Token validation failed (${e.statusCode}) — proceeding offline');
+      }
+    } on TimeoutException {
+      debugPrint('[BOOT] Token validation timed out — proceeding offline');
+    } catch (e) {
+      debugPrint('[BOOT] Token validation error — proceeding offline: $e');
+    }
+
+    if (validatedSession != null) {
+      container.read(authTokenProvider.notifier).state = BackendToken(
+        token: validatedSession.backendToken,
+        expiresAt: validatedSession.expiresAt,
+        scope: validatedSession.scope,
+        username: validatedSession.username,
+        email: validatedSession.email,
+      );
+      container.read(authPhaseProvider.notifier).state = AuthPhase.authenticated;
+    }
   }
   // If no valid session: both providers stay at defaults
   // (unauthenticated + null token), router shows login.
