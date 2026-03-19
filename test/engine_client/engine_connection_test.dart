@@ -129,11 +129,9 @@ void main() {
       );
 
       final future = conn.registerPendingCommand('cmd_3');
-      conn.dispose();
+      await conn.dispose();
 
-      final result = await future;
-      expect(result, isA<ErrorFrame>());
-      expect((result as ErrorFrame).code, 'CONNECTION_CLOSED');
+      expect(() => future, throwsA(isA<StateError>()));
     });
   });
 }
