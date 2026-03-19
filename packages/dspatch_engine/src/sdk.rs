@@ -918,45 +918,51 @@ impl DspatchSdk {
         self.sync_engine.read().await.clone()
     }
 
-    /// Manually triggers a sync cycle — flushes outbox to all connected peers.
+    /// Manually triggers a sync cycle — flushes outbox to all P2P-connected peers.
     /// Returns a summary of what happened.
     pub async fn trigger_sync(&self) -> Result<serde_json::Value> {
         let engine = self.sync_engine.read().await.clone()
             .ok_or_else(|| AppError::Internal("Sync engine not running".into()))?;
 
         let online = self.online_devices().await;
+        let p2p_connected = engine.peer_manager().connected_devices().await;
         let mut results = Vec::new();
 
+        // Get pending count.
+        let changes = engine.get_all_outbox()?;
+        let pending = changes.len();
+
         for peer_id in &online {
-            match engine.sync_to_peer(peer_id).await {
-                Ok(count) => {
-                    results.push(serde_json::json!({
-                        "peer": peer_id,
-                        "changes_sent": count,
-                        "status": "ok",
-                    }));
+            if p2p_connected.contains(peer_id) {
+                match engine.sync_to_peer(peer_id).await {
+                    Ok(count) => {
+                        results.push(serde_json::json!({
+                            "peer": peer_id,
+                            "changes_sent": count,
+                            "status": "ok",
+                        }));
+                    }
+                    Err(e) => {
+                        results.push(serde_json::json!({
+                            "peer": peer_id,
+                            "error": e.to_string(),
+                            "status": "error",
+                        }));
+                    }
                 }
-                Err(e) => {
-                    results.push(serde_json::json!({
-                        "peer": peer_id,
-                        "error": e.to_string(),
-                        "status": "error",
-                    }));
-                }
+            } else {
+                results.push(serde_json::json!({
+                    "peer": peer_id,
+                    "status": "no_p2p",
+                    "error": "Online but no P2P data channel — WebRTC handshake needed",
+                }));
             }
         }
 
-        let pending_count = match self.database.read().await.as_ref() {
-            Some(db) => {
-                let conn = db.conn();
-                conn.query_row("SELECT COUNT(*) FROM sync_outbox", [], |row| row.get::<_, i64>(0)).unwrap_or(0)
-            }
-            None => 0,
-        };
-
         Ok(serde_json::json!({
-            "peers_synced": results.len(),
-            "pending_after": pending_count,
+            "peers_online": online.len(),
+            "peers_p2p_connected": p2p_connected.len(),
+            "pending_changes": pending,
             "results": results,
         }))
     }
