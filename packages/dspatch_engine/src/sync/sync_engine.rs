@@ -312,12 +312,16 @@ impl SyncEngine {
         }
 
         let count = all_changes.len();
-        let message = SyncMessage::Changes(all_changes);
-        self.peer_manager.send_raw(
-            target_device_id,
-            serde_json::to_vec(&message)
-                .map_err(|e| AppError::Internal(format!("Serialize failed: {e}")))?,
-        ).await?;
+
+        // Send in chunks of 50 to avoid overwhelming the WebRTC data channel.
+        for chunk in all_changes.chunks(50) {
+            let message = SyncMessage::Changes(chunk.to_vec());
+            self.peer_manager.send_raw(
+                target_device_id,
+                serde_json::to_vec(&message)
+                    .map_err(|e| AppError::Internal(format!("Serialize failed: {e}")))?,
+            ).await?;
+        }
 
         Ok(count)
     }
