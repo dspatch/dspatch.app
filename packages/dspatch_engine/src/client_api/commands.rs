@@ -362,4 +362,7 @@ pub enum Command {
 
     #[serde(rename = "online_devices")]
     OnlineDevices,
+
+    #[serde(rename = "trigger_sync")]
+    TriggerSync,
 }

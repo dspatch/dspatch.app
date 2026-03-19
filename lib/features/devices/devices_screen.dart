@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../di/providers.dart';
 import '../../engine_client/models/auth_token.dart';
+import '../../models/commands/command.dart';
 
 class DevicesScreen extends ConsumerStatefulWidget {
   const DevicesScreen({super.key});
@@ -200,12 +201,48 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
 // Sync status bar
 // ---------------------------------------------------------------------------
 
-class _SyncStatusBar extends StatelessWidget {
+class _SyncStatusBar extends ConsumerStatefulWidget {
   final Map<String, dynamic>? syncStatus;
   const _SyncStatusBar({required this.syncStatus});
 
   @override
+  ConsumerState<_SyncStatusBar> createState() => _SyncStatusBarState();
+}
+
+class _SyncStatusBarState extends ConsumerState<_SyncStatusBar> {
+  bool _syncing = false;
+  Map<String, dynamic>? _lastSyncResult;
+  String? _lastSyncError;
+
+  Future<void> _triggerSync() async {
+    setState(() {
+      _syncing = true;
+      _lastSyncResult = null;
+      _lastSyncError = null;
+    });
+
+    try {
+      final client = ref.read(engineClientProvider);
+      final response = await client.send(
+        RawEngineCommand(method: 'trigger_sync', params: {}),
+      );
+      if (!mounted) return;
+      setState(() {
+        _syncing = false;
+        _lastSyncResult = response.data;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _syncing = false;
+        _lastSyncError = e.toString();
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final syncStatus = widget.syncStatus;
     final state = syncStatus?['state'] as String? ?? 'unknown';
     final deviceId = syncStatus?['device_id'] as String? ?? 'unknown';
     final pendingCount = syncStatus?['pending_count'] as int? ?? 0;
@@ -248,37 +285,86 @@ class _SyncStatusBar extends StatelessWidget {
                 ),
                 const SizedBox(width: Spacing.md),
               ],
-              if (pendingCount > 0)
+              if (pendingCount > 0) ...[
                 DspatchBadge(
                   label: '$pendingCount pending',
                   variant: BadgeVariant.secondary,
                 ),
+                const SizedBox(width: Spacing.sm),
+              ],
             ],
           ),
           // Diagnostics (debug builds only)
           if (kDebugMode) ...[
-          const SizedBox(height: Spacing.sm),
-          Wrap(
-            spacing: Spacing.md,
-            runSpacing: 4,
-            children: [
-              _DiagChip('Device ID', deviceId == 'local' ? 'not set' : '${deviceId.substring(0, 8.clamp(0, deviceId.length))}...', deviceId != 'local'),
-              _DiagChip('Database', null, diag['database_open'] == true),
-              _DiagChip('Identity key', null, diag['identity_key_stored'] == true),
-              _DiagChip('Signal', null, diag['signal_bootstrapped'] == true),
-              _DiagChip('Sync engine', null, diag['sync_engine_running'] == true),
-              _DiagChip('Backend WS', null, diag['ws_client_connected'] == true),
-            ],
-          ),
-          if (diag['last_error'] != null) ...[
-            const SizedBox(height: Spacing.xs),
-            Text(
-              diag['last_error'] as String,
-              style: const TextStyle(fontSize: 11, color: AppColors.error),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
+            const SizedBox(height: Spacing.sm),
+            Wrap(
+              spacing: Spacing.md,
+              runSpacing: 4,
+              children: [
+                _DiagChip('Device ID', deviceId == 'local' ? 'not set' : '${deviceId.substring(0, 8.clamp(0, deviceId.length))}...', deviceId != 'local'),
+                _DiagChip('Database', null, diag['database_open'] == true),
+                _DiagChip('Identity key', null, diag['identity_key_stored'] == true),
+                _DiagChip('Signal', null, diag['signal_bootstrapped'] == true),
+                _DiagChip('Sync engine', null, diag['sync_engine_running'] == true),
+                _DiagChip('Backend WS', null, diag['ws_client_connected'] == true),
+              ],
             ),
-          ],
+            if (diag['last_error'] != null) ...[
+              const SizedBox(height: Spacing.xs),
+              Text(
+                diag['last_error'] as String,
+                style: const TextStyle(fontSize: 11, color: AppColors.error),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+            const SizedBox(height: Spacing.sm),
+            // Sync Now button + result
+            Row(
+              children: [
+                Button(
+                  label: _syncing ? 'Syncing...' : 'Sync Now',
+                  variant: ButtonVariant.outline,
+                  size: ButtonSize.xs,
+                  icon: LucideIcons.refresh_cw,
+                  onPressed: _syncing ? null : _triggerSync,
+                ),
+                if (_lastSyncResult != null) ...[
+                  const SizedBox(width: Spacing.sm),
+                  Text(
+                    'Sent to ${_lastSyncResult!['peers_synced']} peers, ${_lastSyncResult!['pending_after']} pending',
+                    style: const TextStyle(fontSize: 11, color: AppColors.mutedForeground),
+                  ),
+                ],
+              ],
+            ),
+            // Sync result details
+            if (_lastSyncResult != null && _lastSyncResult!['results'] is List) ...[
+              const SizedBox(height: Spacing.xs),
+              for (final r in (_lastSyncResult!['results'] as List))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    r['status'] == 'ok'
+                        ? '${r['peer']}: ${r['changes_sent']} changes sent'
+                        : '${r['peer']}: ${r['error']}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: r['status'] == 'ok' ? AppColors.success : AppColors.error,
+                      fontFamily: AppFonts.mono,
+                    ),
+                  ),
+                ),
+            ],
+            if (_lastSyncError != null) ...[
+              const SizedBox(height: Spacing.xs),
+              Text(
+                _lastSyncError!,
+                style: const TextStyle(fontSize: 11, color: AppColors.error),
+                maxLines: 5,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ], // end kDebugMode
         ],
       ),

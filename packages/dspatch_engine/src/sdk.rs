@@ -917,6 +917,49 @@ impl DspatchSdk {
         self.sync_engine.read().await.clone()
     }
 
+    /// Manually triggers a sync cycle — flushes outbox to all connected peers.
+    /// Returns a summary of what happened.
+    pub async fn trigger_sync(&self) -> Result<serde_json::Value> {
+        let engine = self.sync_engine.read().await.clone()
+            .ok_or_else(|| AppError::Internal("Sync engine not running".into()))?;
+
+        let online = self.online_devices().await;
+        let mut results = Vec::new();
+
+        for peer_id in &online {
+            match engine.sync_to_peer(peer_id).await {
+                Ok(count) => {
+                    results.push(serde_json::json!({
+                        "peer": peer_id,
+                        "changes_sent": count,
+                        "status": "ok",
+                    }));
+                }
+                Err(e) => {
+                    results.push(serde_json::json!({
+                        "peer": peer_id,
+                        "error": e.to_string(),
+                        "status": "error",
+                    }));
+                }
+            }
+        }
+
+        let pending_count = match self.database.read().await.as_ref() {
+            Some(db) => {
+                let conn = db.conn();
+                conn.query_row("SELECT COUNT(*) FROM sync_outbox", [], |row| row.get::<_, i64>(0)).unwrap_or(0)
+            }
+            None => 0,
+        };
+
+        Ok(serde_json::json!({
+            "peers_synced": results.len(),
+            "pending_after": pending_count,
+            "results": results,
+        }))
+    }
+
     // ── Sync Status & Device Presence ──────────────────────────────────
 
     /// Returns detailed sync diagnostics.

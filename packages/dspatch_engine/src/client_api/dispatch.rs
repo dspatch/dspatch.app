@@ -719,7 +719,8 @@ pub async fn dispatch_command(
         | Command::RefreshCredentials { .. }
         | Command::Logout
         | Command::SyncStatus
-        | Command::OnlineDevices => Err(AppError::Internal(
+        | Command::OnlineDevices
+        | Command::TriggerSync => Err(AppError::Internal(
             "This command is handled by the WebSocket layer before dispatch".into(),
         )),
     }

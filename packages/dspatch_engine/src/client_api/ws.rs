@@ -334,6 +334,9 @@ async fn handle_sdk_command(
             let devices = sdk.online_devices().await;
             Some(Ok(serde_json::json!({ "devices": devices })))
         }
+        Command::TriggerSync => {
+            Some(sdk.trigger_sync().await.map(|r| serde_json::to_value(r).unwrap_or_default()))
+        }
         _ => None,
     }
 }
