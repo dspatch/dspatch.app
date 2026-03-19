@@ -95,11 +95,19 @@ pub fn parse_workspace_config_file(project_path: &Path) -> Result<WorkspaceConfi
 }
 
 /// Writes a [`WorkspaceConfig`] as `dspatch.workspace.yml` to `project_path`.
-pub fn write_workspace_config(project_path: &Path, config: &WorkspaceConfig) -> Result<()> {
+///
+/// Uses an atomic write: serializes to a `.tmp` file then renames it over the
+/// target, so a partial write never corrupts an existing config.
+pub async fn write_workspace_config(project_path: &Path, config: &WorkspaceConfig) -> Result<()> {
     let file_path = project_path.join("dspatch.workspace.yml");
+    let tmp_path = project_path.join("dspatch.workspace.yml.tmp");
     let yaml = encode_yaml(config)?;
-    std::fs::write(&file_path, yaml)
-        .with_context(|| format!("Failed to write {}", file_path.display()))?;
+    tokio::fs::write(&tmp_path, yaml)
+        .await
+        .with_context(|| format!("Failed to write {}", tmp_path.display()))?;
+    tokio::fs::rename(&tmp_path, &file_path)
+        .await
+        .with_context(|| format!("Failed to rename {} to {}", tmp_path.display(), file_path.display()))?;
     Ok(())
 }
 

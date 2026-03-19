@@ -28,16 +28,25 @@ const ENTRYPOINT_SH: &str = include_str!("../../../../assets/docker/runtime/entr
 /// Assembles a Docker build context directory containing the embedded
 /// Dockerfile and entrypoint.sh.
 ///
-/// Returns the temp directory path. Caller must delete after use.
-pub async fn assemble_build_context() -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+/// Returns the temp directory path. The directory is owned by the caller and
+/// will be deleted when the returned `tempfile::TempDir` is dropped.
+pub async fn assemble_build_context() -> Result<(String, tempfile::TempDir), Box<dyn std::error::Error + Send + Sync>> {
     let temp_dir = tempfile::tempdir()?;
     let root = temp_dir.path();
 
     tokio::fs::write(root.join("Dockerfile"), DOCKERFILE.replace('\r', "")).await?;
-    tokio::fs::write(root.join("entrypoint.sh"), ENTRYPOINT_SH.replace('\r', "")).await?;
 
-    // Persist the temp dir (don't let it be deleted on drop).
+    let entrypoint_path = root.join("entrypoint.sh");
+    tokio::fs::write(&entrypoint_path, ENTRYPOINT_SH.replace('\r', "")).await?;
+
+    // Set execute permission on entrypoint.sh on Unix systems.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(&entrypoint_path, perms)?;
+    }
+
     let path = root.to_string_lossy().to_string();
-    std::mem::forget(temp_dir);
-    Ok(path)
+    Ok((path, temp_dir))
 }

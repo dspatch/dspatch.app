@@ -86,8 +86,8 @@ impl LocalWorkspaceService {
                 })?;
         }
 
-        // 4. Write dspatch.workspace.yml
-        parser::write_workspace_config(project_path, &config).map_err(|e| {
+        // 4. Write dspatch.workspace.yml (atomic: write to .tmp then rename)
+        parser::write_workspace_config(project_path, &config).await.map_err(|e| {
             AppError::Storage(format!("Failed to write workspace config: {e}"))
         })?;
 

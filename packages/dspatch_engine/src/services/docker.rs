@@ -118,10 +118,10 @@ impl LocalDockerService {
     /// runtime context (e.g. via `forward_stream`).
     pub fn build_runtime_image(&self) -> Pin<Box<dyn futures::Stream<Item = String> + Send>> {
         let stream = async_stream::stream! {
-            let context_dir = match assemble_build_context().await {
-                Ok(dir) => {
-                    yield format!("Build context assembled at: {dir}");
-                    dir
+            let (context_dir, _temp_dir) = match assemble_build_context().await {
+                Ok(result) => {
+                    yield format!("Build context assembled at: {}", result.0);
+                    result
                 }
                 Err(e) => {
                     tracing::error!("Failed to assemble build context: {e}");
@@ -146,8 +146,7 @@ impl LocalDockerService {
                 }
             }
 
-            // Clean up context dir.
-            let _ = tokio::fs::remove_dir_all(&context_dir).await;
+            // _temp_dir drops here, cleaning up the build context directory.
         };
 
         Box::pin(stream)
