@@ -305,8 +305,15 @@ impl BackendWsClient {
                 tracing::info!("Device roster: {} devices", device_ids.len());
                 let mut peers = online_peers.write().await;
                 peers.clear();
+                for id in &device_ids {
+                    peers.insert(id.clone());
+                }
+                drop(peers);
+                // Emit DeviceOnline for each peer so the P2P connector can initiate connections.
                 for id in device_ids {
-                    peers.insert(id);
+                    let _ = signaling_tx
+                        .send(SignalingEvent::DeviceOnline { device_id: id })
+                        .await;
                 }
             }
             BackendEvent::SyncReady { count } => {
