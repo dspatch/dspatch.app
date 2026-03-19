@@ -46,6 +46,15 @@ pub struct HostRouter {
     /// Tracks the last time a heartbeat was logged per (run_id, agent_name).
     /// Used to throttle heartbeat logging to once per 3 minutes.
     heartbeat_log_times: ParkingMutex<HashMap<(String, String), std::time::Instant>>,
+
+    /// Tracks all spawned tasks so panics can be detected and tasks can be
+    /// joined on shutdown rather than abandoned fire-and-forget.
+    ///
+    /// Uses a sync `parking_lot::Mutex` so that the `Fn` closures wired into
+    /// the service delegates (which are sync) can call `JoinSet::spawn`
+    /// (which is also sync and only requires `&mut JoinSet`) without needing
+    /// to `.await` a lock.
+    join_set: ParkingMutex<tokio::task::JoinSet<()>>,
 }
 
 impl HostRouter {
@@ -80,6 +89,7 @@ impl HostRouter {
             workspace_dao,
             promoted_runs: tokio::sync::Mutex::new(HashSet::new()),
             heartbeat_log_times: ParkingMutex::new(HashMap::new()),
+            join_set: ParkingMutex::new(tokio::task::JoinSet::new()),
         })
     }
 
@@ -94,6 +104,41 @@ impl HostRouter {
 
     pub async fn dispose(&self) {
         self.event_service.dispose().await;
+        // Move the JoinSet out of the Mutex so we can await it freely without
+        // holding the parking_lot lock across await points.
+        let mut js = std::mem::replace(
+            &mut *self.join_set.lock(),
+            tokio::task::JoinSet::new(),
+        );
+        while let Some(result) = js.join_next().await {
+            if let Err(e) = result {
+                tracing::error!("Host router task panicked on shutdown: {e:?}");
+            }
+        }
+    }
+
+    /// Drain any completed tasks and log panics. Call this from a hot path to
+    /// surface task failures without blocking.
+    fn drain_join_set(&self) {
+        let mut js = self.join_set.lock();
+        while let Some(result) = js.try_join_next() {
+            if let Err(e) = result {
+                tracing::error!("Host router task panicked: {e:?}");
+            }
+        }
+    }
+
+    /// Spawn a future into the tracked JoinSet.
+    ///
+    /// Using a method rather than `self.join_set.lock().spawn(fut)` inline
+    /// avoids borrow-checker conflicts: the guard borrows `self` only for the
+    /// duration of this call, while `fut` may already hold a clone of
+    /// `Arc<Self>` that was captured before this call.
+    fn spawn_task<F>(&self, fut: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        self.join_set.lock().spawn(fut);
     }
 
     // ── Run management ──
@@ -192,6 +237,7 @@ impl HostRouter {
         // EventService.on_turn_completed -> StatusService.handle_turn_completed
         {
             let ss = Arc::clone(&self.status_service);
+            let router1 = Arc::clone(self);
             *self.event_service.on_turn_completed.lock().await = Some(Arc::new(
                 move |workspace_id: String,
                       agent_name: String,
@@ -199,7 +245,8 @@ impl HostRouter {
                       turn_id: String,
                       transcript: String| {
                     let ss = Arc::clone(&ss);
-                    tokio::spawn(async move {
+                    let router = Arc::clone(&router1);
+                    router.spawn_task(async move {
                         ss.handle_turn_completed(
                             &workspace_id,
                             &agent_name,
@@ -214,6 +261,14 @@ impl HostRouter {
         }
 
         // EventService.try_status_transition -> StatusService.try_transition
+        //
+        // This callback must return `JoinHandle<()>` because event.rs awaits it
+        // as a synchronization point (`try_status_transition_async` does
+        // `let _ = handle.await`).  We cannot use JoinSet::spawn here since it
+        // returns AbortHandle, not JoinHandle.  Instead we use tokio::spawn
+        // directly; if the task panics, event.rs sees the JoinError when it
+        // awaits the handle (the error is discarded with `let _`, which is
+        // pre-existing behaviour and acceptable for this callback).
         {
             let ss = Arc::clone(&self.status_service);
             *self.event_service.try_status_transition.lock().await = Some(Arc::new(
@@ -231,7 +286,7 @@ impl HostRouter {
                             new_status,
                             &tag,
                         )
-                        .await
+                        .await;
                     })
                 },
             ));
@@ -239,11 +294,12 @@ impl HostRouter {
 
         // EventService transport delegates -> ConnectionService
         //
-        // NOTE: send_to_host and send_to_instance use tokio::spawn for async
+        // NOTE: send_to_host and send_to_instance use spawn_task() for async
         // operations, so they can return synchronously from the callback.
         {
             let conn = Arc::clone(&self.connection_service);
             let es = Arc::clone(&self.event_service);
+            let router3 = Arc::clone(self);
             *self.event_service.send_to_host.lock().await = Some(Arc::new(
                 move |workspace_id: &str,
                       agent_name: &str,
@@ -253,7 +309,8 @@ impl HostRouter {
                     let ws_id = workspace_id.to_string();
                     let an = agent_name.to_string();
                     let evt = event.clone();
-                    tokio::spawn(async move {
+                    let router = Arc::clone(&router3);
+                    router.spawn_task(async move {
                         let run_id = es_clone.active_run_id(&ws_id);
                         if let Some(run_id) = run_id {
                             conn.send_to_agent(&run_id, &an, &evt).await;
@@ -267,6 +324,7 @@ impl HostRouter {
         {
             let conn = Arc::clone(&self.connection_service);
             let es = Arc::clone(&self.event_service);
+            let router4 = Arc::clone(self);
             *self.event_service.send_to_instance.lock().await = Some(Arc::new(
                 move |workspace_id: &str,
                       agent_name: &str,
@@ -278,7 +336,8 @@ impl HostRouter {
                     let an = agent_name.to_string();
                     let iid = instance_id.to_string();
                     let evt = event.clone();
-                    tokio::spawn(async move {
+                    let router = Arc::clone(&router4);
+                    router.spawn_task(async move {
                         let run_id = es_clone.active_run_id(&ws_id);
                         if let Some(run_id) = run_id {
                             // Inject instance_id into payload.
@@ -362,13 +421,15 @@ impl HostRouter {
         // ConnectionService callbacks -> EventService, StatusService
         {
             let es = Arc::clone(&self.event_service);
+            let router5 = Arc::clone(self);
             *self.connection_service.on_event_received.lock().await = Some(Arc::new(
                 move |run_id: String,
                       agent_name: String,
                       event: super::packages::Package| {
                     let es = Arc::clone(&es);
                     let r_id = run_id.clone();
-                    tokio::spawn(async move {
+                    let router = Arc::clone(&router5);
+                    router.spawn_task(async move {
                         let workspace_id = es.workspace_id_for_run(&r_id);
                         if let Some(workspace_id) = workspace_id {
                             es.handle_event(&workspace_id, &agent_name, event).await;
@@ -379,11 +440,13 @@ impl HostRouter {
 
             let es2 = Arc::clone(&self.event_service);
             let ss2 = Arc::clone(&self.status_service);
+            let router6 = Arc::clone(self);
             *self.connection_service.on_agent_connected.lock().await = Some(Arc::new(
                 move |run_id: String, agent_name: String| {
                     let es = Arc::clone(&es2);
                     let ss = Arc::clone(&ss2);
-                    tokio::spawn(async move {
+                    let router = Arc::clone(&router6);
+                    router.spawn_task(async move {
                         let workspace_id = es.workspace_id_for_run(&run_id);
                         if let Some(ref ws_id) = workspace_id {
                             ss.handle_agent_connected(ws_id, &agent_name).await;
@@ -395,11 +458,13 @@ impl HostRouter {
 
             let es3 = Arc::clone(&self.event_service);
             let ss3 = Arc::clone(&self.status_service);
+            let router7 = Arc::clone(self);
             *self.connection_service.on_agent_disconnected.lock().await = Some(Arc::new(
                 move |run_id: String, agent_name: String| {
                     let es = Arc::clone(&es3);
                     let ss = Arc::clone(&ss3);
-                    tokio::spawn(async move {
+                    let router = Arc::clone(&router7);
+                    router.spawn_task(async move {
                         let workspace_id = es.workspace_id_for_run(&run_id);
                         if let Some(ref ws_id) = workspace_id {
                             ss.handle_agent_disconnected(ws_id, &agent_name).await;
@@ -419,8 +484,12 @@ impl HostRouter {
                     let es = Arc::clone(&es4);
                     let dao = Arc::clone(&dao);
                     let router = Arc::clone(&router_self);
+                    let router_task = Arc::clone(&router);
                     let r_id = run_id.clone();
-                    tokio::spawn(async move {
+                    // Drain completed tasks on each heartbeat to surface panics promptly.
+                    router.drain_join_set();
+                    router.spawn_task(async move {
+                        let router = router_task;
                         // Log heartbeat summary — throttled to once per 3 minutes.
                         let should_log = {
                             let mut times = router.heartbeat_log_times.lock();
@@ -467,6 +536,7 @@ impl HostRouter {
 
             let es5 = Arc::clone(&self.event_service);
             let ss5 = Arc::clone(&self.status_service);
+            let router8 = Arc::clone(self);
             *self
                 .connection_service
                 .on_instance_state_changed
@@ -479,7 +549,8 @@ impl HostRouter {
                       new_state: String| {
                     let es = Arc::clone(&es5);
                     let ss = Arc::clone(&ss5);
-                    tokio::spawn(async move {
+                    let router = Arc::clone(&router8);
+                    router.spawn_task(async move {
                         let workspace_id = es.workspace_id_for_run(&run_id);
                         if let Some(ref ws_id) = workspace_id {
                             ss.handle_instance_state_changed(
@@ -497,6 +568,7 @@ impl HostRouter {
 
             let es6 = Arc::clone(&self.event_service);
             let ss6 = Arc::clone(&self.status_service);
+            let router9 = Arc::clone(self);
             *self.connection_service.on_instance_gone.lock().await = Some(Arc::new(
                 move |run_id: String,
                       agent_name: String,
@@ -504,7 +576,8 @@ impl HostRouter {
                       last_state: String| {
                     let es = Arc::clone(&es6);
                     let ss = Arc::clone(&ss6);
-                    tokio::spawn(async move {
+                    let router = Arc::clone(&router9);
+                    router.spawn_task(async move {
                         let workspace_id = es.workspace_id_for_run(&run_id);
                         if let Some(ref ws_id) = workspace_id {
                             ss.handle_instance_gone(

@@ -39,7 +39,7 @@ pub type ConnectedInstancesFn =
     Arc<dyn Fn(&str, &str) -> Vec<String> + Send + Sync>;
 
 pub type TryStatusTransitionFn = Arc<
-    dyn Fn(String, String, String, AgentState, String) -> tokio::task::JoinHandle<bool>
+    dyn Fn(String, String, String, AgentState, String) -> tokio::task::JoinHandle<()>
         + Send
         + Sync,
 >;
