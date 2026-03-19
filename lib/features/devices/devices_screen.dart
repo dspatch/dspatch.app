@@ -307,6 +307,9 @@ class _SyncStatusBarState extends ConsumerState<_SyncStatusBar> {
                 _DiagChip('Signal', null, diag['signal_bootstrapped'] == true),
                 _DiagChip('Sync engine', null, diag['sync_engine_running'] == true),
                 _DiagChip('Backend WS', null, diag['ws_client_connected'] == true),
+                _DiagChip('Schema', 'v${diag['schema_version'] ?? '?'}', (diag['schema_version'] ?? 0) >= 16),
+                _DiagChip('Triggers', '${diag['trigger_count'] ?? 0}', (diag['trigger_count'] ?? 0) > 0),
+                _DiagChip('Trigger device', diag['trigger_device_id'] as String? ?? '?', diag['trigger_device_id'] != null && diag['trigger_device_id'] != 'local' && diag['trigger_device_id'] != 'TABLE_MISSING'),
               ],
             ),
             if (diag['last_error'] != null) ...[

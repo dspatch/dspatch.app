@@ -980,16 +980,17 @@ impl DspatchSdk {
             "disabled"
         };
 
-        let pending_count = match self.database.read().await.as_ref() {
+        // DB-level diagnostics.
+        let (pending_count, trigger_device_id, trigger_count, schema_version) = match self.database.read().await.as_ref() {
             Some(db) => {
                 let conn = db.conn();
-                conn.query_row(
-                    "SELECT COUNT(*) FROM sync_outbox",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                ).unwrap_or(0)
+                let pending: i64 = conn.query_row("SELECT COUNT(*) FROM sync_outbox", [], |row| row.get(0)).unwrap_or(-1);
+                let trigger_dev: String = conn.query_row("SELECT device_id FROM sync_config WHERE id = 1", [], |row| row.get(0)).unwrap_or_else(|_| "TABLE_MISSING".to_string());
+                let triggers: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'sync_outbox_%'", [], |row| row.get(0)).unwrap_or(0);
+                let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap_or(0);
+                (pending, trigger_dev, triggers, version)
             }
-            None => 0,
+            None => (0, "no_db".to_string(), 0, 0),
         };
 
         let connected_peers = match self.sync_engine.read().await.as_ref() {
@@ -1019,6 +1020,9 @@ impl DspatchSdk {
                 "signal_bootstrapped": has_signal,
                 "sync_engine_running": has_sync_engine,
                 "ws_client_connected": has_ws_client,
+                "trigger_device_id": trigger_device_id,
+                "trigger_count": trigger_count,
+                "schema_version": schema_version,
                 "last_error": last_error,
             }
         })
