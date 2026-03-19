@@ -31,6 +31,12 @@ pub struct KeyringSecretStore {
 #[cfg(not(target_os = "android"))]
 impl KeyringSecretStore {
     pub fn new(service_name: &str) -> Self {
+        #[cfg(target_os = "linux")]
+        tracing::info!(
+            "Using linux-native keyring (kernel keyutils) for secret storage. \
+             Note: secrets are not persisted across reboots unless a user keyring \
+             session is configured. Consider libsecret/GNOME Keyring for persistence."
+        );
         Self {
             service_name: service_name.to_string(),
         }
@@ -86,6 +92,11 @@ impl SecretStore for KeyringSecretStore {
 ///
 /// Note: This will be replaced with Android Keystore once `keyring` v4 is
 /// stable (it adds `android-native` support).
+///
+/// TODO: Upgrade to Android Keystore-backed encryption when available:
+///   - Option A: Wait for `keyring` v4 `android-native` feature.
+///   - Option B: Use `tink-android` or `EncryptedSharedPreferences` via JNI.
+///   - Option C: Use AES-GCM with a key stored in the Android Keystore via JNI.
 #[cfg(target_os = "android")]
 pub struct FileSecretStore {
     path: std::path::PathBuf,
@@ -95,6 +106,11 @@ pub struct FileSecretStore {
 impl FileSecretStore {
     /// Creates a store that persists secrets in `<data_dir>/secrets.json`.
     pub fn new(data_dir: &std::path::Path) -> Self {
+        tracing::warn!(
+            "Using unencrypted file-based secret store on Android. \
+             Secrets are protected only by the OS app sandbox, not hardware-backed encryption. \
+             Upgrade path: keyring v4 android-native or AES-GCM + Android Keystore via JNI."
+        );
         Self {
             path: data_dir.join("secrets.json"),
         }
