@@ -136,7 +136,7 @@ pub struct DspatchSdk {
     /// Backend auth token (stored during activate_sync for WS client).
     backend_token: Arc<RwLock<Option<String>>>,
     /// Engine WS client for backend real-time events (device presence, signaling).
-    ws_client: Arc<RwLock<Option<Arc<crate::sync::ws_client::EngineWsClient>>>>,
+    ws_client: Arc<RwLock<Option<Arc<crate::sync::backend_client::BackendWsClient>>>>,
 
     /// Shared secret store reference for keyring access outside DatabaseKeyManager.
     secret_store: Arc<dyn SecretStore>,
@@ -812,7 +812,7 @@ impl DspatchSdk {
     /// Generates and uploads new prekeys when the backend signals they're running low.
     ///
     /// Called by the prekey-low listener task spawned when the WS client is
-    /// integrated into the sync lifecycle. See `EngineWsClient::prekey_low_rx()`.
+    /// integrated into the sync lifecycle. See `BackendWsClient::prekey_low_rx()`.
     pub async fn replenish_prekeys(&self, remaining: i64) -> Result<()> {
         if remaining >= 50 {
             return Ok(()); // Plenty of keys remaining.
@@ -886,7 +886,7 @@ impl DspatchSdk {
         if let Some(token) = self.backend_token.read().await.clone() {
             let backend_url = self.config.backend_url.clone()
                 .unwrap_or_else(|| DEFAULT_BACKEND_URL.to_string());
-            let ws = Arc::new(crate::sync::ws_client::EngineWsClient::new(
+            let ws = Arc::new(crate::sync::backend_client::BackendWsClient::new(
                 backend_url,
                 Arc::new(RwLock::new(token)),
                 device_id.clone(),

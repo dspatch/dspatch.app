@@ -62,7 +62,7 @@ pub enum BackendEvent {
 ///
 /// Maintains a persistent, reconnecting WebSocket connection and dispatches
 /// incoming events to the appropriate handlers (presence tracking, signaling).
-pub struct EngineWsClient {
+pub struct BackendWsClient {
     backend_url: String,
     auth_token: Arc<RwLock<String>>,
     device_id: String,
@@ -76,8 +76,8 @@ pub struct EngineWsClient {
     prekey_low_rx: Arc<Mutex<mpsc::Receiver<i64>>>,
 }
 
-impl EngineWsClient {
-    /// Creates a new `EngineWsClient`.
+impl BackendWsClient {
+    /// Creates a new `BackendWsClient`.
     ///
     /// The `auth_token` is wrapped in `Arc<RwLock<>>` so it can be refreshed
     /// externally while the WS loop is running.
@@ -413,7 +413,7 @@ mod tests {
         let (pk_tx, _pk_rx) = mpsc::channel(4);
 
         // Device comes online.
-        EngineWsClient::handle_event(
+        BackendWsClient::handle_event(
             BackendEvent::DeviceOnline {
                 device_id: "dev-a".into(),
             },
@@ -425,7 +425,7 @@ mod tests {
         assert!(peers.read().await.contains("dev-a"));
 
         // Another device comes online.
-        EngineWsClient::handle_event(
+        BackendWsClient::handle_event(
             BackendEvent::DeviceOnline {
                 device_id: "dev-b".into(),
             },
@@ -437,7 +437,7 @@ mod tests {
         assert_eq!(peers.read().await.len(), 2);
 
         // Device goes offline.
-        EngineWsClient::handle_event(
+        BackendWsClient::handle_event(
             BackendEvent::DeviceOffline {
                 device_id: "dev-a".into(),
             },
@@ -460,7 +460,7 @@ mod tests {
         peers.write().await.insert("old-device".into());
 
         // Roster replaces everything.
-        EngineWsClient::handle_event(
+        BackendWsClient::handle_event(
             BackendEvent::DeviceRoster {
                 device_ids: vec!["x".into(), "y".into()],
             },
@@ -483,7 +483,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(16);
         let (pk_tx, _pk_rx) = mpsc::channel(4);
 
-        EngineWsClient::handle_event(
+        BackendWsClient::handle_event(
             BackendEvent::WebRtcOffer {
                 source_device_id: "dev-1".into(),
                 encrypted_sdp: "sdp".into(),
@@ -505,7 +505,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel(16);
         let (pk_tx, mut pk_rx) = mpsc::channel(4);
 
-        EngineWsClient::handle_event(
+        BackendWsClient::handle_event(
             BackendEvent::PreKeysLow { remaining: 7 },
             &peers,
             &tx,
