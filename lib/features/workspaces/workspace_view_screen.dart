@@ -90,74 +90,136 @@ class _WorkspaceViewBody extends ConsumerWidget {
     final isRunning = runStatus == 'running';
     final isStarting = runStatus == 'starting';
 
-    return Column(
-      children: [
-        // ── Dashboard header (full width, above sidebar + content) ──
-        _WorkspaceDashboard(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isDesktop = constraints.maxWidth >= 768;
+
+        final sidebar = AgentHierarchySidebar(
+          workspaceId: workspaceId,
           workspace: workspace,
+          config: config,
           agents: agents,
-          activeRun: latestRun,
-          onBack: () => context.go('/workspaces'),
-          onViewLogs: () {
-            // Select workspace-level view and switch to logs tab
-            ref.read(selectedInstanceProvider(workspaceId).notifier).state =
-                null;
-          },
-        ),
-        // ── Sidebar + content area ──
-        Expanded(
-          child: Row(
-            children: [
-              AgentHierarchySidebar(
-                workspaceId: workspaceId,
-                workspace: workspace,
-                config: config,
-                agents: agents,
-                runId: runId,
-                isRunning: isRunning || isStarting,
-                runStatus: runStatus,
-                isLoading: ref.watch(
-                  workspaceControllerProvider.select((s) => s.isLoading),
-                ),
-                onStart: () => ref
-                    .read(workspaceControllerProvider.notifier)
-                    .launchWorkspace(workspaceId),
-                onStop: () => ref
-                    .read(workspaceControllerProvider.notifier)
-                    .stopWorkspace(workspaceId),
-                onRestart: () => ref
-                    .read(workspaceControllerProvider.notifier)
-                    .restartWorkspace(workspaceId),
-              ),
-              const VerticalDivider(width: 1, thickness: 1),
-              Expanded(
-                child: runId == null
-                    ? const EmptyState(
-                        icon: LucideIcons.circle_play,
-                        title: 'No Active Run',
-                        description:
-                            'Start the workspace to see agent data.',
-                      )
-                    : selectedInstance == null
-                        ? WorkspaceLevelView(
-                            runId: runId,
-                            workspace: workspace,
-                            agents: agents,
-                          )
-                        : AgentTimelineView(
-                            workspaceId: workspaceId,
-                            runId: runId,
-                            instanceId: selectedInstance,
-                            agents: agents,
-                          ),
-              ),
-            ],
+          runId: runId,
+          isRunning: isRunning || isStarting,
+          runStatus: runStatus,
+          isLoading: ref.watch(
+            workspaceControllerProvider.select((s) => s.isLoading),
           ),
-        ),
-      ],
+          onStart: () => ref
+              .read(workspaceControllerProvider.notifier)
+              .launchWorkspace(workspaceId),
+          onStop: () => ref
+              .read(workspaceControllerProvider.notifier)
+              .stopWorkspace(workspaceId),
+          onRestart: () => ref
+              .read(workspaceControllerProvider.notifier)
+              .restartWorkspace(workspaceId),
+        );
+
+        final content = Expanded(
+          child: runId == null
+              ? const EmptyState(
+                  icon: LucideIcons.circle_play,
+                  title: 'No Active Run',
+                  description:
+                      'Start the workspace to see agent data.',
+                )
+              : selectedInstance == null
+                  ? WorkspaceLevelView(
+                      runId: runId,
+                      workspace: workspace,
+                      agents: agents,
+                    )
+                  : AgentTimelineView(
+                      workspaceId: workspaceId,
+                      runId: runId,
+                      instanceId: selectedInstance,
+                      agents: agents,
+                    ),
+        );
+
+        return Column(
+          children: [
+            // ── Dashboard header (full width, above sidebar + content) ──
+            _WorkspaceDashboard(
+              workspace: workspace,
+              agents: agents,
+              activeRun: latestRun,
+              onBack: () => context.go('/workspaces'),
+              onViewLogs: () {
+                // Select workspace-level view and switch to logs tab
+                ref.read(selectedInstanceProvider(workspaceId).notifier).state =
+                    null;
+              },
+            ),
+            // ── Sidebar + content area ──
+            Expanded(
+              child: isDesktop
+                  ? Row(
+                      children: [
+                        sidebar,
+                        const VerticalDivider(width: 1, thickness: 1),
+                        content,
+                      ],
+                    )
+                  : _MobileWorkspaceLayout(
+                      sidebar: sidebar,
+                      content: content,
+                    ),
+            ),
+          ],
+        );
+      },
     );
   }
 
+}
+
+// ── Mobile layout with drawer ────────────────────────────────────────
+
+class _MobileWorkspaceLayout extends StatefulWidget {
+  const _MobileWorkspaceLayout({
+    required this.sidebar,
+    required this.content,
+  });
+
+  final Widget sidebar;
+  final Widget content;
+
+  @override
+  State<_MobileWorkspaceLayout> createState() => _MobileWorkspaceLayoutState();
+}
+
+class _MobileWorkspaceLayoutState extends State<_MobileWorkspaceLayout> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: Colors.transparent,
+      drawer: Drawer(
+        backgroundColor: AppColors.card,
+        child: widget.sidebar,
+      ),
+      body: Stack(
+        children: [
+          widget.content,
+          Positioned(
+            top: Spacing.sm,
+            left: Spacing.sm,
+            child: DspatchIconButton(
+              icon: LucideIcons.panel_left,
+              variant: IconButtonVariant.ghost,
+              size: IconButtonSize.sm,
+              onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+              tooltip: 'Open agent list',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ── Workspace dashboard header ──────────────────────────────────────
@@ -288,22 +350,22 @@ class _WorkspaceDashboard extends ConsumerWidget {
     // Extract container stats if available
     final stats = statsAsync?.valueOrNull;
 
-    return Row(
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: Spacing.sm,
+      runSpacing: Spacing.xs,
       children: [
         DspatchBadge(
           label: runStatus,
           variant: _runStatusBadgeVariant(runStatus),
         ),
-        const SizedBox(width: Spacing.sm),
-        Expanded(
-          child: Text(
-            description,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.mutedForeground,
-            ),
-            overflow: TextOverflow.ellipsis,
+        Text(
+          description,
+          style: const TextStyle(
+            fontSize: 12,
+            color: AppColors.mutedForeground,
           ),
+          overflow: TextOverflow.ellipsis,
         ),
         if (stats != null) ...[
           _containerStatBadge(LucideIcons.cpu, stats.memUsage),
@@ -311,13 +373,10 @@ class _WorkspaceDashboard extends ConsumerWidget {
           _containerStatBadge(LucideIcons.hard_drive, stats.blockIO),
         ],
         if (pendingCount > 0)
-          Padding(
-            padding: const EdgeInsets.only(left: Spacing.sm),
-            child: DspatchBadge(
-              icon: LucideIcons.circle_question_mark,
-              label: '$pendingCount pending',
-              variant: BadgeVariant.warning,
-            ),
+          DspatchBadge(
+            icon: LucideIcons.circle_question_mark,
+            label: '$pendingCount pending',
+            variant: BadgeVariant.warning,
           ),
       ],
     );
@@ -325,13 +384,10 @@ class _WorkspaceDashboard extends ConsumerWidget {
 
   Widget _containerStatBadge(IconData icon, String value) {
     if (value.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(left: Spacing.xs),
-      child: DspatchBadge(
-        icon: icon,
-        label: value,
-        variant: BadgeVariant.secondary,
-      ),
+    return DspatchBadge(
+      icon: icon,
+      label: value,
+      variant: BadgeVariant.secondary,
     );
   }
 
@@ -394,8 +450,9 @@ class _WorkspaceDashboard extends ConsumerWidget {
         '${agents.isEmpty ? 0 : runningCount}/${agents.length} agents';
 
     if (usageAsync == null) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
+      return Wrap(
+        spacing: 0,
+        runSpacing: Spacing.xs,
         children: [
           badge(LucideIcons.bot, agentLabel),
         ],
@@ -408,8 +465,9 @@ class _WorkspaceDashboard extends ConsumerWidget {
             0, (s, r) => s + r.inputTokens + r.outputTokens);
         final totalCost =
             records.fold<double>(0, (s, r) => s + r.costUsd);
-        return Row(
-          mainAxisSize: MainAxisSize.min,
+        return Wrap(
+          spacing: 0,
+          runSpacing: Spacing.xs,
           children: [
             badge(LucideIcons.bot, agentLabel),
             badge(LucideIcons.coins, _fmtTokens(totalTokens)),
@@ -419,14 +477,16 @@ class _WorkspaceDashboard extends ConsumerWidget {
           ],
         );
       },
-      loading: () => Row(
-        mainAxisSize: MainAxisSize.min,
+      loading: () => Wrap(
+        spacing: 0,
+        runSpacing: Spacing.xs,
         children: [
           badge(LucideIcons.bot, agentLabel),
         ],
       ),
-      error: (_, _) => Row(
-        mainAxisSize: MainAxisSize.min,
+      error: (_, _) => Wrap(
+        spacing: 0,
+        runSpacing: Spacing.xs,
         children: [
           badge(LucideIcons.bot, agentLabel),
         ],
