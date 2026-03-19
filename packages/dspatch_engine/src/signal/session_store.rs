@@ -69,3 +69,21 @@ impl SessionStore for SqliteSessionStore {
         Ok(())
     }
 }
+
+impl SqliteSessionStore {
+    /// Deletes the session for the given address and device ID.
+    ///
+    /// Used to force a fresh X3DH key agreement after repeated decrypt
+    /// failures or when an identity key change is detected.
+    pub async fn delete_session(&self, address: &ProtocolAddress) -> Result<(), SignalProtocolError> {
+        let addr_name = address.name().to_string();
+        let device_id: u32 = address.device_id().into();
+        let conn = self.conn.lock();
+
+        conn.execute(
+            "DELETE FROM signal_sessions WHERE address = ?1 AND device_id = ?2",
+            rusqlite::params![&addr_name, device_id],
+        ).map_err(|e| store_err("delete_session", e.to_string()))?;
+        Ok(())
+    }
+}
