@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::RwLock;
+use std::time::Duration;
 
 use async_trait::async_trait;
 
@@ -23,9 +24,14 @@ pub struct HttpApiClient {
 impl HttpApiClient {
     /// Creates a new HTTP API client for the given base URL.
     pub fn new(base_url: impl Into<String>) -> Self {
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("failed to build reqwest client");
         Self {
             base_url: base_url.into(),
-            client: reqwest::Client::new(),
+            client,
             token: RwLock::new(None),
         }
     }
@@ -33,18 +39,17 @@ impl HttpApiClient {
     /// Builds a full URL from `path` and optional query parameters.
     fn build_url(&self, path: &str, query_params: Option<&HashMap<String, String>>) -> String {
         let base = &self.base_url;
-        let url = format!("{base}{path}");
+        let base_url = format!("{base}{path}");
         if let Some(params) = query_params {
             if !params.is_empty() {
-                let query: String = params
-                    .iter()
-                    .map(|(k, v)| format!("{k}={v}"))
-                    .collect::<Vec<_>>()
-                    .join("&");
-                return format!("{url}?{query}");
+                let pairs: Vec<(&str, &str)> =
+                    params.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+                if let Ok(url) = reqwest::Url::parse_with_params(&base_url, &pairs) {
+                    return url.to_string();
+                }
             }
         }
-        url
+        base_url
     }
 
     /// Returns common headers (Accept, Authorization, optional Content-Type).

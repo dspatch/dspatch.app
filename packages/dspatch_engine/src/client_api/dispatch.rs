@@ -252,7 +252,8 @@ pub async fn dispatch_command(
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::DetectDockerStatus => {
             let status = services.docker_service().detect_status().await?;
-            Ok(serde_json::to_value(&status).unwrap())
+            Ok(serde_json::to_value(&status)
+                .map_err(|e| AppError::Internal(format!("serialization: {e}")))?)
         }
 
         #[cfg(not(any(target_os = "ios", target_os = "android")))]

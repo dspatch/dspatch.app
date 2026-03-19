@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::RwLock;
+use std::time::Duration;
 
 use super::models::*;
 
@@ -26,10 +27,15 @@ pub struct HubApiClient {
 
 impl HubApiClient {
     pub fn new(base_url: impl Into<String>, auth_token: Option<String>) -> Self {
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("failed to build reqwest client");
         Self {
             base_url: base_url.into(),
             auth_token: RwLock::new(auth_token),
-            client: reqwest::Client::new(),
+            client,
         }
     }
 
