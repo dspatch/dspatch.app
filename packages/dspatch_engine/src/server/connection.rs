@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 
 use super::inspector::PackageInspectorService;
 use super::packages::*;
+use crate::util::panic_guard::spawn_guarded;
 
 /// Type alias for the sender half of a split WebSocket.
 pub type WsSender = Arc<Mutex<futures::stream::SplitSink<WebSocket, Message>>>;
@@ -231,7 +232,7 @@ impl ConnectionService {
         let auth_service = Arc::clone(&service);
         let auth_run_id = run_id.clone();
         let auth_agent_name = agent_name.clone();
-        let auth_handle = tokio::spawn(async move {
+        let auth_handle = spawn_guarded("connection_auth_timeout", async move {
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             // If this task completes, the auth timed out.
             tracing::warn!(

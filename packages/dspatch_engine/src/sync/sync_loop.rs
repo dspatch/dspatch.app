@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use super::materializer::ChangeMaterializer;
 use super::message::{SyncMessage, SyncOp};
 use super::sync_engine::SyncEngine;
+use crate::util::panic_guard::spawn_guarded;
 
 /// Default interval between outbox flushes.
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
@@ -29,14 +30,14 @@ pub fn start_sync_loop(
     engine: Arc<SyncEngine>,
     cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
+    spawn_guarded("sync_loop", async move {
         let flush_engine = Arc::clone(&engine);
         let incoming_engine = Arc::clone(&engine);
         let cancel_flush = cancel.clone();
         let cancel_incoming = cancel.clone();
 
         // Spawn outbox flush task.
-        let flush_handle = tokio::spawn(async move {
+        let flush_handle = spawn_guarded("sync_outbox_flush", async move {
             let mut interval = tokio::time::interval(FLUSH_INTERVAL);
             loop {
                 tokio::select! {
@@ -51,7 +52,7 @@ pub fn start_sync_loop(
         });
 
         // Spawn incoming message handler task.
-        let incoming_handle = tokio::spawn(async move {
+        let incoming_handle = spawn_guarded("sync_incoming", async move {
             let mut stream = incoming_engine.peer_manager().incoming_messages();
             loop {
                 tokio::select! {

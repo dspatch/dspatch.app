@@ -5,6 +5,7 @@ pub mod error;
 pub mod format;
 pub mod id;
 pub mod logger;
+pub mod panic_guard;
 pub mod platform;
 pub mod result;
 

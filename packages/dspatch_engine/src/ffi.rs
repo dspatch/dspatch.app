@@ -6,6 +6,7 @@
 //! C-ABI functions: [`start_engine`] and [`stop_engine`].
 
 use std::ffi::{c_char, CStr};
+use std::panic;
 use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
@@ -45,96 +46,105 @@ static ENGINE: Lazy<Mutex<Option<EngineHandle>>> = Lazy::new(|| Mutex::new(None)
 /// `config_json` must be a valid pointer to a null-terminated C string, or null.
 #[no_mangle]
 pub unsafe extern "C" fn start_engine(config_json: *const c_char) -> i32 {
-    if config_json.is_null() {
-        return 1;
-    }
+    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        if config_json.is_null() {
+            return 1;
+        }
 
-    let c_str = match CStr::from_ptr(config_json).to_str() {
-        Ok(s) => s,
-        Err(_) => return 1,
-    };
-
-    let config: EngineConfig = match serde_json::from_str(c_str) {
-        Ok(c) => c,
-        Err(_) => return 1,
-    };
-
-    let mut guard = match ENGINE.lock() {
-        Ok(g) => g,
-        Err(_) => return 3,
-    };
-
-    if guard.is_some() {
-        return 2;
-    }
-
-    // Build tokio runtime.
-    let rt = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(rt) => rt,
-        Err(_) => return 3,
-    };
-
-    // Initialize the engine inside the runtime.
-    let (engine_runtime, state) = match rt.block_on(async {
-        init_tracing(&config.log_level);
-
-        // Ensure db directory exists.
-        std::fs::create_dir_all(&config.db_dir)
-            .map_err(|e| format!("failed to create db_dir: {e}"))?;
-
-        let db_dir = config.db_dir.clone();
-
-        // Create and initialize the SDK.
-        let sdk_config = DspatchConfig::from_engine_config(&config);
-
-        #[cfg(not(target_os = "android"))]
-        let secret_store: Box<dyn crate::db::key_manager::SecretStore> =
-            Box::new(KeyringSecretStore::new("dspatch"));
-        #[cfg(target_os = "android")]
-        let secret_store: Box<dyn crate::db::key_manager::SecretStore> =
-            Box::new(FileSecretStore::new(&db_dir));
-
-        let sdk = Arc::new(DspatchSdk::with_secret_store(
-            sdk_config,
-            secret_store,
-            db_dir,
-        ));
-
-        sdk.initialize()
-            .await
-            .map_err(|e| format!("failed to initialize SDK: {e}"))?;
-
-        // Create runtime via SDK (wires hub client to session store).
-        let runtime = sdk.create_runtime(config).await;
-
-        let state = AppState {
-            sdk: Arc::clone(&sdk),
-            runtime: Arc::clone(&runtime),
+        let c_str = match unsafe { CStr::from_ptr(config_json) }.to_str() {
+            Ok(s) => s,
+            Err(_) => return 1,
         };
 
-        Ok::<_, String>((runtime, state))
-    }) {
-        Ok(r) => r,
-        Err(_) => return 3,
-    };
+        let config: EngineConfig = match serde_json::from_str(c_str) {
+            Ok(c) => c,
+            Err(_) => return 1,
+        };
 
-    // Spawn the client API server in the background.
-    let shutdown_rx = engine_runtime.subscribe_shutdown();
-    rt.spawn(async move {
-        if let Err(e) = start_client_api(state, shutdown_rx, None).await {
-            tracing::error!(error = %e, "client API server failed");
+        let mut guard = match ENGINE.lock() {
+            Ok(g) => g,
+            Err(_) => return 3,
+        };
+
+        if guard.is_some() {
+            return 2;
         }
-    });
 
-    *guard = Some(EngineHandle {
-        runtime: rt,
-        engine_runtime,
-    });
+        // Build tokio runtime.
+        let rt = match tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(_) => return 3,
+        };
 
-    0
+        // Initialize the engine inside the runtime.
+        let (engine_runtime, state) = match rt.block_on(async {
+            init_tracing(&config.log_level);
+
+            // Ensure db directory exists.
+            std::fs::create_dir_all(&config.db_dir)
+                .map_err(|e| format!("failed to create db_dir: {e}"))?;
+
+            let db_dir = config.db_dir.clone();
+
+            // Create and initialize the SDK.
+            let sdk_config = DspatchConfig::from_engine_config(&config);
+
+            #[cfg(not(target_os = "android"))]
+            let secret_store: Box<dyn crate::db::key_manager::SecretStore> =
+                Box::new(KeyringSecretStore::new("dspatch"));
+            #[cfg(target_os = "android")]
+            let secret_store: Box<dyn crate::db::key_manager::SecretStore> =
+                Box::new(FileSecretStore::new(&db_dir));
+
+            let sdk = Arc::new(DspatchSdk::with_secret_store(
+                sdk_config,
+                secret_store,
+                db_dir,
+            ));
+
+            sdk.initialize()
+                .await
+                .map_err(|e| format!("failed to initialize SDK: {e}"))?;
+
+            // Create runtime via SDK (wires hub client to session store).
+            let runtime = sdk.create_runtime(config).await;
+
+            let state = AppState {
+                sdk: Arc::clone(&sdk),
+                runtime: Arc::clone(&runtime),
+            };
+
+            Ok::<_, String>((runtime, state))
+        }) {
+            Ok(r) => r,
+            Err(_) => return 3,
+        };
+
+        // Spawn the client API server in the background.
+        let shutdown_rx = engine_runtime.subscribe_shutdown();
+        rt.spawn(async move {
+            if let Err(e) = start_client_api(state, shutdown_rx, None).await {
+                tracing::error!(error = %e, "client API server failed");
+            }
+        });
+
+        *guard = Some(EngineHandle {
+            runtime: rt,
+            engine_runtime,
+        });
+
+        0
+    }));
+    match result {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("[dspatch_engine] PANIC in start_engine: {:?}", e);
+            4
+        }
+    }
 }
 
 /// Stop the dspatch engine.
@@ -146,20 +156,30 @@ pub unsafe extern "C" fn start_engine(config_json: *const c_char) -> i32 {
 /// - `0` on success
 /// - `1` if the engine is not running
 /// - `2` on shutdown failure
+/// - `4` if a panic occurred inside the shutdown path
 #[no_mangle]
 pub extern "C" fn stop_engine() -> i32 {
-    let mut guard = match ENGINE.lock() {
-        Ok(g) => g,
-        Err(_) => return 2,
-    };
+    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        let mut guard = match ENGINE.lock() {
+            Ok(g) => g,
+            Err(_) => return 2,
+        };
 
-    let handle = match guard.take() {
-        Some(h) => h,
-        None => return 1,
-    };
+        let handle = match guard.take() {
+            Some(h) => h,
+            None => return 1,
+        };
 
-    handle.engine_runtime.trigger_shutdown();
-    drop(handle.runtime);
+        handle.engine_runtime.trigger_shutdown();
+        drop(handle.runtime);
 
-    0
+        0
+    }));
+    match result {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("[dspatch_engine] PANIC in stop_engine: {:?}", e);
+            4
+        }
+    }
 }

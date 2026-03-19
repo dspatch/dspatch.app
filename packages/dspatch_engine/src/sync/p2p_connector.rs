@@ -18,6 +18,7 @@ use super::peer_connection::PeerConnectionManager;
 use super::signaling::{SignalingEvent, WsClientMessage};
 use super::sync_engine::SyncEngine;
 use super::webrtc_transport::WebRtcTransport;
+use crate::util::panic_guard::spawn_guarded;
 
 /// Spawns the P2P connection orchestrator as a background task.
 pub fn spawn_p2p_connector(
@@ -28,7 +29,7 @@ pub fn spawn_p2p_connector(
     sync_engine: Arc<SyncEngine>,
     cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
+    spawn_guarded("p2p_connector", async move {
         let transports: Arc<Mutex<HashMap<String, Arc<WebRtcTransport>>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
@@ -58,7 +59,7 @@ pub fn spawn_p2p_connector(
                                 let pm = Arc::clone(&peer_manager);
                                 let se = Arc::clone(&sync_engine);
                                 let peer_id = device_id.clone();
-                                tokio::spawn(async move {
+                                spawn_guarded("p2p_initiate_connection", async move {
                                     if let Err(e) = initiate_connection(&peer_id, &transports, &ws, &pm, &se).await {
                                         tracing::warn!("WebRTC offer to {peer_id} failed: {e}");
                                     }
@@ -81,7 +82,7 @@ pub fn spawn_p2p_connector(
                             let pm = Arc::clone(&peer_manager);
                             let se = Arc::clone(&sync_engine);
                             let peer_id = from_device.clone();
-                            tokio::spawn(async move {
+                            spawn_guarded("p2p_accept_connection", async move {
                                 if let Err(e) = accept_connection(&peer_id, &sdp, &transports, &ws, &pm, &se).await {
                                     tracing::warn!("WebRTC answer to {peer_id} failed: {e}");
                                 }
@@ -159,7 +160,7 @@ async fn initiate_connection(
     let ws_ice = Arc::clone(ws);
     let transport_ice = Arc::clone(&transport);
     let peer_id_ice = peer_id.to_string();
-    tokio::spawn(async move {
+    spawn_guarded("p2p_send_ice_candidates_offer", async move {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         let candidates = transport_ice.pending_ice_candidates().await;
         tracing::info!("Sending {} ICE candidates to {peer_id_ice}", candidates.len());
@@ -178,7 +179,7 @@ async fn initiate_connection(
     let peer_id_owned = peer_id.to_string();
     let pm = Arc::clone(peer_manager);
     let se = Arc::clone(sync_engine);
-    tokio::spawn(async move {
+    spawn_guarded("p2p_wait_ready_offer", async move {
         transport_ready.wait_ready().await;
         tracing::info!("WebRTC data channel open with {peer_id_owned}");
         register_transport(&peer_id_owned, &transport_ready, &pm).await;
@@ -221,7 +222,7 @@ async fn accept_connection(
     let ws_ice = Arc::clone(ws);
     let transport_ice = Arc::clone(&transport);
     let peer_id_ice = peer_id.to_string();
-    tokio::spawn(async move {
+    spawn_guarded("p2p_send_ice_candidates_answer", async move {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         let candidates = transport_ice.pending_ice_candidates().await;
         tracing::info!("Sending {} ICE candidates to {peer_id_ice}", candidates.len());
@@ -240,7 +241,7 @@ async fn accept_connection(
     let peer_id_owned = peer_id.to_string();
     let pm = Arc::clone(peer_manager);
     let se = Arc::clone(sync_engine);
-    tokio::spawn(async move {
+    spawn_guarded("p2p_wait_ready_answer", async move {
         transport_ready.wait_ready().await;
         tracing::info!("WebRTC data channel open with {peer_id_owned}");
         register_transport(&peer_id_owned, &transport_ready, &pm).await;
@@ -303,7 +304,7 @@ async fn register_transport(
     // WebRTC data channels will be added once libsignal Send bounds are resolved.
     let transport_send = Arc::clone(transport);
     let peer_id_send = peer_id.to_string();
-    tokio::spawn(async move {
+    spawn_guarded("p2p_webrtc_outbound_bridge", async move {
         while let Some(data) = outbound_rx.recv().await {
             if let Err(e) = transport_send.send(&data).await {
                 tracing::warn!("WebRTC send to {peer_id_send} failed: {e}");
@@ -316,7 +317,7 @@ async fn register_transport(
     let transport_recv = Arc::clone(transport);
     let peer_id_recv = peer_id.to_string();
     let pm = Arc::clone(peer_manager);
-    tokio::spawn(async move {
+    spawn_guarded("p2p_webrtc_inbound_bridge", async move {
         while let Some(data) = transport_recv.recv().await {
             match serde_json::from_slice::<crate::sync::SyncMessage>(&data) {
                 Ok(message) => {
