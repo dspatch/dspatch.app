@@ -33,6 +33,10 @@ class AuthController extends _$AuthController {
 
   Timer? _refreshTimer;
 
+  /// In-flight refresh completer — any concurrent call joins this future
+  /// instead of issuing a second request to the backend.
+  Completer<void>? _refreshCompleter;
+
   /// Starts a timer to refresh the backend token before it expires.
   /// Called when phase reaches ready with a BackendToken.
   void startRefreshTimer() {
@@ -58,45 +62,105 @@ class AuthController extends _$AuthController {
     // the refresh is stale.
     if (ref.read(authPhaseProvider) != AuthPhase.ready) return;
 
-    try {
-      final token = ref.read(authTokenProvider);
-      if (token is! BackendToken) return;
-
-      final response = await _backend.refreshToken(token: token.token);
-      final username = response.username ?? token.username;
-      final email = response.email ?? token.email;
-
-      final newToken = BackendToken(
-        token: response.token,
-        expiresAt: response.expiresAt,
-        scope: 'full',
-        username: username,
-        email: email,
-      );
-
-      ref.read(authTokenProvider.notifier).state = newToken;
-
-      await _tokenStore.saveSession(
-        backendToken: response.token,
-        expiresAt: response.expiresAt,
-        scope: 'full',
-        username: username,
-        email: email,
-      );
-
-      // Update engine's cached credentials via typed command.
-      try {
-        final client = ref.read(engineClientProvider);
-        await client.send(RefreshCredentials(backendToken: response.token));
-      } catch (_) {}
-
-      // Schedule next refresh.
-      startRefreshTimer();
-    } catch (e) {
-      debugPrint('[AUTH] Token refresh failed: $e');
-      // Refresh failed — force re-login.
-      await logout();
+    // Concurrency guard — if a refresh is already in flight, join it
+    // instead of issuing a duplicate request.
+    if (_refreshCompleter != null) {
+      return _refreshCompleter!.future;
     }
+    _refreshCompleter = Completer<void>();
+
+    try {
+      await _doRefresh();
+      _refreshCompleter!.complete();
+    } catch (e) {
+      _refreshCompleter!.completeError(e);
+      rethrow;
+    } finally {
+      _refreshCompleter = null;
+    }
+  }
+
+  Future<void> _doRefresh() async {
+    const maxRetries = 3;
+    int attempt = 0;
+
+    while (true) {
+      try {
+        final token = ref.read(authTokenProvider);
+        if (token is! BackendToken) return;
+
+        final response = await _backend.refreshToken(token: token.token);
+        final username = response.username ?? token.username;
+        final email = response.email ?? token.email;
+
+        final newToken = BackendToken(
+          token: response.token,
+          expiresAt: response.expiresAt,
+          scope: 'full',
+          username: username,
+          email: email,
+        );
+
+        ref.read(authTokenProvider.notifier).state = newToken;
+
+        await _tokenStore.saveSession(
+          backendToken: response.token,
+          expiresAt: response.expiresAt,
+          scope: 'full',
+          username: username,
+          email: email,
+        );
+
+        // Update engine's cached credentials via typed command.
+        try {
+          final client = ref.read(engineClientProvider);
+          await client.send(RefreshCredentials(backendToken: response.token));
+        } catch (e) {
+          debugPrint('[AUTH] Engine credential update failed (non-fatal): $e');
+        }
+
+        // Schedule next refresh.
+        startRefreshTimer();
+        return;
+      } catch (e) {
+        // 401/403 means the token is definitively rejected — log out immediately.
+        if (_isAuthError(e)) {
+          debugPrint('[AUTH] Token refresh rejected (${_statusCode(e)}), logging out');
+          await logout();
+          return;
+        }
+
+        attempt++;
+        if (attempt >= maxRetries) {
+          debugPrint('[AUTH] Token refresh failed after $maxRetries attempts: $e');
+          await logout();
+          return;
+        }
+
+        // Transient error — wait briefly and retry.
+        debugPrint('[AUTH] Token refresh attempt $attempt failed (transient): $e — retrying');
+        await Future.delayed(Duration(seconds: attempt * 2));
+
+        // If we got logged out or the phase changed while waiting, abort.
+        if (ref.read(authPhaseProvider) != AuthPhase.ready) return;
+      }
+    }
+  }
+
+  /// Returns true if [e] represents a definitive auth rejection (401/403).
+  bool _isAuthError(Object e) {
+    final code = _statusCode(e);
+    return code == 401 || code == 403;
+  }
+
+  /// Attempts to extract an HTTP status code from [e], or returns null.
+  int? _statusCode(Object e) {
+    // BackendAuth throws exceptions whose toString contains the status code.
+    // Match patterns like "401", "403", "status 401", etc.
+    final s = e.toString();
+    final match = RegExp(r'\b(4\d{2})\b').firstMatch(s);
+    if (match != null) return int.tryParse(match.group(1)!);
+    return null;
   }
 
   /// Sets phase and token atomically. The router only watches authPhaseProvider,
