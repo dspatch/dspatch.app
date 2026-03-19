@@ -218,19 +218,31 @@ Future<void> main(List<String> args) async {
   // Register shutdown handler for the integrated engine.
   // Disposes the previous listener on hot restart before creating a new one.
   _lifecycleListener?.dispose();
-  if (useIntegratedEngine) {
-    _lifecycleListener = AppLifecycleListener(
-      onDetach: () {
-        debugPrint('[SHUTDOWN] Stopping integrated engine...');
-        try {
-          NativeEngine.stop();
-          debugPrint('[SHUTDOWN] Integrated engine stopped');
-        } catch (e) {
-          debugPrint('[SHUTDOWN] Error stopping integrated engine: $e');
-        }
-      },
-    );
-  }
+  _lifecycleListener = AppLifecycleListener(
+    onPause: () {
+      debugPrint('[LIFECYCLE] App paused — disconnecting engine connection');
+      connection.disconnect();
+    },
+    onResume: () {
+      debugPrint('[LIFECYCLE] App resumed — reconnecting engine connection');
+      if (!connection.isConnected) {
+        connection.connect().catchError((Object e) {
+          debugPrint('[LIFECYCLE] Reconnect on resume failed: $e');
+        });
+      }
+    },
+    onDetach: useIntegratedEngine
+        ? () {
+            debugPrint('[SHUTDOWN] Stopping integrated engine...');
+            try {
+              NativeEngine.stop();
+              debugPrint('[SHUTDOWN] Integrated engine stopped');
+            } catch (e) {
+              debugPrint('[SHUTDOWN] Error stopping integrated engine: $e');
+            }
+          }
+        : null,
+  );
 
   debugPrint('[BOOT] Providers initialized, running app...');
   runApp(
