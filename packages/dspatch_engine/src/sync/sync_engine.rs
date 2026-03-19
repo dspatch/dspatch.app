@@ -248,6 +248,29 @@ impl SyncEngine {
         Ok(changes)
     }
 
+    /// Removes outbox entries older than 30 days to prevent unbounded growth.
+    ///
+    /// Entries that have not been acknowledged within 30 days are unlikely to
+    /// ever be delivered and are safe to discard.
+    ///
+    /// `created_at` is stored as an ISO 8601 text column, so the cutoff is
+    /// computed as an RFC 3339 string and compared lexicographically (valid
+    /// because the format is zero-padded and UTC).
+    pub fn gc_outbox(&self) -> Result<usize> {
+        let cutoff = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
+        let conn = self.db.conn();
+        let deleted = conn
+            .execute(
+                "DELETE FROM sync_outbox WHERE created_at < ?1",
+                rusqlite::params![cutoff],
+            )
+            .map_err(|e| AppError::Storage(format!("Outbox GC failed: {e}")))?;
+        if deleted > 0 {
+            tracing::info!("GC removed {deleted} outbox entries older than 30 days");
+        }
+        Ok(deleted)
+    }
+
     /// Compacts the outbox by deduplicating entries for the same (table, row_id).
     ///
     /// Rules:
