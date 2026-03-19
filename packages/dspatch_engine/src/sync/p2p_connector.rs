@@ -176,6 +176,8 @@ async fn initiate_connection(
         transport_ready.wait_ready().await;
         tracing::info!("WebRTC data channel open with {peer_id_owned}");
         register_transport(&peer_id_owned, &transport_ready, &pm).await;
+        // Request full state from peer to sync pre-existing data.
+        request_full_state(&peer_id_owned, &pm).await;
     });
 
     Ok(())
@@ -233,9 +235,29 @@ async fn accept_connection(
         transport_ready.wait_ready().await;
         tracing::info!("WebRTC data channel open with {peer_id_owned}");
         register_transport(&peer_id_owned, &transport_ready, &pm).await;
+        // Request full state from peer to sync pre-existing data.
+        request_full_state(&peer_id_owned, &pm).await;
     });
 
     Ok(())
+}
+
+/// Sends a RequestFullState message to a peer to trigger initial data sync.
+/// The peer responds with FullState chunks containing all their synced table data.
+async fn request_full_state(peer_id: &str, peer_manager: &PeerConnectionManager) {
+    let msg = crate::sync::SyncMessage::RequestFullState;
+    let data = match serde_json::to_vec(&msg) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!("Failed to serialize RequestFullState: {e}");
+            return;
+        }
+    };
+    if let Err(e) = peer_manager.send_raw(peer_id, data).await {
+        tracing::warn!("Failed to send RequestFullState to {peer_id}: {e}");
+    } else {
+        tracing::info!("Requested full state from {peer_id}");
+    }
 }
 
 /// Registers a WebRTC transport's data channel with the PeerConnectionManager.
