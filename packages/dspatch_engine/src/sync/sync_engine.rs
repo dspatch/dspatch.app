@@ -19,6 +19,15 @@ use super::materializer::ChangeMaterializer;
 use super::message::{SyncChange, SyncMessage, SyncOp};
 use super::peer_connection::PeerConnectionManager;
 
+/// A device record from the backend `GET /api/devices` response.
+#[derive(Debug, Clone)]
+pub struct KnownDevice {
+    pub device_id: String,
+    pub name: Option<String>,
+    pub device_type: Option<String>,
+    pub platform: Option<String>,
+}
+
 /// Orchestrates the sync process between devices.
 ///
 /// The engine maintains a Lamport clock and outbox of local changes. It can
@@ -30,6 +39,9 @@ pub struct SyncEngine {
     peer_manager: Arc<PeerConnectionManager>,
     device_id: String,
     lamport_clock: AtomicI64,
+    /// Dedicated connection for lamport clock writes, avoiding contention
+    /// with the main connection during `apply_remote_changes`.
+    lamport_conn: parking_lot::Mutex<rusqlite::Connection>,
 }
 
 impl SyncEngine {
@@ -66,11 +78,19 @@ impl SyncEngine {
             from_lamport_table.max(from_outbox)
         };
 
+        // Open a dedicated secondary connection for lamport clock writes.
+        // This avoids contention with the main connection mutex during
+        // apply_remote_changes → merge_lamport.
+        let lamport_conn = db
+            .open_secondary_conn()
+            .expect("Failed to open secondary connection for lamport clock");
+
         Self {
             db,
             peer_manager,
             device_id: device_id.to_string(),
             lamport_clock: AtomicI64::new(initial_lamport),
+            lamport_conn: parking_lot::Mutex::new(lamport_conn),
         }
     }
 
@@ -91,23 +111,22 @@ impl SyncEngine {
 
     /// Updates the Lamport clock to be at least `remote_ts` (merge rule).
     ///
-    /// Also persists the new value to `sync_lamport` so the in-memory
-    /// `AtomicI64` and the DB cannot diverge across restarts.
-    ///
-    /// The DB write is best-effort via `try_lock` to avoid deadlocking callers
-    /// that already hold the DB mutex (e.g. inside `apply_remote_changes`).
+    /// Also persists the new value to `sync_lamport` via a dedicated
+    /// secondary connection that never contends with the main DB mutex.
+    /// This fixes the previous `try_lock` approach which could silently
+    /// skip the DB write when called from `apply_remote_changes`.
     fn merge_lamport(&self, remote_ts: i64) {
         let new_val = self
             .lamport_clock
             .fetch_max(remote_ts + 1, Ordering::SeqCst)
             .max(remote_ts + 1);
 
-        // Deferred DB sync: skip if the mutex is already held on this thread.
-        if let Some(conn) = self.db.conn_arc().try_lock() {
-            let _ = conn.execute(
-                "UPDATE sync_lamport SET ts = MAX(ts, ?1) WHERE id = 1",
-                rusqlite::params![new_val],
-            );
+        let conn = self.lamport_conn.lock();
+        if let Err(e) = conn.execute(
+            "UPDATE sync_lamport SET ts = MAX(ts, ?1) WHERE id = 1",
+            rusqlite::params![new_val],
+        ) {
+            tracing::error!("Failed to persist lamport clock: {e}");
         }
     }
 
@@ -461,32 +480,132 @@ impl SyncEngine {
         Ok(applied)
     }
 
-    /// Marks outbox entries as acknowledged up to the given change ID.
+    /// Handles an ACK from a peer by advancing that peer's cursor.
     ///
-    /// Acknowledged entries can safely be pruned to keep the outbox lean.
-    /// This deletes all entries with a lamport_ts <= the lamport_ts of the
-    /// acknowledged entry.
-    pub fn acknowledge_up_to(&self, last_id: &str) -> Result<()> {
+    /// When a peer sends `Ack { last_id }`, we look up the ACKed change's
+    /// table and lamport_ts, then update the peer's cursor so we know they
+    /// have received everything up to that point. No outbox entries are
+    /// deleted here — pruning is handled separately by `prune_delivered_outbox`.
+    pub fn handle_ack(&self, peer_device_id: &str, last_id: &str) -> Result<()> {
         let conn = self.db.conn();
 
-        // Find the lamport_ts of the acknowledged entry.
-        let lamport_ts: Option<i64> = conn
+        // Find the table and lamport_ts of the ACKed change.
+        let result: Option<(String, i64)> = conn
             .query_row(
-                "SELECT lamport_ts FROM sync_outbox WHERE id = ?1",
+                "SELECT table_name, lamport_ts FROM sync_outbox WHERE id = ?1",
                 rusqlite::params![last_id],
-                |row| row.get(0),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
             )
             .ok();
 
-        if let Some(ts) = lamport_ts {
-            conn.execute(
-                "DELETE FROM sync_outbox WHERE lamport_ts <= ?1 AND device_id = ?2",
-                rusqlite::params![ts, &self.device_id],
-            )
-            .map_err(|e| AppError::Storage(format!("Failed to prune outbox: {e}")))?;
+        if let Some((table, lamport_ts)) = result {
+            self.update_cursor(peer_device_id, &table, lamport_ts)?;
         }
 
         Ok(())
+    }
+
+    /// Refreshes the known-devices cache from a list of backend device records.
+    ///
+    /// Called after fetching `GET /api/devices`. Inserts or updates each device
+    /// and removes any stale entries no longer returned by the backend.
+    pub fn refresh_known_devices(&self, devices: &[KnownDevice]) -> Result<()> {
+        let conn = self.db.conn();
+
+        // Upsert each device.
+        for device in devices {
+            // Skip self — we don't need to track our own device.
+            if device.device_id == self.device_id {
+                continue;
+            }
+            conn.execute(
+                "INSERT INTO sync_known_devices (device_id, name, device_type, platform, last_refreshed_at) \
+                 VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
+                 ON CONFLICT (device_id) DO UPDATE SET \
+                     name = excluded.name, \
+                     device_type = excluded.device_type, \
+                     platform = excluded.platform, \
+                     last_refreshed_at = excluded.last_refreshed_at",
+                rusqlite::params![
+                    &device.device_id,
+                    &device.name,
+                    &device.device_type,
+                    &device.platform,
+                ],
+            )
+            .map_err(|e| AppError::Storage(format!("Failed to upsert known device: {e}")))?;
+        }
+
+        // Remove devices no longer in the backend response (excluding self).
+        let ids: Vec<&str> = devices.iter()
+            .filter(|d| d.device_id != self.device_id)
+            .map(|d| d.device_id.as_str())
+            .collect();
+        if ids.is_empty() {
+            // No peer devices — clear the table.
+            conn.execute("DELETE FROM sync_known_devices", [])
+                .map_err(|e| AppError::Storage(format!("Failed to clear known devices: {e}")))?;
+        } else {
+            // Build a comma-separated list of quoted IDs for the NOT IN clause.
+            let placeholders: Vec<String> = ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect();
+            let in_clause = placeholders.join(", ");
+            conn.execute(
+                &format!("DELETE FROM sync_known_devices WHERE device_id NOT IN ({in_clause})"),
+                [],
+            )
+            .map_err(|e| AppError::Storage(format!("Failed to prune stale known devices: {e}")))?;
+        }
+
+        tracing::info!("Refreshed known devices: {} peers", ids.len());
+        Ok(())
+    }
+
+    /// Prunes outbox entries that ALL known peer devices have received.
+    ///
+    /// An entry is safe to prune when every device in `sync_known_devices`
+    /// has a cursor (`high_water_mark`) >= the entry's `lamport_ts` for
+    /// that table. If no known peers exist, nothing is pruned (safety).
+    ///
+    /// Returns the number of pruned entries.
+    pub fn prune_delivered_outbox(&self) -> Result<usize> {
+        let conn = self.db.conn();
+
+        // Check if there are any known peer devices at all.
+        let peer_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sync_known_devices", [], |row| row.get(0))
+            .unwrap_or(0);
+        if peer_count == 0 {
+            return Ok(0);
+        }
+
+        // Delete outbox entries where ALL known peers have a cursor >= that entry's lamport_ts.
+        // The NOT EXISTS ∘ NOT EXISTS pattern reads:
+        //   "There does NOT exist a known device that is MISSING a cursor >= this entry's ts."
+        let deleted = conn.execute(
+            "DELETE FROM sync_outbox \
+             WHERE device_id = ?1 \
+               AND id IN ( \
+                   SELECT o.id FROM sync_outbox o \
+                   WHERE o.device_id = ?1 \
+                     AND NOT EXISTS ( \
+                         SELECT 1 FROM sync_known_devices kd \
+                         WHERE NOT EXISTS ( \
+                             SELECT 1 FROM sync_cursors sc \
+                             WHERE sc.device_id = kd.device_id \
+                               AND sc.table_name = o.table_name \
+                               AND sc.high_water_mark >= o.lamport_ts \
+                         ) \
+                     ) \
+               )",
+            rusqlite::params![&self.device_id],
+        )
+        .map_err(|e| AppError::Storage(format!("Delivered outbox prune failed: {e}")))?;
+
+        if deleted > 0 {
+            tracing::info!("Pruned {deleted} fully-delivered outbox entries");
+        }
+
+        Ok(deleted)
     }
 
     /// Gets the sync cursor (high water mark) for a peer device and table.
@@ -525,6 +644,21 @@ impl SyncEngine {
                 &lamport,
             ],
         )?;
+        Ok(())
+    }
+
+    /// Persists the current in-memory Lamport clock value to the database.
+    ///
+    /// Called periodically (every 30s from the sync loop) and on shutdown
+    /// to ensure the persisted value stays close to the in-memory value.
+    pub fn persist_lamport(&self) -> Result<()> {
+        let current = self.lamport_clock.load(Ordering::SeqCst);
+        let conn = self.lamport_conn.lock();
+        conn.execute(
+            "UPDATE sync_lamport SET ts = MAX(ts, ?1) WHERE id = 1",
+            rusqlite::params![current],
+        )
+        .map_err(|e| AppError::Storage(format!("Failed to persist lamport clock: {e}")))?;
         Ok(())
     }
 

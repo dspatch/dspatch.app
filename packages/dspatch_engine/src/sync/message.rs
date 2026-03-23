@@ -121,4 +121,8 @@ pub enum SyncMessage {
         table: String,
         rows: Vec<serde_json::Value>,
     },
+    /// Health check ping — expects a `Pong` response.
+    Ping,
+    /// Health check pong — response to a `Ping`.
+    Pong,
 }

@@ -47,6 +47,8 @@ pub const CREATE_SYNC_CURSORS: &str = include_str!("../../shared/schema/sync_cur
 pub const CREATE_SYNC_LAMPORT: &str = include_str!("../../shared/schema/sync_lamport.sql");
 pub const CREATE_SYNC_CONFIG: &str = include_str!("../../shared/schema/sync_config.sql");
 pub const CREATE_SYNC_TOMBSTONES: &str = include_str!("../../shared/schema/sync_tombstones.sql");
+pub const CREATE_SYNC_KNOWN_DEVICES: &str =
+    include_str!("../../shared/schema/sync_known_devices.sql");
 
 // ---------------------------------------------------------------------------
 // Ephemeral state tables
@@ -90,6 +92,7 @@ pub const ALL_TABLES: &[&str] = &[
     CREATE_SYNC_LAMPORT,
     CREATE_SYNC_CONFIG,
     CREATE_SYNC_TOMBSTONES,
+    CREATE_SYNC_KNOWN_DEVICES,
     CREATE_AGENT_INSTANCE_STATES,
     CREATE_AGENT_CONNECTION_STATUS,
     CREATE_CONTAINER_HEALTH,

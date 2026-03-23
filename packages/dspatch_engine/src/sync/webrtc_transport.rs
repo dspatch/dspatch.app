@@ -42,8 +42,16 @@ pub struct WebRtcTransport {
     data_channel: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
     /// Receive side: incoming messages from the remote peer.
     data_channel_rx: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
-    /// Gathered ICE candidates (serialized as JSON).
+    /// Gathered ICE candidates (serialized as JSON) — used as a buffer
+    /// for candidates gathered before the trickle task starts.
     ice_candidates: Arc<Mutex<Vec<String>>>,
+    /// Trickle ICE: candidates are sent here as they're gathered.
+    /// The p2p_connector reads from this and sends each one immediately.
+    /// Kept alive so callback clones of the sender remain valid.
+    #[allow(dead_code)]
+    ice_trickle_tx: mpsc::Sender<String>,
+    /// Receiver end for the trickle ICE channel.
+    ice_trickle_rx: Arc<Mutex<Option<mpsc::Receiver<String>>>>,
     /// Notified when the data channel is open and ready to send/receive.
     ready: Arc<Notify>,
 }
@@ -74,15 +82,24 @@ impl WebRtcTransport {
         }
     }
 
-    /// Wires up the `on_ice_candidate` callback to collect gathered candidates.
-    fn setup_ice_gathering(pc: &Arc<RTCPeerConnection>, candidates: Arc<Mutex<Vec<String>>>) {
+    /// Wires up the `on_ice_candidate` callback to collect gathered candidates
+    /// and forward them to the trickle ICE channel for immediate sending.
+    fn setup_ice_gathering(
+        pc: &Arc<RTCPeerConnection>,
+        candidates: Arc<Mutex<Vec<String>>>,
+        trickle_tx: mpsc::Sender<String>,
+    ) {
         pc.on_ice_candidate(Box::new(move |candidate| {
             let candidates = Arc::clone(&candidates);
+            let trickle_tx = trickle_tx.clone();
             Box::pin(async move {
                 if let Some(c) = candidate {
                     if let Ok(init) = c.to_json() {
                         if let Ok(json) = serde_json::to_string(&init) {
-                            candidates.lock().await.push(json);
+                            // Buffer for pending_ice_candidates() fallback.
+                            candidates.lock().await.push(json.clone());
+                            // Send immediately via trickle channel.
+                            let _ = trickle_tx.send(json).await;
                         }
                     }
                 }
@@ -142,11 +159,12 @@ impl WebRtcTransport {
         // Shared state.
         let ice_candidates: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let (tx, rx) = mpsc::channel(RECV_CHANNEL_CAPACITY);
+        let (trickle_tx, trickle_rx) = mpsc::channel::<String>(64);
         let ready = Arc::new(Notify::new());
         let dc_holder: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
 
-        // ICE gathering.
-        Self::setup_ice_gathering(&pc, Arc::clone(&ice_candidates));
+        // ICE gathering with trickle support.
+        Self::setup_ice_gathering(&pc, Arc::clone(&ice_candidates), trickle_tx.clone());
 
         // Create the data channel (offerer creates it).
         let dc = pc
@@ -174,6 +192,8 @@ impl WebRtcTransport {
             data_channel: dc_holder,
             data_channel_rx: Arc::new(Mutex::new(rx)),
             ice_candidates,
+            ice_trickle_tx: trickle_tx,
+            ice_trickle_rx: Arc::new(Mutex::new(Some(trickle_rx))),
             ready,
         };
 
@@ -216,11 +236,12 @@ impl WebRtcTransport {
         // Shared state.
         let ice_candidates: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let (tx, rx) = mpsc::channel(RECV_CHANNEL_CAPACITY);
+        let (trickle_tx, trickle_rx) = mpsc::channel::<String>(64);
         let ready = Arc::new(Notify::new());
         let dc_holder: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
 
-        // ICE gathering.
-        Self::setup_ice_gathering(&pc, Arc::clone(&ice_candidates));
+        // ICE gathering with trickle support.
+        Self::setup_ice_gathering(&pc, Arc::clone(&ice_candidates), trickle_tx.clone());
 
         // The answerer receives the data channel via callback.
         let dc_holder_for_cb = Arc::clone(&dc_holder);
@@ -262,6 +283,8 @@ impl WebRtcTransport {
             data_channel: dc_holder,
             data_channel_rx: Arc::new(Mutex::new(rx)),
             ice_candidates,
+            ice_trickle_tx: trickle_tx,
+            ice_trickle_rx: Arc::new(Mutex::new(Some(trickle_rx))),
             ready,
         };
 
@@ -291,6 +314,15 @@ impl WebRtcTransport {
     /// to the remote peer via signaling.
     pub async fn pending_ice_candidates(&self) -> Vec<String> {
         self.ice_candidates.lock().await.clone()
+    }
+
+    /// Takes the trickle ICE receiver for immediate candidate forwarding.
+    ///
+    /// Returns `None` if already taken (single-consumer). The p2p_connector
+    /// spawns a task that reads from this receiver and sends each candidate
+    /// via signaling immediately as it's gathered.
+    pub async fn take_trickle_rx(&self) -> Option<mpsc::Receiver<String>> {
+        self.ice_trickle_rx.lock().await.take()
     }
 
     // ------------------------------------------------------------------
