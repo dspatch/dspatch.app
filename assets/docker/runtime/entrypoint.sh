@@ -286,8 +286,52 @@ done <<< "$TEMPLATES"
 
 echo "$TAG ── Phase 1 complete ──"
 
+# ── Phase 1.5: Start dspatch-router ──────────────────────────────────────
+echo "$TAG ── Phase 1.5: Starting router..."
+
+if [ ! -x /usr/local/bin/dspatch-router ]; then
+    echo "$TAG ERROR: Router binary not found at /usr/local/bin/dspatch-router" >&2
+    exit 1
+fi
+
+/usr/local/bin/dspatch-router &
+ROUTER_PID=$!
+
+# Wait for gRPC socket to become available (up to 15s)
+GRPC_SOCKET="${DSPATCH_GRPC_SOCKET:-/tmp/dspatch.sock}"
+for i in $(seq 1 30); do
+    if [ -S "$GRPC_SOCKET" ]; then
+        echo "$TAG Router ready (PID $ROUTER_PID, socket $GRPC_SOCKET)"
+        break
+    fi
+    if ! kill -0 $ROUTER_PID 2>/dev/null; then
+        echo "$TAG ERROR: Router process died during startup" >&2
+        exit 1
+    fi
+    sleep 0.5
+done
+
+if [ ! -S "$GRPC_SOCKET" ]; then
+    echo "$TAG ERROR: Router socket not ready after 15s" >&2
+    kill $ROUTER_PID 2>/dev/null
+    exit 1
+fi
+
+echo "$TAG ── Phase 1.5 complete ──"
+
 # ── Phase 2: Launch agents ───────────────────────────────────────────────
 echo "$TAG ── Phase 2: Starting agents ──"
+
+export DSPATCH_GRPC_SOCKET="${DSPATCH_GRPC_SOCKET:-/tmp/dspatch.sock}"
+
+# Agent system metadata — computed by the host app and passed as a single
+# JSON env var.  Keyed by flat agent key:
+#   { "lead": { "is_root": true, "peers": "coder,tester" }, ... }
+# Capture before unsetting router-only vars below.
+AGENTS_META="${DSPATCH_AGENTS_META:-\{\}}"
+
+# Filter out router-only env vars — agents must not see these.
+unset DSPATCH_API_URL DSPATCH_API_KEY DSPATCH_RUN_ID DSPATCH_WORKSPACE_ID DSPATCH_AGENTS_META
 
 PIDS=()
 declare -A PID_NAMES=()
@@ -297,14 +341,13 @@ cleanup() {
     for pid in "${PIDS[@]}"; do
         kill "$pid" 2>/dev/null || true
     done
+    if [ -n "${ROUTER_PID:-}" ]; then
+        kill "$ROUTER_PID" 2>/dev/null || true
+        wait "$ROUTER_PID" 2>/dev/null || true
+    fi
     wait
 }
 trap cleanup SIGTERM SIGINT
-
-# Agent system metadata — computed by the host app and passed as a single
-# JSON env var.  Keyed by flat agent key:
-#   { "lead": { "is_root": true, "peers": "coder,tester" }, ... }
-AGENTS_META="${DSPATCH_AGENTS_META:-\{\}}"
 
 # Walk the agent tree via jq, emitting one line per agent instance.
 # Fields (tab-separated):
