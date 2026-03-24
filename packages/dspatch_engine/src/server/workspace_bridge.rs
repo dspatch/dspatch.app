@@ -863,6 +863,14 @@ impl WorkspaceBridge {
         }
         self.cancel_monitors(workspace_id).await;
 
+        // Remove persistent data volume (WAL storage).
+        let data_volume_name = format!("dspatch-data-{workspace_id}");
+        if let Err(e) = self.docker_client.remove_volume(&data_volume_name).await {
+            tracing::warn!(%e, volume = %data_volume_name, "Data volume removal failed (may not exist)");
+        } else {
+            tracing::info!(volume = %data_volume_name, "Data volume removed");
+        }
+
         tracing::info!(workspace_id, "Workspace cleaned up for deletion");
         Ok(())
     }
