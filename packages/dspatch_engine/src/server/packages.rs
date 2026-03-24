@@ -124,7 +124,7 @@ pub enum Package {
     #[serde(rename = "agent.signal.instance_spawned")]
     InstanceSpawned(InstanceSpawnedPackage),
 
-    // -- Connection packages (7) --
+    // -- Connection packages (8) --
     #[serde(rename = "connection.auth")]
     Auth(AuthPackage),
 
@@ -142,6 +142,9 @@ pub enum Package {
 
     #[serde(rename = "connection.spawn_instance")]
     SpawnInstance(SpawnInstancePackage),
+
+    #[serde(rename = "connection.ack")]
+    Ack(AckPackage),
 
     // -- Fallback --
     // Not deserializable via serde tag; handled by Package::from_json().
@@ -230,6 +233,7 @@ impl Package {
                 | Package::Register(_)
                 | Package::Heartbeat(_)
                 | Package::SpawnInstance(_)
+                | Package::Ack(_)
         )
     }
 
@@ -268,6 +272,7 @@ impl Package {
             | Package::AuthError(_)
             | Package::Register(_)
             | Package::Heartbeat(_)
+            | Package::Ack(_)
             | Package::Unknown(_) => None,
         }
     }
@@ -302,6 +307,7 @@ impl Package {
             Package::Register(_) => "connection.register",
             Package::Heartbeat(_) => "connection.heartbeat",
             Package::SpawnInstance(_) => "connection.spawn_instance",
+            Package::Ack(_) => "connection.ack",
             Package::Unknown(u) => &u.raw_type,
         }
     }
@@ -604,7 +610,7 @@ pub struct InstanceSpawnedPackage {
     pub instance_id: String,
 }
 
-// ── Connection package structs (7) ──────────────────────────────────
+// ── Connection package structs (8) ──────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthPackage {
@@ -641,6 +647,13 @@ pub struct SpawnInstancePackage {
     pub instance_id: String,
 }
 
+/// Acknowledgement sent from engine to router after persisting a package.
+/// Used by the router's WAL to truncate delivered entries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AckPackage {
+    pub sequence_number: u64,
+}
+
 // ── Unknown package (fallback) ──────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -661,5 +674,18 @@ mod tests {
     #[test]
     fn wire_inquiry_priority_default_is_normal() {
         assert_eq!(WireInquiryPriority::default(), WireInquiryPriority::Normal);
+    }
+
+    #[test]
+    fn ack_package_roundtrip() {
+        let pkg = Package::Ack(AckPackage {
+            sequence_number: 42,
+        });
+        let json = pkg.to_json().unwrap();
+        let parsed = Package::from_json(&json).unwrap();
+        match parsed {
+            Package::Ack(ack) => assert_eq!(ack.sequence_number, 42),
+            _ => panic!("Expected Ack"),
+        }
     }
 }
