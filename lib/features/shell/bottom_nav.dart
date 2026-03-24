@@ -12,6 +12,7 @@ import '../../di/providers.dart';
 List<({String path, IconData icon, String label})> get _navItems => [
   (path: '/workspaces', icon: LucideIcons.layout_grid, label: 'Workspaces'),
   (path: '/agent-providers', icon: LucideIcons.bot, label: 'Templates'),
+  (path: '/devices', icon: LucideIcons.monitor_smartphone, label: 'Devices'),
   if (PlatformInfo.isDesktop)
     (path: '/engine', icon: LucideIcons.server, label: 'Engine'),
   (path: '/settings', icon: LucideIcons.settings, label: 'Settings'),

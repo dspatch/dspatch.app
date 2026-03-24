@@ -37,8 +37,15 @@ class _DevicePairingScreenState extends ConsumerState<DevicePairingScreen> {
       if (mounted) setState(() => _deviceName = info.name);
     } else if (PlatformInfo.isAndroid) {
       final info = await DeviceInfoPlugin().androidInfo;
-      if (mounted) setState(() => _deviceName = info.model);
+      // Combine manufacturer + model for a recognizable name.
+      final manufacturer = info.manufacturer;
+      final model = info.model;
+      final name = model.toLowerCase().startsWith(manufacturer.toLowerCase())
+          ? model
+          : '$manufacturer $model';
+      if (mounted) setState(() => _deviceName = name);
     }
+    // Desktop: Platform.localHostname is the computer name — good enough.
   }
 
   Future<void> _handleRegister() async {

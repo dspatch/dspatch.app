@@ -106,6 +106,11 @@ impl BackendWsClient {
         self.online_peers.read().await.iter().cloned().collect()
     }
 
+    /// Returns true if the WebSocket is currently connected (has an active sender).
+    pub async fn is_connected(&self) -> bool {
+        self.ws_tx.lock().await.is_some()
+    }
+
     /// Returns a clone of the current WebSocket sender, if connected.
     pub async fn ws_sender(&self) -> Option<mpsc::Sender<String>> {
         self.ws_tx.lock().await.clone()

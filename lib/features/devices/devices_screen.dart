@@ -251,6 +251,8 @@ class _SyncStatusBarState extends ConsumerState<_SyncStatusBar> {
 
     final (Color color, String label, IconData icon) = switch (state) {
       'syncing' => (AppColors.success, 'Sync active', LucideIcons.refresh_cw),
+      'waiting' => (AppColors.warning, 'Waiting for peers', LucideIcons.radio),
+      'connecting' => (AppColors.warning, 'Connecting to backend...', LucideIcons.wifi),
       'synced' => (AppColors.success, 'Synced', LucideIcons.circle_check),
       'offline' => (AppColors.warning, 'Offline', LucideIcons.wifi_off),
       'signal_failed' => (AppColors.error, 'Signal failed', LucideIcons.circle_x),
@@ -294,7 +296,25 @@ class _SyncStatusBarState extends ConsumerState<_SyncStatusBar> {
               ],
             ],
           ),
-          // Diagnostics (debug builds only)
+          // Sync error (visible in all builds)
+          if (diag['last_error'] != null) ...[
+            const SizedBox(height: Spacing.xs),
+            Text(
+              diag['last_error'] as String,
+              style: const TextStyle(fontSize: 11, color: AppColors.error),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          // Backend WS warning (visible in all builds when connecting state)
+          if (state == 'connecting') ...[
+            const SizedBox(height: Spacing.xs),
+            const Text(
+              'Backend WebSocket reconnecting — device presence unavailable',
+              style: TextStyle(fontSize: 11, color: AppColors.warning),
+            ),
+          ],
+          // Full diagnostics (debug builds only)
           if (kDebugMode) ...[
             const SizedBox(height: Spacing.sm),
             Wrap(
@@ -306,21 +326,18 @@ class _SyncStatusBarState extends ConsumerState<_SyncStatusBar> {
                 _DiagChip('Identity key', null, diag['identity_key_stored'] == true),
                 _DiagChip('Signal', null, diag['signal_bootstrapped'] == true),
                 _DiagChip('Sync engine', null, diag['sync_engine_running'] == true),
-                _DiagChip('Backend WS', null, diag['ws_client_connected'] == true),
+                _DiagChip(
+                  'Backend WS',
+                  diag['ws_client_started'] == true && diag['ws_client_connected'] != true
+                      ? 'reconnecting'
+                      : null,
+                  diag['ws_client_connected'] == true,
+                ),
                 _DiagChip('Schema', 'v${diag['schema_version'] ?? '?'}', (diag['schema_version'] ?? 0) >= 16),
                 _DiagChip('Triggers', '${diag['trigger_count'] ?? 0}', (diag['trigger_count'] ?? 0) > 0),
                 _DiagChip('Trigger device', diag['trigger_device_id'] as String? ?? '?', diag['trigger_device_id'] != null && diag['trigger_device_id'] != 'local' && diag['trigger_device_id'] != 'TABLE_MISSING'),
               ],
             ),
-            if (diag['last_error'] != null) ...[
-              const SizedBox(height: Spacing.xs),
-              Text(
-                diag['last_error'] as String,
-                style: const TextStyle(fontSize: 11, color: AppColors.error),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
             const SizedBox(height: Spacing.sm),
             // Sync Now button + result
             Row(
@@ -335,7 +352,7 @@ class _SyncStatusBarState extends ConsumerState<_SyncStatusBar> {
                 if (_lastSyncResult != null) ...[
                   const SizedBox(width: Spacing.sm),
                   Text(
-                    'Sent to ${_lastSyncResult!['peers_synced']} peers, ${_lastSyncResult!['pending_after']} pending',
+                    'Online: ${_lastSyncResult!['peers_online']}, P2P: ${_lastSyncResult!['peers_p2p_connected']}, Pending: ${_lastSyncResult!['pending_changes']}',
                     style: const TextStyle(fontSize: 11, color: AppColors.mutedForeground),
                   ),
                 ],

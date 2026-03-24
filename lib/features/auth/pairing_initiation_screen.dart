@@ -46,7 +46,11 @@ class _PairingInitiationScreenState
   @override
   void initState() {
     super.initState();
-    _loadDeviceName();
+    _loadDeviceNameThenPair();
+  }
+
+  Future<void> _loadDeviceNameThenPair() async {
+    await _loadDeviceName();
     _initiatePairing();
   }
 
@@ -63,8 +67,16 @@ class _PairingInitiationScreenState
       if (mounted) setState(() => _deviceName = info.name);
     } else if (PlatformInfo.isAndroid) {
       final info = await DeviceInfoPlugin().androidInfo;
-      if (mounted) setState(() => _deviceName = info.model);
+      // Combine manufacturer + model for a recognizable name.
+      // e.g. "Samsung Galaxy S21" instead of just "SM-G991B".
+      final manufacturer = info.manufacturer;
+      final model = info.model;
+      final name = model.toLowerCase().startsWith(manufacturer.toLowerCase())
+          ? model // Model already includes manufacturer (e.g. "Samsung Galaxy S21")
+          : '$manufacturer $model';
+      if (mounted) setState(() => _deviceName = name);
     }
+    // Desktop: Platform.localHostname is the computer name — good enough.
   }
 
   Future<void> _initiatePairing() async {

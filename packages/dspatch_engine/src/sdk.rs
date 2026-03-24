@@ -988,11 +988,24 @@ impl DspatchSdk {
         let device_id = self.device_service.current_device().id.clone();
         let has_signal = self.signal_service.read().await.is_some();
         let has_sync_engine = self.sync_engine.read().await.is_some();
+        let ws_actually_connected = match self.ws_client.read().await.as_ref() {
+            Some(ws) => ws.is_connected().await,
+            None => false,
+        };
         let has_ws_client = self.ws_client.read().await.is_some();
         let has_database = self.database.read().await.is_some();
 
-        let state = if has_sync_engine {
+        let connected_peers = match self.sync_engine.read().await.as_ref() {
+            Some(engine) => engine.peer_manager().connected_devices().await.len(),
+            None => 0,
+        };
+
+        let state = if has_sync_engine && connected_peers > 0 {
             "syncing"
+        } else if has_sync_engine && ws_actually_connected {
+            "waiting" // Engine running, WS connected, but no P2P peers yet
+        } else if has_sync_engine {
+            "connecting" // Engine running, WS reconnecting
         } else if device_id != "local" && has_signal {
             "offline"
         } else if device_id != "local" {
@@ -1012,11 +1025,6 @@ impl DspatchSdk {
                 (pending, trigger_dev, triggers, version)
             }
             None => (0, "no_db".to_string(), 0, 0),
-        };
-
-        let connected_peers = match self.sync_engine.read().await.as_ref() {
-            Some(engine) => engine.peer_manager().connected_devices().await.len(),
-            None => 0,
         };
 
         // Check if identity key seed exists in keyring.
@@ -1040,7 +1048,8 @@ impl DspatchSdk {
                 "identity_key_stored": has_identity_key,
                 "signal_bootstrapped": has_signal,
                 "sync_engine_running": has_sync_engine,
-                "ws_client_connected": has_ws_client,
+                "ws_client_connected": ws_actually_connected,
+                "ws_client_started": has_ws_client,
                 "trigger_device_id": trigger_device_id,
                 "trigger_count": trigger_count,
                 "schema_version": schema_version,
