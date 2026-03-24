@@ -159,10 +159,9 @@ impl HostRouter {
         self: &Arc<Self>,
         ws: WebSocket,
         run_id: String,
-        agent_name: String,
     ) {
         self.connection_service
-            .handle_agent(ws, run_id, agent_name)
+            .handle_agent(ws, run_id)
             .await;
     }
 

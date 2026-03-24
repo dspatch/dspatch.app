@@ -212,12 +212,14 @@ impl ConnectionService {
 
     // ── WebSocket handler ──
 
-    /// Handle a new WebSocket connection for the given run/agent.
+    /// Handle a new WebSocket connection for the given run.
+    ///
+    /// The connecting router identifies itself via the Register package
+    /// during handshake — no agent_name is needed in the URL.
     pub async fn handle_agent(
         self: &Arc<Self>,
         ws: WebSocket,
         run_id: String,
-        agent_name: String,
     ) {
         let (ws_sink, mut ws_stream) = ws.split();
         let sender = Arc::new(Mutex::new(ws_sink));
@@ -226,7 +228,10 @@ impl ConnectionService {
         let mut authenticated = false;
         let mut registered = false;
         let r_id = run_id.clone();
-        let a_name = agent_name.clone();
+        // Placeholder — the container router identifies itself via the
+        // Register package, but the connection key is just "_router" since
+        // there is only one connection per run.
+        let a_name = String::from("_router");
 
         // Bounded inbound channel — provides backpressure: if the processing loop
         // falls behind, incoming messages are dropped with a warning rather than
@@ -299,7 +304,7 @@ impl ConnectionService {
         let auth_sender = Arc::clone(&sender);
         let auth_service = Arc::clone(&service);
         let auth_run_id = run_id.clone();
-        let auth_agent_name = agent_name.clone();
+        let auth_agent_name = a_name.clone();
         let auth_handle = spawn_guarded("connection_auth_timeout", async move {
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             // If this task completes, the auth timed out.

@@ -29,7 +29,7 @@ struct AppState {
 /// Embedded WebSocket server for agent-to-app communication.
 ///
 /// Serves run-scoped WebSocket connections:
-/// - `/ws/<runId>/<agentName>` -- agent-level connection
+/// - `/ws/<runId>` -- single router connection per container/run
 ///
 /// Binds to localhost on a specified or random port.
 pub struct EmbeddedAgentServer {
@@ -94,7 +94,7 @@ impl EmbeddedAgentServer {
 
         let app = Router::new()
             .route(
-                "/ws/{run_id}/{agent_name}",
+                "/ws/{run_id}",
                 axum::routing::get(ws_handler),
             )
             .layer(CorsLayer::permissive())
@@ -158,14 +158,14 @@ impl EmbeddedAgentServer {
     }
 }
 
-/// WebSocket upgrade handler for `/ws/:run_id/:agent_name`.
+/// WebSocket upgrade handler for `/ws/:run_id`.
 async fn ws_handler(
     ws: WebSocketUpgrade,
-    Path((run_id, agent_name)): Path<(String, String)>,
+    Path(run_id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let router = Arc::clone(&state.host_router);
     ws.on_upgrade(move |socket| async move {
-        router.handle_agent(socket, run_id, agent_name).await;
+        router.handle_agent(socket, run_id).await;
     })
 }
