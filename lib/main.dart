@@ -41,17 +41,21 @@ const kMinWindowHeight = 600.0;
 /// Each profile runs its own in-process engine on a unique port and uses
 /// an isolated keyring namespace — appearing as a completely new device.
 ///
-/// Profile 0 (default): normal desktop, external engine daemon on port 9847.
-/// Profile N (N>0): integrated in-process engine on port 9847+N, fully usable.
+/// Profile 0 (default): integrated engine on port 9847.
+/// Profile N (N>0): integrated engine on port 9847+N, fully usable.
+///
+/// To use an external engine daemon during development (enables hot reload
+/// without restarting the engine), pass `--dart-define=USE_EXTERNAL_DAEMON=true`.
 ///
 /// Usage:
 ///   Primary instance:  `flutter run`
 ///   Device 1:          `flutter run --dart-define=DEV_DEVICE_PROFILE=1`
 ///   Device 2:          `flutter run --dart-define=DEV_DEVICE_PROFILE=2`
+///   External daemon:   `flutter run --dart-define=USE_EXTERNAL_DAEMON=true`
 const kDevDeviceProfile = int.fromEnvironment('DEV_DEVICE_PROFILE', defaultValue: 0);
 
-/// Engine port. Profile 0 uses 9847 (external daemon). Profile N uses 9847+N
-/// (integrated engine, avoids port collision). Override with `--dart-define=ENGINE_PORT=...`.
+/// Engine port. Profile 0 uses 9847. Profile N uses 9847+N to avoid port
+/// collision. Override with `--dart-define=ENGINE_PORT=...`.
 const kEnginePort = int.fromEnvironment('ENGINE_PORT',
     defaultValue: 9847 + kDevDeviceProfile);
 
@@ -81,9 +85,12 @@ Future<void> main(List<String> args) async {
       : 'http://localhost:3000';
   debugPrint('[BOOT] backendUrl=$backendUrl');
 
-  // Start the engine in-process via FFI when running integrated
-  // (always on mobile, dev device profiles on desktop).
-  final useIntegratedEngine = kDevDeviceProfile > 0 || PlatformInfo.isMobile;
+  // Start the engine in-process via FFI for all shipped builds.
+  // The external daemon is only used during development with
+  // USE_EXTERNAL_DAEMON=true to enable hot reload without restarting
+  // the engine.
+  const useExternalDaemon = bool.fromEnvironment('USE_EXTERNAL_DAEMON');
+  final useIntegratedEngine = !useExternalDaemon;
   if (useIntegratedEngine) {
     // path_provider gives the OS-correct app data location:
     //   Windows: %APPDATA%/com.dspatch/dspatch_app/

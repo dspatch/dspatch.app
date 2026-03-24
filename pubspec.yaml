@@ -61,7 +61,10 @@ flutter:
 
 msix_config:
   display_name: "d:spatch"
-  publisher_display_name: oakisnotree
-  identity_name: com.oakisnotree.dspatch
+  publisher_display_name: "d:spatch"
+  identity_name: dspatch.dspatch
+  publisher: CN=B66821E8-62DD-4115-892D-C22FECCD333E
   msix_version: 0.1.0.0
+  logo_path: windows/runner/resources/app_icon.png
   capabilities: internetClient, internetClientServer, privateNetworkClientServer
+  store: true
