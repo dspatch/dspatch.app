@@ -61,6 +61,9 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(120);
 /// Container health check polling interval (30 seconds).
 const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
+/// Preference key for the assets directory (bundled binaries, etc.).
+const PREF_ASSETS_DIR: &str = "assets_dir";
+
 // ── TemplateMountInfo ──────────────────────────────────────────────────
 
 /// Holds resolved source / mount info for a single agent template.
@@ -384,6 +387,16 @@ impl WorkspaceBridge {
 
         let mut binds = vec![format!("{}:/workspace:rw", docker_path(workspace_dir))];
 
+        // Mount dspatch-router binary (read-only).
+        let router_binary_path = self.router_binary_path()?;
+        binds.push(format!(
+            "{}:/usr/local/bin/dspatch-router:ro",
+            docker_path(&router_binary_path)
+        ));
+        launch_logs.push(format!(
+            "[launch] Router binary: {router_binary_path} -> /usr/local/bin/dspatch-router"
+        ));
+
         // Home directory volume.
         {
             let home_volume_name = format!("dspatch-home-{workspace_id}");
@@ -408,6 +421,16 @@ impl WorkspaceBridge {
                     "[launch] Home size hint: {home_size} (advisory)"
                 ));
             }
+        }
+
+        // Persistent data volume for router WAL.
+        {
+            let data_volume_name = format!("dspatch-data-{workspace_id}");
+            let _ = self.docker_client.create_volume(&data_volume_name).await;
+            binds.push(format!("{data_volume_name}:/data"));
+            launch_logs.push(format!(
+                "[launch] Data volume: {data_volume_name} -> /data"
+            ));
         }
 
         // Mount template sources.
@@ -1388,6 +1411,29 @@ impl WorkspaceBridge {
                 Ok(())
             }
         }));
+    }
+
+    /// Returns the host path to the dspatch-router binary for the current platform.
+    ///
+    /// The binary is expected at `<assets_dir>/dspatch-router/<target>/dspatch-router`
+    /// where `<target>` is the musl target triple matching the container architecture.
+    fn router_binary_path(&self) -> Result<String> {
+        let assets_dir = self
+            .preference_dao
+            .get_preference(PREF_ASSETS_DIR)?
+            .unwrap_or_else(|| "/usr/share/dspatch".into());
+        let arch = if cfg!(target_arch = "aarch64") {
+            "aarch64-unknown-linux-musl"
+        } else {
+            "x86_64-unknown-linux-musl"
+        };
+        let path = format!("{assets_dir}/dspatch-router/{arch}/dspatch-router");
+        if !Path::new(&path).exists() {
+            return Err(crate::util::error::AppError::Validation(format!(
+                "Router binary not found at {path}"
+            )));
+        }
+        Ok(path)
     }
 
     fn load_saved_port(&self) -> Option<u16> {
