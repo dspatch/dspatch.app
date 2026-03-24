@@ -16,7 +16,7 @@ use parking_lot::Mutex as ParkingMutex;
 use axum::extract::ws::WebSocket;
 
 use crate::db::dao::WorkspaceDao;
-use crate::domain::enums::{AgentState, LogLevel, LogSource};
+use crate::domain::enums::{LogLevel, LogSource};
 use crate::domain::models::AgentLog;
 use crate::util::new_id;
 use crate::workspace_config::flat_agent::FlatAgent;
@@ -69,7 +69,7 @@ impl HostRouter {
         });
 
         let connection_service = Arc::new(ConnectionService::new(Some(Arc::clone(&inspector))));
-        let event_service = Arc::new(EventService::with_default_interval(
+        let event_service = Arc::new(EventService::new(
             Arc::clone(&workspace_dao),
         ));
         let communication_service = Arc::new(CommunicationService::new(
@@ -96,14 +96,11 @@ impl HostRouter {
     // ── Lifecycle ──
 
     pub async fn start(self: &Arc<Self>) {
-        // Wire all delegates before starting the event service to avoid
-        // a race where the router is used before wiring completes.
         self.wire_services().await;
-        self.event_service.start().await;
+        tracing::info!("HostRouter started");
     }
 
     pub async fn dispose(&self) {
-        self.event_service.dispose().await;
         // Move the JoinSet out of the Mutex so we can await it freely without
         // holding the parking_lot lock across await points.
         let mut js = std::mem::replace(
@@ -115,6 +112,7 @@ impl HostRouter {
                 tracing::error!("Host router task panicked on shutdown: {e:?}");
             }
         }
+        tracing::info!("HostRouter disposed");
     }
 
     /// Drain any completed tasks and log panics. Call this from a hot path to
@@ -186,13 +184,12 @@ impl HostRouter {
             .register_workspace_run(workspace_id, run_id);
     }
 
-    pub async fn deregister_workspace_run(&self, workspace_id: &str) {
+    pub fn deregister_workspace_run(&self, workspace_id: &str) {
         // Look up the run_id before deregistering so we can clean up
         // heartbeat_log_times (keyed by run_id).
         let run_id = self.event_service.active_run_id(workspace_id);
         self.event_service
-            .deregister_workspace_run(workspace_id)
-            .await;
+            .deregister_workspace_run(workspace_id);
         if let Some(run_id) = run_id {
             self.heartbeat_log_times
                 .lock()
@@ -268,164 +265,6 @@ impl HostRouter {
             ));
         }
 
-        // EventService.try_status_transition -> StatusService.try_transition
-        //
-        // This callback must return `JoinHandle<()>` because event.rs awaits it
-        // as a synchronization point (`try_status_transition_async` does
-        // `let _ = handle.await`).  We cannot use JoinSet::spawn here since it
-        // returns AbortHandle, not JoinHandle.  Instead we use tokio::spawn
-        // directly; if the task panics, event.rs sees the JoinError when it
-        // awaits the handle (the error is discarded with `let _`, which is
-        // pre-existing behaviour and acceptable for this callback).
-        {
-            let ss = Arc::clone(&self.status_service);
-            *self.event_service.try_status_transition.lock().await = Some(Arc::new(
-                move |workspace_id: String,
-                      agent_key: String,
-                      instance_id: String,
-                      new_status: AgentState,
-                      tag: String| {
-                    let ss = Arc::clone(&ss);
-                    tokio::spawn(async move {
-                        ss.try_transition(
-                            &workspace_id,
-                            &agent_key,
-                            &instance_id,
-                            new_status,
-                            &tag,
-                        )
-                        .await;
-                    })
-                },
-            ));
-        }
-
-        // EventService transport delegates -> ConnectionService
-        //
-        // NOTE: send_to_host and send_to_instance use spawn_task() for async
-        // operations, so they can return synchronously from the callback.
-        {
-            let conn = Arc::clone(&self.connection_service);
-            let es = Arc::clone(&self.event_service);
-            let router3 = Arc::clone(self);
-            *self.event_service.send_to_host.lock().await = Some(Arc::new(
-                move |workspace_id: &str,
-                      agent_name: &str,
-                      event: &super::packages::Package| {
-                    let conn = Arc::clone(&conn);
-                    let es_clone = Arc::clone(&es);
-                    let ws_id = workspace_id.to_string();
-                    let an = agent_name.to_string();
-                    let evt = event.clone();
-                    let router = Arc::clone(&router3);
-                    router.spawn_task(async move {
-                        let run_id = es_clone.active_run_id(&ws_id);
-                        if let Some(run_id) = run_id {
-                            conn.send_to_agent(&run_id, &an, &evt).await;
-                        }
-                    });
-                    true
-                },
-            ));
-        }
-
-        {
-            let conn = Arc::clone(&self.connection_service);
-            let es = Arc::clone(&self.event_service);
-            let router4 = Arc::clone(self);
-            *self.event_service.send_to_instance.lock().await = Some(Arc::new(
-                move |workspace_id: &str,
-                      agent_name: &str,
-                      instance_id: &str,
-                      event: &super::packages::Package| {
-                    let conn = Arc::clone(&conn);
-                    let es_clone = Arc::clone(&es);
-                    let ws_id = workspace_id.to_string();
-                    let an = agent_name.to_string();
-                    let iid = instance_id.to_string();
-                    let evt = event.clone();
-                    let router = Arc::clone(&router4);
-                    router.spawn_task(async move {
-                        let run_id = es_clone.active_run_id(&ws_id);
-                        if let Some(run_id) = run_id {
-                            // Inject instance_id into payload.
-                            if let Ok(mut json_str) = evt.to_json() {
-                                if let Ok(mut val) =
-                                    serde_json::from_str::<serde_json::Value>(&json_str)
-                                {
-                                    val["instance_id"] =
-                                        serde_json::Value::String(iid);
-                                    json_str =
-                                        serde_json::to_string(&val).unwrap_or(json_str);
-                                }
-                                conn.send_json_to_agent(&run_id, &an, &json_str).await;
-                            }
-                        }
-                    });
-                    true
-                },
-            ));
-        }
-
-        // is_host_connected: now fully sync since both active_run_id and
-        // is_connected use std::sync::RwLock — no thread spawning needed.
-        {
-            let conn = Arc::clone(&self.connection_service);
-            let es = Arc::clone(&self.event_service);
-            *self.event_service.is_host_connected.lock().await = Some(Arc::new(
-                move |workspace_id: &str, agent_name: &str| {
-                    if let Some(run_id) = es.active_run_id(workspace_id) {
-                        conn.is_connected(&run_id, agent_name)
-                    } else {
-                        false
-                    }
-                },
-            ));
-        }
-
-        {
-            let conn = Arc::clone(&self.connection_service);
-            let es = Arc::clone(&self.event_service);
-            *self.event_service.is_instance_connected.lock().await = Some(Arc::new(
-                move |workspace_id: &str, agent_name: &str, instance_id: &str| {
-                    if let Some(run_id) = es.active_run_id(workspace_id) {
-                        conn.is_instance_alive(&run_id, agent_name, instance_id)
-                    } else {
-                        false
-                    }
-                },
-            ));
-        }
-
-        {
-            let conn = Arc::clone(&self.connection_service);
-            let es = Arc::clone(&self.event_service);
-            *self.event_service.get_instance_state.lock().await = Some(Arc::new(
-                move |workspace_id: &str, agent_name: &str, instance_id: &str| {
-                    if let Some(run_id) = es.active_run_id(workspace_id) {
-                        conn.get_instance_state(&run_id, agent_name, instance_id)
-                    } else {
-                        None
-                    }
-                },
-            ));
-        }
-
-        // EventService.connected_instances -> ConnectionService.connected_instances
-        {
-            let conn = Arc::clone(&self.connection_service);
-            let es = Arc::clone(&self.event_service);
-            *self.event_service.connected_instances.lock().await = Some(Arc::new(
-                move |workspace_id: &str, agent_name: &str| {
-                    if let Some(run_id) = es.active_run_id(workspace_id) {
-                        conn.connected_instances(&run_id, agent_name)
-                    } else {
-                        vec![]
-                    }
-                },
-            ));
-        }
-
         // ConnectionService callbacks -> EventService, StatusService
         {
             let es = Arc::clone(&self.event_service);
@@ -458,7 +297,7 @@ impl HostRouter {
                         let workspace_id = es.workspace_id_for_run(&run_id);
                         if let Some(ref ws_id) = workspace_id {
                             ss.handle_agent_connected(ws_id, &agent_name).await;
-                            es.mark_pending_auto_start(ws_id, &agent_name).await;
+                            // mark_pending_auto_start removed — router handles auto-start.
                         }
                     });
                 },
@@ -476,7 +315,8 @@ impl HostRouter {
                         let workspace_id = es.workspace_id_for_run(&run_id);
                         if let Some(ref ws_id) = workspace_id {
                             ss.handle_agent_disconnected(ws_id, &agent_name).await;
-                            es.on_agent_disconnected(ws_id, &agent_name).await;
+                            // on_agent_disconnected removed from EventService —
+                            // router handles chain cleanup now.
                         }
                     });
                 },
@@ -534,9 +374,9 @@ impl HostRouter {
                         }
 
                         let workspace_id = es.workspace_id_for_run(&r_id);
-                        if let Some(ref ws_id) = workspace_id {
+                        if let Some(ref _ws_id) = workspace_id {
                             router.promote_run_if_starting(&r_id).await;
-                            es.auto_start_if_needed(ws_id, &agent_name).await;
+                            // auto_start_if_needed removed — router handles auto-start.
                         }
                     });
                 },
@@ -595,8 +435,8 @@ impl HostRouter {
                                 &last_state,
                             )
                             .await;
-                            es.on_instance_gone(ws_id, &agent_name, &instance_id)
-                                .await;
+                            // on_instance_gone removed from EventService —
+                            // router handles chain cleanup now.
                         }
                     });
                 },
