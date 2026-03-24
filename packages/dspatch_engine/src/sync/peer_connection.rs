@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use futures::Stream;
 use tokio::sync::{mpsc, Mutex};
@@ -45,6 +46,9 @@ pub struct PeerConnectionManager {
     /// Wrapped in a standard Mutex Option so it can be taken exactly once,
     /// enforcing a single consumer of the incoming message stream.
     incoming_rx: std::sync::Mutex<Option<mpsc::Receiver<(String, SyncMessage)>>>,
+    /// Tracks the last time any message was received from each peer.
+    /// Used by the connection supervisor to detect stale/dead connections.
+    last_activity: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 impl PeerConnectionManager {
@@ -56,6 +60,7 @@ impl PeerConnectionManager {
             connections: Arc::new(Mutex::new(HashMap::new())),
             incoming_tx,
             incoming_rx: std::sync::Mutex::new(Some(incoming_rx)),
+            last_activity: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -242,6 +247,9 @@ impl PeerConnectionManager {
         from_device: &str,
         encrypted: &[u8],
     ) -> Result<()> {
+        // Track activity from this peer.
+        self.last_activity.lock().await.insert(from_device.to_string(), Instant::now());
+
         let plaintext = {
             let addr = libsignal_protocol::ProtocolAddress::new(from_device.to_string(), libsignal_protocol::DeviceId::new(1).expect("valid device id"));
             let mut signal = self.signal_service.lock().await;
@@ -262,12 +270,15 @@ impl PeerConnectionManager {
 
     /// Dispatches a plaintext (unencrypted) message into the incoming stream.
     ///
-    /// Used in tests to bypass Signal encryption.
+    /// Used in tests and for WebRTC data channels (DTLS-encrypted at transport level).
     pub async fn dispatch_incoming_plaintext(
         &self,
         from_device: &str,
         message: SyncMessage,
     ) -> Result<()> {
+        // Track activity from this peer.
+        self.last_activity.lock().await.insert(from_device.to_string(), Instant::now());
+
         self.incoming_tx
             .send((from_device.to_string(), message))
             .await
@@ -275,9 +286,15 @@ impl PeerConnectionManager {
         Ok(())
     }
 
+    /// Returns the last time a message was received from each peer.
+    pub async fn last_activity(&self) -> HashMap<String, Instant> {
+        self.last_activity.lock().await.clone()
+    }
+
     /// Disconnects from a specific peer.
     pub async fn disconnect(&self, device_id: &str) {
         self.connections.lock().await.remove(device_id);
+        self.last_activity.lock().await.remove(device_id);
     }
 
     /// Disconnects from all peers.

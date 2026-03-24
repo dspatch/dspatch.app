@@ -883,6 +883,33 @@ impl DspatchSdk {
         *self.sync_engine.write().await = Some(Arc::clone(&engine));
         *self.sync_cancel.write().await = Some(cancel.clone());
 
+        // Fetch known devices from backend and populate the sync_known_devices table.
+        // This enables safe per-peer outbox pruning.
+        {
+            let engine_ref = Arc::clone(&engine);
+            let api = Arc::clone(&self.api_client);
+            let cancel_devices = cancel.clone();
+            crate::util::panic_guard::spawn_guarded("sync_known_devices_refresh", async move {
+                // Initial fetch.
+                if let Err(e) = refresh_known_devices_from_backend(&engine_ref, &*api).await {
+                    tracing::warn!("Initial known-devices refresh failed: {e}");
+                }
+                // Periodic refresh every 5 minutes.
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+                interval.tick().await; // Skip first immediate tick.
+                loop {
+                    tokio::select! {
+                        _ = cancel_devices.cancelled() => break,
+                        _ = interval.tick() => {
+                            if let Err(e) = refresh_known_devices_from_backend(&engine_ref, &*api).await {
+                                tracing::warn!("Periodic known-devices refresh failed: {e}");
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         // Start engine WS client for backend real-time events (presence, signaling).
         if let Some(token) = self.backend_token.read().await.clone() {
             let backend_url = self.config.backend_url.clone()
@@ -907,6 +934,16 @@ impl DspatchSdk {
             );
             tracing::info!("P2P connector spawned — will auto-connect peers");
 
+            // Spawn connection supervisor for health monitoring and auto-reconnection.
+            let signaling_tx = ws.signaling_tx();
+            crate::sync::connection_supervisor::spawn_connection_supervisor(
+                Arc::clone(engine.peer_manager()),
+                Arc::clone(&ws),
+                signaling_tx,
+                cancel.clone(),
+            );
+            tracing::info!("Connection supervisor spawned — will monitor peer health");
+
             *self.ws_client.write().await = Some(ws);
             tracing::info!("Engine WS client started for backend events");
         } else {
@@ -919,6 +956,12 @@ impl DspatchSdk {
 
     /// Stops the sync engine and WS client.
     pub async fn stop_sync(&self) {
+        // Persist the lamport clock before shutting down.
+        if let Some(engine) = self.sync_engine.read().await.as_ref() {
+            if let Err(e) = engine.persist_lamport() {
+                tracing::warn!("Failed to persist lamport clock on shutdown: {e}");
+            }
+        }
         if let Some(cancel) = self.sync_cancel.write().await.take() {
             cancel.cancel();
         }
@@ -1101,6 +1144,38 @@ impl SecretStore for ArcSecretStoreAdapter {
     fn delete(&self, key: &str) -> Result<()> {
         self.0.delete(key)
     }
+}
+
+// ── Known-device refresh ─────────────────────────────────────────────
+
+/// Fetches the user's device list from the backend and populates the
+/// sync engine's `sync_known_devices` table.
+async fn refresh_known_devices_from_backend(
+    engine: &crate::sync::SyncEngine,
+    api: &dyn crate::domain::services::ApiClient,
+) -> crate::util::result::Result<()> {
+    let response = api.get("/api/devices", None).await?;
+    if !response.is_success() {
+        return Err(crate::util::error::AppError::Server(format!(
+            "GET /api/devices returned {}: {}",
+            response.status_code, response.raw_body,
+        )));
+    }
+    let devices: Vec<serde_json::Value> = serde_json::from_str(&response.raw_body)
+        .map_err(|e| crate::util::error::AppError::Internal(format!("Parse devices failed: {e}")))?;
+
+    let known: Vec<crate::sync::sync_engine::KnownDevice> = devices
+        .iter()
+        .map(|d| crate::sync::sync_engine::KnownDevice {
+            device_id: d["id"].as_str().unwrap_or_default().to_string(),
+            name: d["name"].as_str().map(|s| s.to_string()),
+            device_type: d["device_type"].as_str().map(|s| s.to_string()),
+            platform: d["platform"].as_str().map(|s| s.to_string()),
+        })
+        .collect();
+
+    engine.refresh_known_devices(&known)?;
+    Ok(())
 }
 
 // ── Hex decoding ──────────────────────────────────────────────────────

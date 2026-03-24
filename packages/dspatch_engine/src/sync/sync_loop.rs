@@ -17,6 +17,15 @@ use crate::util::panic_guard::spawn_guarded;
 /// Default interval between outbox flushes.
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 
+/// How often to prune fully-delivered outbox entries.
+const PRUNE_INTERVAL: Duration = Duration::from_secs(60);
+
+/// How often to garbage-collect stale (>30 day) outbox entries.
+const GC_INTERVAL: Duration = Duration::from_secs(300);
+
+/// How often to persist the in-memory Lamport clock to the database.
+const LAMPORT_PERSIST_INTERVAL: Duration = Duration::from_secs(30);
+
 /// Starts the background sync loop.
 ///
 /// Returns a `CancellationToken` that can be used to stop the loop.
@@ -36,15 +45,42 @@ pub fn start_sync_loop(
         let cancel_flush = cancel.clone();
         let cancel_incoming = cancel.clone();
 
-        // Spawn outbox flush task.
+        // Spawn outbox flush task (also handles periodic pruning and GC).
         let flush_handle = spawn_guarded("sync_outbox_flush", async move {
             let mut interval = tokio::time::interval(FLUSH_INTERVAL);
+            let mut last_prune = tokio::time::Instant::now();
+            let mut last_gc = tokio::time::Instant::now();
+            let mut last_lamport_persist = tokio::time::Instant::now();
             loop {
                 tokio::select! {
                     _ = cancel_flush.cancelled() => break,
                     _ = interval.tick() => {
                         if let Err(e) = flush_outbox(&flush_engine).await {
                             tracing::warn!("Sync outbox flush failed: {e}");
+                        }
+
+                        // Periodic pruning of fully-delivered entries.
+                        if last_prune.elapsed() >= PRUNE_INTERVAL {
+                            last_prune = tokio::time::Instant::now();
+                            if let Err(e) = flush_engine.prune_delivered_outbox() {
+                                tracing::warn!("Outbox prune failed: {e}");
+                            }
+                        }
+
+                        // Periodic GC of stale entries (>30 days).
+                        if last_gc.elapsed() >= GC_INTERVAL {
+                            last_gc = tokio::time::Instant::now();
+                            if let Err(e) = flush_engine.gc_outbox() {
+                                tracing::warn!("Outbox GC failed: {e}");
+                            }
+                        }
+
+                        // Periodic lamport clock persistence.
+                        if last_lamport_persist.elapsed() >= LAMPORT_PERSIST_INTERVAL {
+                            last_lamport_persist = tokio::time::Instant::now();
+                            if let Err(e) = flush_engine.persist_lamport() {
+                                tracing::warn!("Lamport persist failed: {e}");
+                            }
                         }
                     }
                 }
@@ -121,8 +157,8 @@ async fn handle_incoming(engine: &SyncEngine, from_device: &str, message: SyncMe
             }
         }
         SyncMessage::Ack { last_id } => {
-            if let Err(e) = engine.acknowledge_up_to(&last_id) {
-                tracing::warn!("Failed to acknowledge from {from_device}: {e}");
+            if let Err(e) = engine.handle_ack(from_device, &last_id) {
+                tracing::warn!("Failed to handle ACK from {from_device}: {e}");
             }
         }
         SyncMessage::CursorExchange(cursors) => {
@@ -238,6 +274,22 @@ async fn handle_incoming(engine: &SyncEngine, from_device: &str, message: SyncMe
                     tracing::warn!("Failed to apply delta row {table}.{row_id}: {e}");
                 }
             }
+        }
+        SyncMessage::Ping => {
+            let pong = SyncMessage::Pong;
+            if let Err(e) = engine
+                .peer_manager()
+                .send_raw(from_device, serde_json::to_vec(&pong).unwrap_or_default())
+                .await
+            {
+                tracing::warn!("Failed to send pong to {from_device}: {e}");
+            }
+        }
+        SyncMessage::Pong => {
+            // Pong is handled implicitly — the dispatch_incoming_plaintext call
+            // already updated last_activity for this peer. The connection supervisor
+            // reads last_activity to detect dead peers. Nothing else to do here.
+            tracing::trace!("Pong received from {from_device}");
         }
         SyncMessage::Command(_) | SyncMessage::CommandResult(_) => {
             // Command routing is handled separately by the command dispatcher.

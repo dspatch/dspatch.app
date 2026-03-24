@@ -29,7 +29,7 @@ use crate::util::result::Result;
 use super::schema::ALL_TABLES;
 
 /// Current schema version. Must match the Dart SDK's `schemaVersion`.
-pub const SCHEMA_VERSION: i32 = 17;
+pub const SCHEMA_VERSION: i32 = 18;
 
 /// Creates all tables from scratch (fresh database, version 0 → current).
 pub fn create_tables(conn: &Connection) -> Result<()> {
@@ -377,6 +377,10 @@ fn run_migration(conn: &Connection, from_version: i32, to_version: i32) -> Resul
                  FROM _old_workspace_run_status; \
                  DROP TABLE _old_workspace_run_status;"
             ).map_err(|e| AppError::Storage(format!("Migration v17 (migrate workspace_run_status) failed: {e}")))?;
+        }
+        17 => {
+            tx.execute_batch(super::schema::CREATE_SYNC_KNOWN_DEVICES)
+                .map_err(|e| AppError::Storage(format!("Migration v18 (sync_known_devices) failed: {e}")))?;
         }
         _ => {
             // No migration defined for this step; nothing to do.

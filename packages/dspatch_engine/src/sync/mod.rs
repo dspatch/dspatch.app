@@ -26,6 +26,7 @@ pub mod sync_loop;
 pub mod table_class;
 pub mod webrtc_transport;
 pub mod backend_client;
+pub mod connection_supervisor;
 pub mod p2p_connector;
 
 pub use message::{CommandResult, RemoteCommand, SyncChange, SyncMessage, SyncOp};

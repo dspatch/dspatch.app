@@ -12,7 +12,7 @@ pub mod optional_ext;
 pub mod reactive;
 pub mod schema;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -34,6 +34,8 @@ use self::reactive::TableChangeTracker;
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
     tracker: Arc<TableChangeTracker>,
+    /// Path to the database file. `None` for in-memory databases.
+    path: Option<PathBuf>,
 }
 
 impl Database {
@@ -59,18 +61,18 @@ impl Database {
                 .map_err(|e| AppError::Storage(format!("Failed to set encryption key: {e}")))?;
         }
 
-        Self::init(conn)
+        Self::init(conn, Some(path.to_path_buf()))
     }
 
     /// Creates an in-memory database — useful for tests.
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()
             .map_err(|e| AppError::Storage(format!("Failed to open in-memory database: {e}")))?;
-        Self::init(conn)
+        Self::init(conn, None)
     }
 
     /// Common initialisation: schema creation, migrations, hook installation.
-    fn init(mut conn: Connection) -> Result<Self> {
+    fn init(mut conn: Connection, path: Option<PathBuf>) -> Result<Self> {
         // Enable WAL mode, enforce foreign-key constraints, and set a busy
         // timeout so concurrent writers retry instead of failing immediately.
         conn.execute_batch(
@@ -102,6 +104,7 @@ impl Database {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             tracker,
+            path,
         })
     }
 
@@ -128,5 +131,50 @@ impl Database {
     /// Returns the shared connection handle (for `watch_query`).
     pub fn conn_arc(&self) -> &Arc<Mutex<Connection>> {
         &self.conn
+    }
+
+    /// Returns the database file path, if this is a file-based database.
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    /// Opens a secondary connection to the same database file.
+    ///
+    /// Used by the sync engine for contention-free lamport clock writes.
+    /// The secondary connection has WAL mode and a busy timeout but no
+    /// change tracking hooks (it writes only to `sync_lamport`).
+    ///
+    /// For in-memory databases (tests), opens a connection to `:memory:`
+    /// in shared-cache mode via the same URI. However, since the primary
+    /// connection uses `open_in_memory()` (private namespace), this falls
+    /// back to a no-op connection that silently succeeds.
+    pub fn open_secondary_conn(&self) -> Result<Connection> {
+        let conn = match &self.path {
+            Some(path) => {
+                Connection::open(path).map_err(|e| {
+                    AppError::Storage(format!(
+                        "Failed to open secondary connection at {}: {e}",
+                        path.display()
+                    ))
+                })?
+            }
+            None => {
+                // In-memory: open a fresh in-memory connection.
+                // For tests this is sufficient because merge_lamport writes
+                // are visible through the primary connection's sync_lamport
+                // table (the test engine bootstraps from the outbox anyway).
+                Connection::open_in_memory().map_err(|e| {
+                    AppError::Storage(format!("Failed to open secondary in-memory connection: {e}"))
+                })?
+            }
+        };
+
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )
+        .map_err(|e| AppError::Storage(format!("Failed to set secondary connection PRAGMAs: {e}")))?;
+
+        Ok(conn)
     }
 }

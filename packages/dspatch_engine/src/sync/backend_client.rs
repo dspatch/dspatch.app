@@ -129,6 +129,14 @@ impl BackendWsClient {
         Arc::clone(&self.signaling_rx)
     }
 
+    /// Returns a clone of the signaling event sender.
+    ///
+    /// Used by the connection supervisor to inject synthetic `DeviceOnline`
+    /// events that trigger reconnection via the P2P connector.
+    pub fn signaling_tx(&self) -> mpsc::Sender<SignalingEvent> {
+        self.signaling_tx.clone()
+    }
+
     /// Starts the reconnecting WebSocket loop in a background task.
     ///
     /// The loop will keep reconnecting with exponential backoff until the

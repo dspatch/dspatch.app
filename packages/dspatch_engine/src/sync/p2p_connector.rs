@@ -21,6 +21,17 @@ use super::sync_engine::SyncEngine;
 use super::webrtc_transport::WebRtcTransport;
 use crate::util::panic_guard::spawn_guarded;
 
+/// Default STUN servers (multiple for redundancy).
+fn default_ice_servers() -> Vec<RTCIceServer> {
+    vec![RTCIceServer {
+        urls: vec![
+            "stun:stun.l.google.com:19302".to_string(),
+            "stun:stun1.l.google.com:19302".to_string(),
+        ],
+        ..Default::default()
+    }]
+}
+
 /// Spawns the P2P connection orchestrator as a background task.
 pub fn spawn_p2p_connector(
     my_device_id: String,
@@ -119,6 +130,35 @@ pub fn spawn_p2p_connector(
     })
 }
 
+/// Spawns a trickle ICE task that reads candidates from the transport's
+/// trickle channel and sends each one immediately via signaling.
+async fn spawn_trickle_ice_task(
+    transport: &Arc<WebRtcTransport>,
+    ws: &Arc<BackendWsClient>,
+    peer_id: &str,
+    side: &str,
+) {
+    if let Some(mut rx) = transport.take_trickle_rx().await {
+        let ws = Arc::clone(ws);
+        let peer_id = peer_id.to_string();
+        let side = side.to_string();
+        spawn_guarded("p2p_trickle_ice", async move {
+            let mut count = 0u32;
+            while let Some(candidate) = rx.recv().await {
+                if let Err(e) = send_signaling(&ws, WsClientMessage::WebRtcIce {
+                    target_device_id: peer_id.clone(),
+                    encrypted_candidate: candidate,
+                }).await {
+                    tracing::warn!("Failed to trickle ICE candidate to {peer_id}: {e}");
+                } else {
+                    count += 1;
+                }
+            }
+            tracing::info!("Trickled {count} ICE candidates to {peer_id} ({side})");
+        });
+    }
+}
+
 /// Sends a signaling message through the backend WS.
 async fn send_signaling(ws: &BackendWsClient, msg: WsClientMessage) -> crate::util::result::Result<()> {
     let tx = ws.ws_sender().await.ok_or_else(|| {
@@ -139,10 +179,7 @@ async fn initiate_connection(
     peer_manager: &Arc<PeerConnectionManager>,
     sync_engine: &Arc<SyncEngine>,
 ) -> crate::util::result::Result<()> {
-    let ice_servers = vec![RTCIceServer {
-        urls: vec!["stun:stun.l.google.com:19302".to_string()],
-        ..Default::default()
-    }];
+    let ice_servers = default_ice_servers();
 
     let (transport, offer_sdp) = WebRtcTransport::create_offer(ice_servers).await?;
     let transport = Arc::new(transport);
@@ -157,23 +194,8 @@ async fn initiate_connection(
 
     tracing::info!("SDP offer sent to {peer_id}");
 
-    // Send ICE candidates after a brief gathering delay.
-    let ws_ice = Arc::clone(ws);
-    let transport_ice = Arc::clone(&transport);
-    let peer_id_ice = peer_id.to_string();
-    spawn_guarded("p2p_send_ice_candidates_offer", async move {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        let candidates = transport_ice.pending_ice_candidates().await;
-        tracing::info!("Sending {} ICE candidates to {peer_id_ice}", candidates.len());
-        for candidate in candidates {
-            if let Err(e) = send_signaling(&ws_ice, WsClientMessage::WebRtcIce {
-                target_device_id: peer_id_ice.clone(),
-                encrypted_candidate: candidate,
-            }).await {
-                tracing::warn!("Failed to send ICE candidate to {peer_id_ice}: {e}");
-            }
-        }
-    });
+    // Trickle ICE: send candidates immediately as they're gathered.
+    spawn_trickle_ice_task(&transport, ws, peer_id, "offer").await;
 
     // Wait for data channel to open and register with peer manager.
     let transport_ready = Arc::clone(&transport);
@@ -209,10 +231,7 @@ async fn accept_connection(
     peer_manager: &Arc<PeerConnectionManager>,
     sync_engine: &Arc<SyncEngine>,
 ) -> crate::util::result::Result<()> {
-    let ice_servers = vec![RTCIceServer {
-        urls: vec!["stun:stun.l.google.com:19302".to_string()],
-        ..Default::default()
-    }];
+    let ice_servers = default_ice_servers();
 
     let (transport, answer_sdp) = WebRtcTransport::create_answer(ice_servers, offer_sdp).await?;
     let transport = Arc::new(transport);
@@ -227,23 +246,8 @@ async fn accept_connection(
 
     tracing::info!("SDP answer sent to {peer_id}");
 
-    // Send ICE candidates.
-    let ws_ice = Arc::clone(ws);
-    let transport_ice = Arc::clone(&transport);
-    let peer_id_ice = peer_id.to_string();
-    spawn_guarded("p2p_send_ice_candidates_answer", async move {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        let candidates = transport_ice.pending_ice_candidates().await;
-        tracing::info!("Sending {} ICE candidates to {peer_id_ice}", candidates.len());
-        for candidate in candidates {
-            if let Err(e) = send_signaling(&ws_ice, WsClientMessage::WebRtcIce {
-                target_device_id: peer_id_ice.clone(),
-                encrypted_candidate: candidate,
-            }).await {
-                tracing::warn!("Failed to send ICE candidate to {peer_id_ice}: {e}");
-            }
-        }
-    });
+    // Trickle ICE: send candidates immediately as they're gathered.
+    spawn_trickle_ice_task(&transport, ws, peer_id, "answer").await;
 
     // Wait for data channel to open and register.
     let transport_ready = Arc::clone(&transport);
