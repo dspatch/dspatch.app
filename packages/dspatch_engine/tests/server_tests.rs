@@ -270,7 +270,7 @@ async fn status_try_transition_validates_state_machine() {
     let dao = setup_dao();
     let (workspace_id, run_id) = setup_workspace_and_run(&dao);
 
-    let event_service = Arc::new(EventService::with_default_interval(Arc::clone(&dao)));
+    let event_service = Arc::new(EventService::new(Arc::clone(&dao)));
     event_service
         .register_workspace_run(&workspace_id, &run_id);
 
@@ -324,7 +324,7 @@ async fn status_handle_instance_state_changed() {
     let dao = setup_dao();
     let (workspace_id, run_id) = setup_workspace_and_run(&dao);
 
-    let event_service = Arc::new(EventService::with_default_interval(Arc::clone(&dao)));
+    let event_service = Arc::new(EventService::new(Arc::clone(&dao)));
     event_service
         .register_workspace_run(&workspace_id, &run_id);
 
@@ -369,7 +369,7 @@ async fn status_handle_instance_gone_marks_disconnected() {
     let dao = setup_dao();
     let (workspace_id, run_id) = setup_workspace_and_run(&dao);
 
-    let event_service = Arc::new(EventService::with_default_interval(Arc::clone(&dao)));
+    let event_service = Arc::new(EventService::new(Arc::clone(&dao)));
     event_service
         .register_workspace_run(&workspace_id, &run_id);
 
@@ -406,23 +406,9 @@ async fn status_handle_instance_gone_marks_disconnected() {
 // ═══════════════════════════════════════════════════════════════════════
 
 #[tokio::test]
-async fn event_service_cycle_detection() {
-    // Direct cycle: A -> B -> A
-    let chain = vec!["A".to_string(), "B".to_string()];
-    let result = EventService::detect_cycle("A", "B", &chain);
-    assert!(result.is_some(), "Should detect cycle A -> B -> A");
-    assert!(result.unwrap().contains("Cyclic"));
-
-    // No cycle: A -> B -> C
-    let chain2 = vec!["A".to_string()];
-    let result2 = EventService::detect_cycle("C", "B", &chain2);
-    assert!(result2.is_none(), "Should not detect cycle for A -> B -> C");
-}
-
-#[tokio::test]
 async fn event_service_run_tracking() {
     let dao = setup_dao();
-    let event_service = EventService::with_default_interval(dao);
+    let event_service = EventService::new(dao);
 
     event_service
         .register_workspace_run("ws-1", "run-1");
@@ -475,7 +461,7 @@ async fn connection_heartbeat_detects_state_changes() {
     instances.insert("i1".to_string(), "idle".to_string());
     instances.insert("i2".to_string(), "generating".to_string());
 
-    service.process_heartbeat("run-1", "agent-1", &instances).await;
+    service.process_heartbeat("run-1", &instances).await;
     assert_eq!(change_count.load(Ordering::SeqCst), 2, "Two new instances");
     assert_eq!(gone_count.load(Ordering::SeqCst), 0);
 
@@ -484,7 +470,7 @@ async fn connection_heartbeat_detects_state_changes() {
     instances2.insert("i1".to_string(), "generating".to_string());
     instances2.insert("i3".to_string(), "idle".to_string());
 
-    service.process_heartbeat("run-1", "agent-1", &instances2).await;
+    service.process_heartbeat("run-1", &instances2).await;
     assert_eq!(
         change_count.load(Ordering::SeqCst),
         4,
@@ -510,19 +496,19 @@ async fn connection_state_report_updates_state() {
 
     // Process state report.
     service
-        .process_state_report("run-1", "agent-1", "i1", "idle")
+        .process_state_report("run-1", "i1", "idle")
         .await;
     assert_eq!(change_count.load(Ordering::SeqCst), 1);
 
     // Same state should be a no-op.
     service
-        .process_state_report("run-1", "agent-1", "i1", "idle")
+        .process_state_report("run-1", "i1", "idle")
         .await;
     assert_eq!(change_count.load(Ordering::SeqCst), 1, "No change for same state");
 
     // Different state should fire callback.
     service
-        .process_state_report("run-1", "agent-1", "i1", "generating")
+        .process_state_report("run-1", "i1", "generating")
         .await;
     assert_eq!(change_count.load(Ordering::SeqCst), 2);
 }

@@ -57,7 +57,7 @@ async fn start_engine_on_port(
     let shutdown_rx = runtime.subscribe_shutdown();
 
     tokio::spawn(async move {
-        if let Err(e) = start_client_api(api_runtime, shutdown_rx).await {
+        if let Err(e) = start_client_api(api_runtime, shutdown_rx, None).await {
             eprintln!("client API error: {e}");
         }
     });
