@@ -153,13 +153,13 @@ impl HostRouter {
 
     // ── WebSocket handler ──
 
-    pub async fn handle_agent(
+    pub async fn handle_connection(
         self: &Arc<Self>,
         ws: WebSocket,
         run_id: String,
     ) {
         self.connection_service
-            .handle_agent(ws, run_id)
+            .handle_connection(ws, run_id)
             .await;
     }
 
@@ -226,15 +226,26 @@ impl HostRouter {
     // ── Internal wiring ──
 
     async fn wire_services(self: &Arc<Self>) {
-        // EventService.on_output_packet -> CommunicationService
+        // EventService.on_output_packet -> CommunicationService + ack
         {
             let comm = Arc::clone(&self.communication_service);
+            let conn = Arc::clone(&self.connection_service);
+            let router_ack = Arc::clone(self);
             *self.event_service.on_output_packet.lock().await = Some(Arc::new(
                 move |workspace_id: String,
                       agent_key: String,
                       run_id: String,
-                      event: super::packages::Package| {
+                      event: super::packages::Package,
+                      wal_seq: Option<u64>| {
                     comm.handle_output_packet(&workspace_id, &agent_key, &run_id, &event);
+                    // After persistence, send ack back to the router if _wal_seq was present.
+                    if let Some(seq) = wal_seq {
+                        let conn = Arc::clone(&conn);
+                        let run_id = run_id.clone();
+                        router_ack.spawn_task(async move {
+                            conn.send_ack(&run_id, seq).await;
+                        });
+                    }
                 },
             ));
         }
@@ -272,14 +283,15 @@ impl HostRouter {
             *self.connection_service.on_event_received.lock().await = Some(Arc::new(
                 move |run_id: String,
                       agent_name: String,
-                      event: super::packages::Package| {
+                      event: super::packages::Package,
+                      wal_seq: Option<u64>| {
                     let es = Arc::clone(&es);
                     let r_id = run_id.clone();
                     let router = Arc::clone(&router5);
                     router.spawn_task(async move {
                         let workspace_id = es.workspace_id_for_run(&r_id);
                         if let Some(workspace_id) = workspace_id {
-                            es.handle_event(&workspace_id, &agent_name, event).await;
+                            es.handle_event(&workspace_id, &agent_name, event, wal_seq).await;
                         }
                     });
                 },

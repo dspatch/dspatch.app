@@ -716,7 +716,7 @@ impl WorkspaceBridge {
                         });
                         let _ = router
                             .connection_service
-                            .send_to_agent(run_id, agent, &pkg)
+                            .send_package_to_run(run_id, &pkg)
                             .await;
                     } else {
                         for instance_id in &instances {
@@ -725,7 +725,7 @@ impl WorkspaceBridge {
                             });
                             let _ = router
                                 .connection_service
-                                .send_to_agent(run_id, agent, &pkg)
+                                .send_package_to_run(run_id, &pkg)
                                 .await;
                         }
                     }
@@ -794,7 +794,7 @@ impl WorkspaceBridge {
                         });
                         let _ = router
                             .connection_service
-                            .send_to_agent(run_id, agent, &pkg)
+                            .send_package_to_run(run_id, &pkg)
                             .await;
                     }
                 }
@@ -1327,7 +1327,7 @@ impl WorkspaceBridge {
 
                 let agent_key = agent.agent_key;
 
-                if !conn.is_connected(run_id, &agent_key) {
+                if !conn.is_run_connected(run_id) {
                     return Err(format!("Agent {} is not connected", agent_key));
                 }
 
@@ -1339,11 +1339,10 @@ impl WorkspaceBridge {
                 let json_str = pkg.to_json().map_err(|e| format!("Serialize failed: {e}"))?;
                 let conn = Arc::clone(&conn);
                 let run_id = run_id.to_string();
-                let agent_key_clone = agent_key.clone();
                 let instance_id_owned = instance_id.to_string();
 
                 tokio::spawn(async move {
-                    conn.send_json_to_agent(&run_id, &agent_key_clone, &json_str)
+                    conn.send_to_run(&run_id, &json_str)
                         .await;
                 });
 
@@ -1369,7 +1368,7 @@ impl WorkspaceBridge {
 
                 let agent_key = agent.agent_key;
 
-                if !conn.is_connected(run_id, &agent_key) {
+                if !conn.is_run_connected(run_id) {
                     return Err(format!("Agent {} is not connected", agent_key));
                 }
 
@@ -1380,10 +1379,9 @@ impl WorkspaceBridge {
                 let json_str = pkg.to_json().map_err(|e| format!("Serialize failed: {e}"))?;
                 let conn = Arc::clone(&conn);
                 let run_id = run_id.to_string();
-                let agent_key_clone = agent_key.clone();
 
                 tokio::spawn(async move {
-                    conn.send_json_to_agent(&run_id, &agent_key_clone, &json_str)
+                    conn.send_to_run(&run_id, &json_str)
                         .await;
                 });
 

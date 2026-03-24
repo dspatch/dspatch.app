@@ -26,7 +26,7 @@ use super::packages::*;
 // ── Callback types ──────────────────────────────────────────────────
 
 pub type OnOutputPacketFn =
-    Arc<dyn Fn(String, String, String, Package) + Send + Sync>;
+    Arc<dyn Fn(String, String, String, Package, Option<u64>) + Send + Sync>;
 
 pub type OnTurnCompletedFn =
     Arc<dyn Fn(String, String, String, String, String) + Send + Sync>;
@@ -127,26 +127,27 @@ impl EventService {
         workspace_id: &str,
         agent_key: &str,
         event: Package,
+        wal_seq: Option<u64>,
     ) {
         match event {
             // Output packages → persist to DB via on_output_packet delegate
             Package::Message(ref _pkg) => {
-                self.handle_output(workspace_id, agent_key, &event).await;
+                self.handle_output(workspace_id, agent_key, &event, wal_seq).await;
             }
             Package::PromptReceived(ref _pkg) => {
-                self.handle_output(workspace_id, agent_key, &event).await;
+                self.handle_output(workspace_id, agent_key, &event, wal_seq).await;
             }
             Package::Activity(ref _pkg) => {
-                self.handle_output(workspace_id, agent_key, &event).await;
+                self.handle_output(workspace_id, agent_key, &event, wal_seq).await;
             }
             Package::Log(ref _pkg) => {
-                self.handle_output(workspace_id, agent_key, &event).await;
+                self.handle_output(workspace_id, agent_key, &event, wal_seq).await;
             }
             Package::Usage(ref _pkg) => {
-                self.handle_output(workspace_id, agent_key, &event).await;
+                self.handle_output(workspace_id, agent_key, &event, wal_seq).await;
             }
             Package::Files(ref _pkg) => {
-                self.handle_output(workspace_id, agent_key, &event).await;
+                self.handle_output(workspace_id, agent_key, &event, wal_seq).await;
             }
             // StateReport and Heartbeat are handled by ConnectionService/StatusService
             // via their own callbacks — nothing to do here.
@@ -175,6 +176,7 @@ impl EventService {
         workspace_id: &str,
         agent_key: &str,
         event: &Package,
+        wal_seq: Option<u64>,
     ) {
         let run_id = {
             let ids = self.active_run_ids.read().unwrap_or_else(|e| e.into_inner());
@@ -191,6 +193,7 @@ impl EventService {
                 agent_key.to_string(),
                 run_id,
                 event.clone(),
+                wal_seq,
             );
         }
     }

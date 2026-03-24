@@ -31,7 +31,7 @@ pub type InstanceGoneFn = Arc<
 
 pub type AgentConnectedFn = Arc<dyn Fn(String, String) + Send + Sync>;
 pub type AgentDisconnectedFn = Arc<dyn Fn(String, String) + Send + Sync>;
-pub type EventReceivedFn = Arc<dyn Fn(String, String, Package) + Send + Sync>;
+pub type EventReceivedFn = Arc<dyn Fn(String, String, Package, Option<u64>) + Send + Sync>;
 pub type HeartbeatReceivedFn =
     Arc<dyn Fn(String, String, HashMap<String, String>) + Send + Sync>;
 
@@ -212,7 +212,7 @@ impl ConnectionService {
     ///
     /// The connecting router identifies itself via the Register package
     /// during handshake — no agent_name is needed in the URL.
-    pub async fn handle_agent(
+    pub async fn handle_connection(
         self: &Arc<Self>,
         ws: WebSocket,
         run_id: String,
@@ -329,6 +329,10 @@ impl ConnectionService {
                 }
             };
 
+            // Extract _wal_seq from raw JSON before it's lost in deserialization.
+            // The router includes this field for the engine to echo back in acks.
+            let wal_seq = extract_wal_seq(&raw);
+
             if let Some(ref inspector) = service.inspector {
                 inspector.log_inbound(&r_id, &raw);
             }
@@ -443,7 +447,7 @@ impl ConnectionService {
                     // Also forward register event to EventService.
                     let cb = service.on_event_received.lock().await;
                     if let Some(ref cb) = *cb {
-                        cb(r_id.clone(), a_name.clone(), parsed);
+                        cb(r_id.clone(), a_name.clone(), parsed, None);
                     }
                 } else {
                     tracing::warn!(
@@ -452,7 +456,7 @@ impl ConnectionService {
                     );
                     let cb = service.on_event_received.lock().await;
                     if let Some(ref cb) = *cb {
-                        cb(r_id.clone(), a_name.clone(), parsed);
+                        cb(r_id.clone(), a_name.clone(), parsed, None);
                     }
                 }
                 continue;
@@ -493,7 +497,7 @@ impl ConnectionService {
                     }
                     let cb = service.on_event_received.lock().await;
                     if let Some(ref cb) = *cb {
-                        cb(r_id.clone(), a_name.clone(), other);
+                        cb(r_id.clone(), a_name.clone(), other, wal_seq);
                     }
                 }
             }
@@ -622,10 +626,9 @@ impl ConnectionService {
     }
 
     /// Send a Package to the run's connection. Returns false if not connected or send fails.
-    pub async fn send_to_agent(
+    pub async fn send_package_to_run(
         &self,
         run_id: &str,
-        _agent_name: &str,
         event: &Package,
     ) -> bool {
         let json = match event.to_json() {
@@ -633,19 +636,6 @@ impl ConnectionService {
             Err(_) => return false,
         };
         self.send_to_run(run_id, &json).await
-    }
-
-    /// Send a raw JSON string to the run's connection.
-    ///
-    /// Backwards-compatible shim — `agent_name` is ignored since there is
-    /// only one connection per run.
-    pub async fn send_json_to_agent(
-        &self,
-        run_id: &str,
-        _agent_name: &str,
-        json: &str,
-    ) -> bool {
-        self.send_to_run(run_id, json).await
     }
 
     /// Send an ack for a given sequence number.
@@ -690,11 +680,6 @@ impl ConnectionService {
     pub fn is_run_connected(&self, run_id: &str) -> bool {
         let conns = self.connections.read().unwrap_or_else(|e| e.into_inner());
         conns.contains_key(run_id)
-    }
-
-    /// Backwards-compatible shim — `agent_name` is ignored.
-    pub fn is_connected(&self, run_id: &str, _agent_name: &str) -> bool {
-        self.is_run_connected(run_id)
     }
 
     /// Whether a specific instance is still alive on the given run.
@@ -761,4 +746,19 @@ impl ConnectionService {
         let conns = self.connections.read().unwrap_or_else(|e| e.into_inner());
         conns.len()
     }
+}
+
+/// Extract `_wal_seq` from a raw JSON string without full deserialization.
+///
+/// The container router includes `_wal_seq` on outbound packages so the engine
+/// can echo it back in `connection.ack` after persistence. This field is not
+/// part of the Package struct — serde ignores it during deserialization.
+fn extract_wal_seq(raw: &str) -> Option<u64> {
+    // Fast path: avoid full JSON parse by checking for the key first.
+    if !raw.contains("\"_wal_seq\"") {
+        return None;
+    }
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|v| v.get("_wal_seq").and_then(|s| s.as_u64()))
 }

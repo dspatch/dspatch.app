@@ -166,6 +166,6 @@ async fn ws_handler(
 ) -> impl IntoResponse {
     let router = Arc::clone(&state.host_router);
     ws.on_upgrade(move |socket| async move {
-        router.handle_agent(socket, run_id).await;
+        router.handle_connection(socket, run_id).await;
     })
 }
