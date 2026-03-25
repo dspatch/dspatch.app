@@ -24,7 +24,7 @@ use crate::crypto::aes_gcm::AesGcmCrypto;
 use crate::db::dao::{PreferenceDao, WorkspaceDao};
 use crate::docker::{
     CreateContainerRequest, DeviceRequest, DockerClient, HostConfig, PortBinding,
-    DSPATCH_CONTAINER_LABEL, RUNTIME_IMAGE_TAG,
+    runtime_image_tag, DSPATCH_CONTAINER_LABEL,
 };
 use crate::domain::enums::{AgentState, LogLevel, LogSource, SourceType};
 use crate::domain::models::{AgentLog, WorkspaceRun};
@@ -63,6 +63,9 @@ const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Preference key for the assets directory (bundled binaries, etc.).
 const PREF_ASSETS_DIR: &str = "assets_dir";
+
+/// Preference key for the router version used in runtime image builds.
+const PREF_ROUTER_VERSION: &str = "router_version";
 
 // ── TemplateMountInfo ──────────────────────────────────────────────────
 
@@ -147,9 +150,13 @@ impl WorkspaceBridge {
             .map_err(|e| AppError::Validation(format!("Invalid workspace config: {e}")))?;
 
         // 3. Validate Docker readiness.
+        let router_version = self
+            .preference_dao
+            .get_preference(PREF_ROUTER_VERSION)?
+            .unwrap_or_else(|| "main".to_string());
         let docker_status = self
             .docker_service
-            .detect_status()
+            .detect_status(&router_version)
             .await?;
 
         if !docker_status.is_running {
@@ -277,6 +284,7 @@ impl WorkspaceBridge {
                 &template_fields,
                 &docker_status,
                 server_port,
+                &router_version,
                 &mut launch_logs,
             )
             .await;
@@ -348,6 +356,7 @@ impl WorkspaceBridge {
         template_fields: &HashMap<String, HashMap<String, String>>,
         docker_status: &crate::domain::models::DockerStatus,
         server_port: u16,
+        router_version: &str,
         launch_logs: &mut Vec<String>,
     ) -> Result<String> {
         // Container env vars.
@@ -644,7 +653,7 @@ impl WorkspaceBridge {
 
         let short_id = &workspace_id[..8.min(workspace_id.len())];
         let container_config = CreateContainerRequest {
-            image: RUNTIME_IMAGE_TAG.to_string(),
+            image: runtime_image_tag(&router_version),
             entrypoint: Some(vec!["/entrypoint.sh".to_string()]),
             env: container_env,
             exposed_ports,

@@ -12,7 +12,7 @@ use crate::client_api::commands::Command;
 use crate::client_api::ephemeral::EphemeralEventEmitter;
 use crate::domain::models::CreateWorkspaceRequest;
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
-use crate::docker::{DSPATCH_CONTAINER_LABEL, RUNTIME_IMAGE_TAG};
+use crate::docker::{runtime_image_tag, DSPATCH_CONTAINER_LABEL};
 use crate::engine::service_registry::ServiceRegistry;
 use crate::hub::HubApiClient;
 use crate::util::error::AppError;
@@ -251,7 +251,12 @@ pub async fn dispatch_command(
 
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::DetectDockerStatus => {
-            let status = services.docker_service().detect_status().await?;
+            let version = services
+                .preferences()
+                .get_preference("router_version")
+                .await?
+                .unwrap_or_else(|| "main".to_string());
+            let status = services.docker_service().detect_status(&version).await?;
             Ok(serde_json::to_value(&status)
                 .map_err(|e| AppError::Internal(format!("serialization: {e}")))?)
         }
@@ -357,7 +362,13 @@ pub async fn dispatch_command(
 
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::BuildRuntimeImage => {
-            let stream = services.docker_service().build_runtime_image();
+            let version = services
+                .preferences()
+                .get_preference("router_version")
+                .await?
+                .unwrap_or_else(|| "main".to_string());
+            let stream = services.docker_service().build_runtime_image(&version);
+            let tag = runtime_image_tag(&version);
             let docker_client = services.docker().clone();
             let emitter = ephemeral.clone_sender();
             tokio::spawn(async move {
@@ -369,7 +380,7 @@ pub async fn dispatch_command(
                 }
                 // Verify the image actually exists after the stream ends.
                 let image_exists = docker_client
-                    .list_images(Some(RUNTIME_IMAGE_TAG))
+                    .list_images(Some(&tag))
                     .await
                     .map(|imgs| !imgs.is_empty())
                     .unwrap_or(false);
@@ -389,11 +400,15 @@ pub async fn dispatch_command(
 
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Command::DeleteRuntimeImage => {
+            let version = services
+                .preferences()
+                .get_preference("router_version")
+                .await?
+                .unwrap_or_else(|| "main".to_string());
             services
-                .docker()
-                .remove_image(RUNTIME_IMAGE_TAG, true)
-                .await
-                .map_err(|e| AppError::Docker(e.to_string()))?;
+                .docker_service()
+                .delete_runtime_image(&version)
+                .await?;
             Ok(serde_json::Value::Null)
         }
 

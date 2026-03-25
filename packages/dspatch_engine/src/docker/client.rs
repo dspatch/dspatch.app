@@ -277,15 +277,26 @@ impl DockerClient {
     /// Builds a Docker image from a pre-assembled build context directory.
     ///
     /// Unlike [`build_image`], this does NOT create or clean up the context dir.
+    /// Each `(key, value)` pair in `build_args` is passed as `--build-arg KEY=VALUE`.
     pub fn build_image_from_context<'a>(
         &'a self,
         context_dir: &'a str,
         tag: &'a str,
+        build_args: &'a [(&'a str, &'a str)],
     ) -> impl Stream<Item = Result<String, DockerCliException>> + 'a {
         stream! {
-            let mut child = self.cli.start(&[
-                "build", "-t", tag, "--no-cache", "--rm", "--force-rm", "--progress=plain", context_dir,
-            ]).await
+            let mut args = vec![
+                "build".to_string(), "-t".to_string(), tag.to_string(),
+                "--no-cache".to_string(), "--rm".to_string(), "--force-rm".to_string(),
+                "--progress=plain".to_string(),
+            ];
+            for (key, value) in build_args {
+                args.push("--build-arg".to_string());
+                args.push(format!("{key}={value}"));
+            }
+            args.push(context_dir.to_string());
+            let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+            let mut child = self.cli.start(&args_refs).await
             .map_err(|e| DockerCliException::new(format!("Failed to start build: {e}"), -1))?;
 
             let stdout = child.stdout.take();

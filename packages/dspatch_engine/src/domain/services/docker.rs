@@ -41,13 +41,16 @@ pub struct ContainerSummary {
 #[async_trait]
 pub trait DockerService: Send + Sync {
     /// Detects Docker daemon status: reachable, Sysbox available, runtime image exists.
-    async fn detect_status(&self) -> Result<DockerStatus>;
+    async fn detect_status(&self, router_version: &str) -> Result<DockerStatus>;
 
     /// Builds the d:spatch runtime image. Returns a stream of build log lines.
-    fn build_runtime_image(&self) -> LogStream<String>;
+    fn build_runtime_image(&self, router_version: &str) -> LogStream<String>;
 
     /// Deletes the d:spatch runtime image.
-    async fn delete_runtime_image(&self) -> Result<()>;
+    async fn delete_runtime_image(&self, router_version: &str) -> Result<()>;
+
+    /// Checks whether the runtime image for the given router version exists.
+    async fn image_exists(&self, router_version: &str) -> Result<bool>;
 
     /// Lists all d:spatch-managed containers.
     async fn list_containers(&self) -> Result<Vec<ContainerSummary>>;

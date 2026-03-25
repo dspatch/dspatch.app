@@ -5,8 +5,18 @@
 //! The Dockerfile and entrypoint.sh are embedded in the binary at compile
 //! time via `include_str!`, so no external assets directory is needed.
 
-/// Tag for the d:spatch agent runtime Docker image.
-pub const RUNTIME_IMAGE_TAG: &str = "dspatch/runtime:latest";
+/// Compute the Docker image tag for the runtime image.
+///
+/// Tagged versions (e.g., "v0.1.0") produce stable tags: `dspatch-runtime:v0.1.0`
+/// The "main" branch produces date-stamped tags: `dspatch-runtime:main-20260325`
+pub fn runtime_image_tag(router_version: &str) -> String {
+    if router_version == "main" {
+        let today = chrono::Utc::now().format("%Y%m%d");
+        format!("dspatch-runtime:main-{today}")
+    } else {
+        format!("dspatch-runtime:{router_version}")
+    }
+}
 
 /// Label applied to all d:spatch-managed containers.
 pub const DSPATCH_CONTAINER_LABEL: &str = "com.dspatch.managed";

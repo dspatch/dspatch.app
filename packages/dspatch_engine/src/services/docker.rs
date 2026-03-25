@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 
 use crate::docker::{
-    assemble_build_context, DockerClient, DSPATCH_CONTAINER_LABEL, RUNTIME_IMAGE_TAG,
+    assemble_build_context, runtime_image_tag, DockerClient, DSPATCH_CONTAINER_LABEL,
 };
 use crate::domain::models::DockerStatus;
 use std::pin::Pin;
@@ -37,7 +37,8 @@ impl LocalDockerService {
     // ── Status detection ──
 
     /// Detects Docker daemon status: reachable, Sysbox available, runtime image exists.
-    pub async fn detect_status(&self) -> Result<DockerStatus> {
+    pub async fn detect_status(&self, router_version: &str) -> Result<DockerStatus> {
+        let tag = runtime_image_tag(router_version);
         // 1. Ping — is the daemon reachable?
         if let Err(e) = self.client.ping().await {
             tracing::warn!("Docker daemon not reachable: {e}");
@@ -80,7 +81,7 @@ impl LocalDockerService {
 
         // 4. Images — check if runtime image exists
         let (has_runtime_image, runtime_image_size) =
-            match self.client.list_images(Some(RUNTIME_IMAGE_TAG)).await {
+            match self.client.list_images(Some(&tag)).await {
                 Ok(images) => {
                     if let Some(img) = images.first() {
                         (true, Some(format_bytes(img.size as u64)))
@@ -116,7 +117,9 @@ impl LocalDockerService {
     /// The returned stream performs all work lazily — no `tokio::spawn` is used
     /// internally, so the caller must drive this stream from within a Tokio
     /// runtime context (e.g. via `forward_stream`).
-    pub fn build_runtime_image(&self) -> Pin<Box<dyn futures::Stream<Item = String> + Send>> {
+    pub fn build_runtime_image(&self, router_version: &str) -> Pin<Box<dyn futures::Stream<Item = String> + Send>> {
+        let tag = runtime_image_tag(router_version);
+        let version_owned = router_version.to_string();
         let stream = async_stream::stream! {
             let (context_dir, _temp_dir) = match assemble_build_context().await {
                 Ok(result) => {
@@ -132,8 +135,9 @@ impl LocalDockerService {
 
             // Create a fresh DockerClient for the build task.
             let client = DockerClient::for_platform();
+            let build_args = [("ROUTER_VERSION", version_owned.as_str())];
             let build_stream =
-                client.build_image_from_context(&context_dir, RUNTIME_IMAGE_TAG);
+                client.build_image_from_context(&context_dir, &tag, &build_args);
             futures::pin_mut!(build_stream);
             while let Some(result) = build_stream.next().await {
                 match result {
@@ -153,9 +157,22 @@ impl LocalDockerService {
     }
 
     /// Deletes the d:spatch runtime image.
-    pub async fn delete_runtime_image(&self) -> Result<()> {
-        self.guard(self.client.remove_image(RUNTIME_IMAGE_TAG, true))
+    pub async fn delete_runtime_image(&self, router_version: &str) -> Result<()> {
+        let tag = runtime_image_tag(router_version);
+        self.guard(self.client.remove_image(&tag, true))
             .await
+    }
+
+    /// Checks whether the runtime image for the given router version exists.
+    pub async fn image_exists(&self, router_version: &str) -> Result<bool> {
+        let tag = runtime_image_tag(router_version);
+        match self.client.list_images(Some(&tag)).await {
+            Ok(images) => Ok(!images.is_empty()),
+            Err(e) => {
+                tracing::warn!("Failed to check image existence: {e}");
+                Ok(false)
+            }
+        }
     }
 
     // ── Container management ──
@@ -234,16 +251,20 @@ impl LocalDockerService {
 
 #[async_trait]
 impl DockerService for LocalDockerService {
-    async fn detect_status(&self) -> Result<DockerStatus> {
-        self.detect_status().await
+    async fn detect_status(&self, router_version: &str) -> Result<DockerStatus> {
+        self.detect_status(router_version).await
     }
 
-    fn build_runtime_image(&self) -> Pin<Box<dyn futures::Stream<Item = String> + Send>> {
-        self.build_runtime_image()
+    fn build_runtime_image(&self, router_version: &str) -> Pin<Box<dyn futures::Stream<Item = String> + Send>> {
+        self.build_runtime_image(router_version)
     }
 
-    async fn delete_runtime_image(&self) -> Result<()> {
-        self.delete_runtime_image().await
+    async fn delete_runtime_image(&self, router_version: &str) -> Result<()> {
+        self.delete_runtime_image(router_version).await
+    }
+
+    async fn image_exists(&self, router_version: &str) -> Result<bool> {
+        self.image_exists(router_version).await
     }
 
     async fn list_containers(&self) -> Result<Vec<ContainerSummary>> {
