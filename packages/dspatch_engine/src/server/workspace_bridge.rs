@@ -61,9 +61,6 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(120);
 /// Container health check polling interval (30 seconds).
 const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Preference key for the assets directory (bundled binaries, etc.).
-const PREF_ASSETS_DIR: &str = "assets_dir";
-
 /// Preference key for the router version used in runtime image builds.
 const PREF_ROUTER_VERSION: &str = "router_version";
 
@@ -164,11 +161,29 @@ impl WorkspaceBridge {
                 "Docker is not running. Start Docker Desktop and try again.".into(),
             ));
         }
+
+        let mut launch_logs: Vec<String> = Vec::new();
+
         if !docker_status.has_runtime_image {
-            return Err(AppError::Validation(
-                "Runtime image not built. Build it from the Engine tab.".into(),
-            ));
+            tracing::info!("Runtime image not found, building for router version: {}", router_version);
+            let mut stream = self.docker_service.build_runtime_image(&router_version);
+            let mut last_lines: Vec<String> = Vec::new();
+            while let Some(line) = stream.next().await {
+                tracing::info!("[docker build] {}", line);
+                launch_logs.push(line.clone());
+                last_lines.push(line);
+                if last_lines.len() > 50 { last_lines.remove(0); }
+            }
+            // Verify the image was actually created
+            if !self.docker_service.image_exists(&router_version).await? {
+                let log_tail = last_lines.join("\n");
+                return Err(AppError::Validation(format!(
+                    "Failed to build runtime image for router version '{}'. Last output:\n{}",
+                    router_version, log_tail
+                )));
+            }
         }
+
         if config.docker.gpu && !docker_status.has_nvidia_runtime {
             return Err(AppError::Validation(
                 "GPU passthrough requires the NVIDIA Container Toolkit. \
@@ -256,7 +271,6 @@ impl WorkspaceBridge {
             server.register_run(&run_id, &api_key).await;
         }
 
-        let mut launch_logs: Vec<String> = Vec::new();
         launch_logs.push("[launch] ════════════════════════════════════════".into());
         launch_logs.push("[launch] Workspace Launch Started".into());
         launch_logs.push("[launch] ════════════════════════════════════════".into());
@@ -395,16 +409,6 @@ impl WorkspaceBridge {
             .unwrap_or(project_path);
 
         let mut binds = vec![format!("{}:/workspace:rw", docker_path(workspace_dir))];
-
-        // Mount dspatch-router binary (read-only).
-        let router_binary_path = self.router_binary_path()?;
-        binds.push(format!(
-            "{}:/usr/local/bin/dspatch-router:ro",
-            docker_path(&router_binary_path)
-        ));
-        launch_logs.push(format!(
-            "[launch] Router binary: {router_binary_path} -> /usr/local/bin/dspatch-router"
-        ));
 
         // Home directory volume.
         {
@@ -1428,29 +1432,6 @@ impl WorkspaceBridge {
                 Ok(())
             }
         }));
-    }
-
-    /// Returns the host path to the dspatch-router binary for the current platform.
-    ///
-    /// The binary is expected at `<assets_dir>/dspatch-router/<target>/dspatch-router`
-    /// where `<target>` is the musl target triple matching the container architecture.
-    fn router_binary_path(&self) -> Result<String> {
-        let assets_dir = self
-            .preference_dao
-            .get_preference(PREF_ASSETS_DIR)?
-            .unwrap_or_else(|| "/usr/share/dspatch".into());
-        let arch = if cfg!(target_arch = "aarch64") {
-            "aarch64-unknown-linux-musl"
-        } else {
-            "x86_64-unknown-linux-musl"
-        };
-        let path = format!("{assets_dir}/dspatch-router/{arch}/dspatch-router");
-        if !Path::new(&path).exists() {
-            return Err(crate::util::error::AppError::Validation(format!(
-                "Router binary not found at {path}"
-            )));
-        }
-        Ok(path)
     }
 
     fn load_saved_port(&self) -> Option<u16> {
