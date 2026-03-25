@@ -19,6 +19,10 @@ use crate::util::error::AppError;
 use crate::util::result::Result;
 use crate::workspace_config::{parser, validation};
 
+/// Preference key for the router version used in runtime image builds.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+const PREF_ROUTER_VERSION: &str = "router_version";
+
 /// Dispatches a typed command to the appropriate service method.
 pub async fn dispatch_command(
     command: &Command,
@@ -253,7 +257,7 @@ pub async fn dispatch_command(
         Command::DetectDockerStatus => {
             let version = services
                 .preferences()
-                .get_preference("router_version")
+                .get_preference(PREF_ROUTER_VERSION)
                 .await?
                 .unwrap_or_else(|| "main".to_string());
             let status = services.docker_service().detect_status(&version).await?;
@@ -364,7 +368,7 @@ pub async fn dispatch_command(
         Command::BuildRuntimeImage => {
             let version = services
                 .preferences()
-                .get_preference("router_version")
+                .get_preference(PREF_ROUTER_VERSION)
                 .await?
                 .unwrap_or_else(|| "main".to_string());
             let stream = services.docker_service().build_runtime_image(&version);
@@ -402,7 +406,7 @@ pub async fn dispatch_command(
         Command::DeleteRuntimeImage => {
             let version = services
                 .preferences()
-                .get_preference("router_version")
+                .get_preference(PREF_ROUTER_VERSION)
                 .await?
                 .unwrap_or_else(|| "main".to_string());
             services
