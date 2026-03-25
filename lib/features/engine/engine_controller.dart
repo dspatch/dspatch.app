@@ -48,9 +48,10 @@ class EngineController extends _$EngineController {
     }
   }
 
-  /// Sets the router_version preference.
+  /// Sets the router_version preference and refreshes Docker status.
   Future<void> setRouterVersion(String version) async {
     await _client.send(SetPreference(key: 'router_version', value: version));
+    ref.invalidate(dockerStatusProvider);
   }
 
   // ─── Status ──────────────────────────────────────────────────────────

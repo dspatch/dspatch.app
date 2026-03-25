@@ -216,11 +216,7 @@ class _RouterVersionSelectorState extends ConsumerState<_RouterVersionSelector> 
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const SizedBox(
-        height: 20,
-        width: 20,
-        child: CircularProgressIndicator(strokeWidth: 2),
-      );
+      return const Spinner(size: SpinnerSize.sm);
     }
 
     return Select<String>(
