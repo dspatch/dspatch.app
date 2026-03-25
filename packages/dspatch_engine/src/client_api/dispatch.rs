@@ -417,6 +417,39 @@ pub async fn dispatch_command(
             "Container stats requires run_id→container mapping (run_id: {run_id})"
         ))),
 
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        Command::FetchRouterVersions => {
+            let client = reqwest::Client::new();
+            let resp = client
+                .get("https://api.github.com/repos/dspatch/dspatch-router/tags?per_page=100")
+                .header("User-Agent", "dspatch-app")
+                .send()
+                .await
+                .map_err(|_| {
+                    AppError::Internal(
+                        "Could not fetch router versions — check internet connection".into(),
+                    )
+                })?;
+            let tags: serde_json::Value = resp.json().await.map_err(|_| {
+                AppError::Internal(
+                    "Could not fetch router versions — check internet connection".into(),
+                )
+            })?;
+            let mut versions: Vec<String> = std::iter::once("main".to_string())
+                .chain(
+                    tags.as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|t| t.get("name")?.as_str().map(|s| s.to_string()))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default(),
+                )
+                .collect();
+            versions.dedup();
+            Ok(serde_json::json!({ "versions": versions }))
+        }
+
         // Mobile: Docker commands are not available.
         #[cfg(any(target_os = "ios", target_os = "android"))]
         Command::DetectDockerStatus
@@ -428,7 +461,8 @@ pub async fn dispatch_command(
         | Command::CleanOrphanedContainers
         | Command::BuildRuntimeImage
         | Command::DeleteRuntimeImage
-        | Command::ContainerStats { .. } => Err(AppError::Internal(
+        | Command::ContainerStats { .. }
+        | Command::FetchRouterVersions => Err(AppError::Internal(
             "Docker is not available on this platform".into(),
         )),
 

@@ -203,6 +203,9 @@ pub enum Command {
     #[serde(rename = "container_stats")]
     ContainerStats { run_id: String },
 
+    #[serde(rename = "fetch_router_versions")]
+    FetchRouterVersions,
+
     // ── Hub Commands ────────────────────────────────────────────────────
 
     #[serde(rename = "hub_browse_agents")]
