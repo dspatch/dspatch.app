@@ -1,0 +1,262 @@
+syntax = "proto3";
+package dspatch.router;
+
+// ══════════════════════════════════════════════════════════════
+// DspatchRouter — gRPC API between Agent SDKs and dspatch-router
+// Served on a unix domain socket inside the container: /tmp/dspatch.sock
+// ══════════════════════════════════════════════════════════════
+
+service DspatchRouter {
+  // ── Lifecycle ──
+  // Agent process announces itself; router creates Agent Host Router if needed.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // ── Bidirectional event stream ──
+  // Router pushes inputs to agent when idle: user_input, talk_to_request, inquiry_request.
+  // Agent pulls continuously from this stream.
+  rpc EventStream(EventStreamRequest) returns (stream RouterEvent);
+
+  // ── Fire-and-forget outputs ──
+  // Covers: message, activity, log, usage, files, prompt_received.
+  // Router tags with turn_id and ts before forwarding to engine.
+  rpc SendOutput(OutputEvent) returns (Ack);
+
+  // ── Turn completion ──
+  // Agent worker signals it finished processing the current input.
+  // Router transitions instance state back to idle, flushes buffer.
+  rpc CompleteTurn(CompleteTurnRequest) returns (Ack);
+
+  // ── Blocking RPCs ──
+
+  // TalkTo blocks until the target agent responds, fails, or an inquiry interrupt arrives.
+  rpc TalkTo(TalkToRpcRequest) returns (TalkToRpcResponse);
+  rpc ResumeTalkTo(ResumeTalkToRequest) returns (TalkToRpcResponse);
+
+  // Inquire blocks until the user/supervisor responds, fails, or an inquiry interrupt arrives.
+  rpc Inquire(InquireRpcRequest) returns (InquireRpcResponse);
+  rpc ResumeInquire(ResumeInquireRequest) returns (InquireRpcResponse);
+}
+
+// ══════════════════════════════════════════════════════════════
+// Lifecycle messages
+// ══════════════════════════════════════════════════════════════
+
+message RegisterRequest {
+  string name = 1;                    // e.g. "lead", "coder" — matches current RegisterPackage.name
+  string role = 2;                    // e.g. "host"
+  repeated string capabilities = 3;
+}
+
+message RegisterResponse {
+  bool ok = 1;
+  string router_version = 2;
+}
+
+message Ack {
+  bool ok = 1;
+}
+
+// ══════════════════════════════════════════════════════════════
+// Event stream
+// ══════════════════════════════════════════════════════════════
+
+message EventStreamRequest {
+  string name = 1;                    // agent type name, e.g. "lead" — matches RegisterPackage.name
+  string instance_id = 2;             // instance identifier, e.g. "lead-0"
+}
+
+message RouterEvent {
+  string instance_id = 1;
+  string turn_id = 2;
+  oneof event {
+    UserInputEvent user_input = 10;
+    TalkToRequestEvent talk_to_request = 11;
+    InquiryRequestEvent inquiry_request = 12;
+    DrainSignal drain = 20;
+    TerminateSignal terminate = 21;
+    InterruptSignal interrupt = 22;
+  }
+}
+
+message UserInputEvent {
+  string text = 1;
+  repeated HistoryMessage history = 2;  // replayed on first input
+}
+
+message TalkToRequestEvent {
+  string request_id = 1;
+  string caller_agent = 2;
+  string text = 3;
+}
+
+message InquiryRequestEvent {
+  string inquiry_id = 1;
+  string from_agent = 2;
+  string content_markdown = 3;
+  repeated string suggestions = 4;
+  string priority = 5;
+}
+
+message HistoryMessage {
+  string id = 1;
+  string role = 2;
+  string content = 3;
+}
+
+message DrainSignal {}
+message TerminateSignal {}
+message InterruptSignal {}
+
+// ══════════════════════════════════════════════════════════════
+// Output
+// ══════════════════════════════════════════════════════════════
+
+message OutputEvent {
+  string instance_id = 1;
+  oneof output {
+    MessageOutput message = 10;
+    ActivityOutput activity = 11;
+    LogOutput log = 12;
+    UsageOutput usage = 13;
+    FilesOutput files = 14;
+    PromptReceivedOutput prompt_received = 15;
+  }
+}
+
+message MessageOutput {
+  string id = 1;
+  string role = 2;
+  string content = 3;
+  bool is_delta = 4;
+  optional string model = 5;
+  optional int64 input_tokens = 6;
+  optional int64 output_tokens = 7;
+  optional string sender_name = 8;
+}
+
+message ActivityOutput {
+  string id = 1;
+  string event_type = 2;
+  string content = 3;
+  bool is_delta = 4;
+  optional string data = 5;          // JSON blob
+}
+
+message LogOutput {
+  string level = 1;
+  string message = 2;
+}
+
+message UsageOutput {
+  string model = 1;
+  int64 input_tokens = 2;
+  int64 output_tokens = 3;
+  optional double cost_usd = 4;
+}
+
+message FilesOutput {
+  repeated FileEntry files = 1;
+}
+
+message FileEntry {
+  string path = 1;
+  string action = 2;
+}
+
+message PromptReceivedOutput {
+  string content = 1;
+  optional string sender_name = 2;
+}
+
+// ══════════════════════════════════════════════════════════════
+// Turn completion
+// ══════════════════════════════════════════════════════════════
+
+message CompleteTurnRequest {
+  string instance_id = 1;
+  string turn_id = 2;
+  optional string result = 3;        // response text for talk_to_request inputs
+}
+
+// ══════════════════════════════════════════════════════════════
+// Blocking RPCs
+// ══════════════════════════════════════════════════════════════
+
+// --- TalkTo ---
+
+message TalkToRpcRequest {
+  string instance_id = 1;
+  string target_agent = 2;
+  string text = 3;
+  bool continue_conversation = 4;
+}
+
+message TalkToRpcResponse {
+  oneof result {
+    TalkToSuccess success = 1;
+    TalkToError error = 2;
+    InquiryInterrupt interrupt = 3;
+  }
+}
+
+message TalkToSuccess {
+  string request_id = 1;
+  string response = 2;
+  string conversation_id = 3;
+}
+
+message TalkToError {
+  string request_id = 1;
+  string reason = 2;
+}
+
+message InquiryInterrupt {
+  string inquiry_id = 1;
+  string from_agent = 2;
+  string content_markdown = 3;
+  repeated string suggestions = 4;
+  string priority = 5;
+}
+
+message ResumeTalkToRequest {
+  string instance_id = 1;
+  string request_id = 2;
+  optional string inquiry_response_text = 3;
+  optional int32 inquiry_suggestion_index = 4;
+}
+
+// --- Inquire ---
+
+message InquireRpcRequest {
+  string instance_id = 1;
+  string content_markdown = 2;
+  repeated string suggestions = 3;
+  repeated string file_paths = 4;
+  string priority = 5;
+}
+
+message InquireRpcResponse {
+  oneof result {
+    InquireSuccess success = 1;
+    InquireError error = 2;
+    InquiryInterrupt interrupt = 3;
+  }
+}
+
+message InquireSuccess {
+  string inquiry_id = 1;
+  optional string response_text = 2;
+  optional int32 suggestion_index = 3;
+}
+
+message InquireError {
+  string inquiry_id = 1;
+  string reason = 2;
+}
+
+message ResumeInquireRequest {
+  string instance_id = 1;
+  string inquiry_id = 2;
+  optional string inquiry_response_text = 3;
+  optional int32 inquiry_suggestion_index = 4;
+}
