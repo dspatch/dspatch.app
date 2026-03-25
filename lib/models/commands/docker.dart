@@ -121,3 +121,26 @@ class CleanOrphanedContainers extends EngineCommand<CountResponse> {
   CountResponse parseResponse(Map<String, dynamic> result) =>
       CountResponse.fromJson(result);
 }
+
+/// Response for the fetch_router_versions command.
+class RouterVersionsResponse extends EngineResponse {
+  const RouterVersionsResponse({required this.versions});
+  final List<String> versions;
+
+  factory RouterVersionsResponse.fromJson(Map<String, dynamic> json) {
+    final list = (json['versions'] as List?)?.cast<String>() ?? [];
+    return RouterVersionsResponse(versions: list);
+  }
+}
+
+class FetchRouterVersions extends EngineCommand<RouterVersionsResponse> {
+  @override
+  String get method => 'fetch_router_versions';
+
+  @override
+  Map<String, dynamic>? get params => null;
+
+  @override
+  RouterVersionsResponse parseResponse(Map<String, dynamic> result) =>
+      RouterVersionsResponse.fromJson(result);
+}

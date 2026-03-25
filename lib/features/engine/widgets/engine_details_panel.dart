@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../di/providers.dart';
 import '../../../main.dart' show kEnginePort;
+import '../engine_controller.dart';
 
 /// Collapsible "Engine Details" panel — key-value table showing config,
 /// connection, and runtime image info.
@@ -111,6 +112,10 @@ class _EngineDetailsPanelState extends ConsumerState<EngineDetailsPanel> {
                           label: 'Backend URL',
                           value: healthData?.backendUrl ?? '—',
                         ),
+                        _DetailRow(
+                          label: 'Router Version',
+                          child: _RouterVersionSelector(),
+                        ),
                       ],
                     ),
                   )
@@ -162,6 +167,74 @@ class _DetailRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Dropdown that fetches available router versions from GitHub via the engine
+/// and persists the selection as the `router_version` preference.
+class _RouterVersionSelector extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_RouterVersionSelector> createState() =>
+      _RouterVersionSelectorState();
+}
+
+class _RouterVersionSelectorState extends ConsumerState<_RouterVersionSelector> {
+  List<String> _versions = [];
+  String _selected = 'main';
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final controller = ref.read(engineControllerProvider.notifier);
+    final results = await Future.wait([
+      controller.getRouterVersion(),
+      controller.fetchRouterVersions(),
+    ]);
+
+    if (!mounted) return;
+
+    final currentVersion = results[0] as String;
+    final availableVersions = results[1] as List<String>;
+
+    setState(() {
+      _selected = currentVersion;
+      _versions = availableVersions;
+      // Ensure the current selection is in the list.
+      if (!_versions.contains(_selected)) {
+        _versions.insert(0, _selected);
+      }
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const SizedBox(
+        height: 20,
+        width: 20,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+
+    return Select<String>(
+      value: _selected,
+      hint: 'Select version',
+      items: _versions
+          .map((v) => SelectItem(value: v, label: v))
+          .toList(),
+      onChanged: (v) {
+        if (v == null) return;
+        setState(() => _selected = v);
+        ref.read(engineControllerProvider.notifier).setRouterVersion(v);
+      },
+      width: 200,
     );
   }
 }

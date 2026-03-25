@@ -25,6 +25,34 @@ class EngineController extends _$EngineController {
 
   EngineClient get _client => ref.read(engineClientProvider);
 
+  // ─── Router version ────────────────────────────────────────────────
+
+  /// Fetches available router versions from the engine (which queries GitHub).
+  Future<List<String>> fetchRouterVersions() async {
+    try {
+      final response = await _client.send(FetchRouterVersions());
+      return response.versions;
+    } catch (e) {
+      return ['main']; // Fallback
+    }
+  }
+
+  /// Gets the current router_version preference.
+  Future<String> getRouterVersion() async {
+    try {
+      final response =
+          await _client.send(GetPreference(key: 'router_version'));
+      return response.value ?? 'main';
+    } catch (_) {
+      return 'main';
+    }
+  }
+
+  /// Sets the router_version preference.
+  Future<void> setRouterVersion(String version) async {
+    await _client.send(SetPreference(key: 'router_version', value: version));
+  }
+
   // ─── Status ──────────────────────────────────────────────────────────
 
   /// Refreshes Docker status by invalidating the status provider.
