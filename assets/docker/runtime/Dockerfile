@@ -1,4 +1,14 @@
+# ── Stage 1: Build dspatch-router ─────────────────────────────────────
+FROM --platform=$BUILDPLATFORM rust:1.87-alpine AS router-builder
+RUN apk add --no-cache musl-dev protobuf-dev git
+ARG ROUTER_VERSION=main
+RUN git clone --depth=1 --branch=${ROUTER_VERSION} \
+    https://github.com/dspatch/dspatch-router.git /build
+WORKDIR /build
+RUN cargo build --release --bin dspatch-router
+
 FROM docker:dind
+COPY --from=router-builder /build/target/release/dspatch-router /usr/local/bin/dspatch-router
 
 # System utilities (yq for YAML config parsing)
 RUN apk add --no-cache \
