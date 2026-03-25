@@ -223,7 +223,10 @@ class _RouterVersionSelectorState extends ConsumerState<_RouterVersionSelector> 
       value: _selected,
       hint: 'Select version',
       items: _versions
-          .map((v) => SelectItem(value: v, label: v))
+          .map((v) => SelectItem(
+                value: v,
+                label: v == 'main' ? 'latest' : v,
+              ))
           .toList(),
       onChanged: (v) {
         if (v == null) return;

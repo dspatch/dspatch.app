@@ -559,7 +559,7 @@ final onlineDevicesProvider =
         RawEngineCommand(method: 'online_devices', params: {}),
       );
       final data = response.data;
-      if (data != null && data['devices'] is List) {
+      if (data['devices'] is List) {
         yield (data['devices'] as List).cast<String>();
       } else {
         yield <String>[];

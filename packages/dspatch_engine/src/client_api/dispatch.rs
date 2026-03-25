@@ -425,7 +425,7 @@ pub async fn dispatch_command(
         Command::FetchRouterVersions => {
             let client = reqwest::Client::new();
             let resp = client
-                .get("https://api.github.com/repos/dspatch/dspatch-router/tags?per_page=100")
+                .get("https://api.github.com/repos/dspatch/dspatch.router/tags?per_page=100")
                 .header("User-Agent", "dspatch-app")
                 .send()
                 .await
