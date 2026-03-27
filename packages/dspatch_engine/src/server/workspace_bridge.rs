@@ -1798,8 +1798,8 @@ pub fn parse_git_url(url: &str) -> (&str, Option<&str>) {
 ///
 /// Walks the agent hierarchy and produces one entry per agent key:
 /// ```json
-/// { "lead": { "is_root": true, "peers": "coder,tester" },
-///   "coder": { "is_root": false, "peers": "" } }
+/// { "lead": { "is_root": true, "peers": ["coder", "tester"] },
+///   "coder": { "is_root": false, "peers": [] } }
 /// ```
 pub fn build_agents_meta(
     agents: &HashMap<String, AgentConfig>,
@@ -1817,7 +1817,7 @@ pub fn build_agents_meta(
         }
         let mut entry = serde_json::json!({
             "is_root": is_root,
-            "peers": all_peers.join(","),
+            "peers": all_peers,
         });
 
         if let Some(fields) = template_fields.get(&agent.template) {
