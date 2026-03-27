@@ -352,9 +352,18 @@ impl DspatchSdk {
     /// then opens the per-user database. Broadcasts [`DatabaseReadyState::Ready`]
     /// on success.
     pub async fn perform_migration(&self) -> Result<()> {
-        let migration = self.pending_migration.write().await.take().ok_or_else(|| {
-            AppError::Internal("No pending migration".into())
-        })?;
+        let migration = match self.pending_migration.write().await.take() {
+            Some(m) => m,
+            None => {
+                // Already resolved (e.g. duplicate request from client).
+                // If the DB is ready, treat as success.
+                if self.services.read().await.is_some() {
+                    tracing::info!("perform_migration called but no pending migration — already resolved");
+                    return Ok(());
+                }
+                return Err(AppError::Internal("No pending migration".into()));
+            }
+        };
 
         // Tear down current DB (releases file handles).
         self.teardown_database().await;
@@ -404,9 +413,17 @@ impl DspatchSdk {
     /// The anonymous database remains on disk untouched. Broadcasts
     /// [`DatabaseReadyState::Ready`] on success.
     pub async fn skip_migration(&self) -> Result<()> {
-        let migration = self.pending_migration.write().await.take().ok_or_else(|| {
-            AppError::Internal("No pending migration".into())
-        })?;
+        let migration = match self.pending_migration.write().await.take() {
+            Some(m) => m,
+            None => {
+                // Already resolved (e.g. duplicate request from client).
+                if self.services.read().await.is_some() {
+                    tracing::info!("skip_migration called but no pending migration — already resolved");
+                    return Ok(());
+                }
+                return Err(AppError::Internal("No pending migration".into()));
+            }
+        };
 
         // Tear down current DB (releases file handles).
         self.teardown_database().await;

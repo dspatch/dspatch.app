@@ -367,19 +367,14 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     }
 
     // Poll: check provider first (fast), then query the engine (authoritative).
-    Future<DbState> resolveState() async {
-      final cached = ref.read(dbStateProvider);
-      if (cached == DbState.ready || cached == DbState.migrationPending) {
-        return cached;
-      }
-      return queryEngineState();
-    }
-
     // Loop until ready. Each iteration handles one state transition.
     while (true) {
       if (!mounted) return;
 
-      final state = await resolveState();
+      // Always query the engine for ground truth. The cached dbStateProvider
+      // can be stale (e.g. migration just completed but the WS invalidation
+      // event hasn't arrived yet).
+      final state = await queryEngineState();
 
       if (state == DbState.ready) {
         debugPrint('[SETUP] DB ready');
@@ -391,8 +386,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         ref.read(authControllerProvider.notifier).setMigrating();
         await _showMigrationDialog();
         // Migration command sent — re-query to confirm it's ready.
-        // Don't rely solely on the WS event (it can be lost if the
-        // broadcast fires while the WS handler is processing our command).
         continue;
       }
 
