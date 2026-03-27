@@ -48,6 +48,7 @@ async fn main() {
     tracing::info!(
         port = config.client_api_port,
         db_dir = %config.db_dir.display(),
+        backend_url = config.backend_url.as_deref().unwrap_or("(none)"),
         "dspatch engine starting"
     );
 

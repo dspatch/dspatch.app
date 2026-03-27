@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -92,30 +93,37 @@ Future<void> main(List<String> args) async {
   const useExternalDaemon = bool.fromEnvironment('USE_EXTERNAL_DAEMON');
   final useIntegratedEngine = !useExternalDaemon;
   if (useIntegratedEngine) {
-    // path_provider gives the OS-correct app data location:
-    //   Windows: %APPDATA%/com.dspatch/dspatch_app/
-    //   macOS:   ~/Library/Application Support/com.dspatch.dspatch-app/
-    //   Linux:   ~/.local/share/com.dspatch/dspatch_app/
-    //   iOS:     <sandbox>/Library/Application Support/
-    //   Android: <sandbox>/files/
-    final appSupport = await getApplicationSupportDirectory();
-    final String dbDir;
-    if (kDevDeviceProfile > 0) {
-      dbDir = p.join(appSupport.path, 'dev$kDevDeviceProfile', 'data');
+    // Check if another engine instance is already listening on this port.
+    // If so, skip starting a new one — we'll connect to the existing one.
+    final portInUse = await _isPortInUse(_kHost, kEnginePort);
+    if (portInUse) {
+      debugPrint('[BOOT] Port $kEnginePort already in use — assuming existing engine instance');
     } else {
-      dbDir = p.join(appSupport.path, 'data');
-    }
-    debugPrint('[BOOT] Starting integrated engine on port $kEnginePort, dbDir=$dbDir');
-    try {
-      await NativeEngine.startAndWaitReady(
-        clientApiPort: kEnginePort,
-        dbDir: dbDir,
-        backendUrl: backendUrl,
-        timeout: const Duration(seconds: 30),
-      );
-      debugPrint('[BOOT] Integrated engine is ready');
-    } on TimeoutException {
-      debugPrint('[BOOT] WARNING: Integrated engine did not become ready within 30s');
+      // path_provider gives the OS-correct app data location:
+      //   Windows: %APPDATA%/com.dspatch/dspatch_app/
+      //   macOS:   ~/Library/Application Support/com.dspatch.dspatch-app/
+      //   Linux:   ~/.local/share/com.dspatch/dspatch_app/
+      //   iOS:     <sandbox>/Library/Application Support/
+      //   Android: <sandbox>/files/
+      final appSupport = await getApplicationSupportDirectory();
+      final String dbDir;
+      if (kDevDeviceProfile > 0) {
+        dbDir = p.join(appSupport.path, 'dev$kDevDeviceProfile', 'data');
+      } else {
+        dbDir = p.join(appSupport.path, 'data');
+      }
+      debugPrint('[BOOT] Starting integrated engine on port $kEnginePort, dbDir=$dbDir');
+      try {
+        await NativeEngine.startAndWaitReady(
+          clientApiPort: kEnginePort,
+          dbDir: dbDir,
+          backendUrl: backendUrl,
+          timeout: const Duration(seconds: 30),
+        );
+        debugPrint('[BOOT] Integrated engine is ready');
+      } on TimeoutException {
+        debugPrint('[BOOT] WARNING: Integrated engine did not become ready within 30s');
+      }
     }
   }
 
@@ -291,6 +299,18 @@ Future<void> main(List<String> args) async {
   runApp(
     UncontrolledProviderScope(container: container, child: const DspatchApp()),
   );
+}
+
+/// Returns true if something is already listening on [host]:[port].
+Future<bool> _isPortInUse(String host, int port) async {
+  try {
+    final socket = await Socket.connect(host, port,
+        timeout: const Duration(milliseconds: 500));
+    socket.destroy();
+    return true;
+  } on SocketException {
+    return false;
+  }
 }
 
 Future<void> _configureWindow() async {

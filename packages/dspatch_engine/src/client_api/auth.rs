@@ -221,9 +221,11 @@ async fn validate_backend_token(
     backend_url: &str,
     token: &str,
 ) -> Result<BackendStatusResponse, String> {
+    let url = format!("{backend_url}/api/auth/status");
+    tracing::debug!(url = %url, "validating backend token");
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!("{backend_url}/api/auth/status"))
+        .get(&url)
         .header("Authorization", format!("Bearer {token}"))
         .timeout(std::time::Duration::from_secs(10))
         .send()
