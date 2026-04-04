@@ -1815,16 +1815,16 @@ pub fn build_agents_meta(
                 all_peers.push(sub_key.clone());
             }
         }
+        let fields = template_fields
+            .get(&agent.template)
+            .cloned()
+            .unwrap_or_default();
+
         let mut entry = serde_json::json!({
             "is_root": is_root,
             "peers": all_peers,
+            "fields": fields,
         });
-
-        if let Some(fields) = template_fields.get(&agent.template) {
-            if !fields.is_empty() {
-                entry["fields"] = serde_json::to_value(fields).unwrap_or_default();
-            }
-        }
 
         meta.insert(key.clone(), entry);
 
