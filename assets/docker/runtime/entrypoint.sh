@@ -294,14 +294,16 @@ if [ ! -x /usr/local/bin/dspatch-router ]; then
     exit 1
 fi
 
+GRPC_ADDR="${DSPATCH_GRPC_ADDR:-127.0.0.1:50051}"
+GRPC_PORT="${GRPC_ADDR##*:}"
+
 /usr/local/bin/dspatch-router &
 ROUTER_PID=$!
 
-# Wait for gRPC socket to become available (up to 15s)
-GRPC_SOCKET="${DSPATCH_GRPC_SOCKET:-/tmp/dspatch.sock}"
+# Wait for gRPC TCP port to become available (up to 15s)
 for i in $(seq 1 30); do
-    if [ -S "$GRPC_SOCKET" ]; then
-        echo "$TAG Router ready (PID $ROUTER_PID, socket $GRPC_SOCKET)"
+    if nc -z 127.0.0.1 "$GRPC_PORT" 2>/dev/null; then
+        echo "$TAG Router ready (PID $ROUTER_PID, addr $GRPC_ADDR)"
         break
     fi
     if ! kill -0 $ROUTER_PID 2>/dev/null; then
@@ -311,8 +313,8 @@ for i in $(seq 1 30); do
     sleep 0.5
 done
 
-if [ ! -S "$GRPC_SOCKET" ]; then
-    echo "$TAG ERROR: Router socket not ready after 15s" >&2
+if ! nc -z 127.0.0.1 "$GRPC_PORT" 2>/dev/null; then
+    echo "$TAG ERROR: Router not ready after 15s" >&2
     kill $ROUTER_PID 2>/dev/null
     exit 1
 fi
@@ -322,7 +324,7 @@ echo "$TAG ── Phase 1.5 complete ──"
 # ── Phase 2: Launch agents ───────────────────────────────────────────────
 echo "$TAG ── Phase 2: Starting agents ──"
 
-export DSPATCH_GRPC_SOCKET="${DSPATCH_GRPC_SOCKET:-/tmp/dspatch.sock}"
+export DSPATCH_GRPC_ADDR="${DSPATCH_GRPC_ADDR:-127.0.0.1:50051}"
 
 # Agent system metadata — computed by the host app and passed as a single
 # JSON env var.  Keyed by flat agent key:
