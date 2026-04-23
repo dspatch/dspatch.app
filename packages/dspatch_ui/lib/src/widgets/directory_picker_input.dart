@@ -1,4 +1,7 @@
-import 'package:file_picker/file_picker.dart';
+import 'dart:io' show Platform;
+
+import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
@@ -6,6 +9,7 @@ import '../theme/app_theme.dart';
 import 'button.dart';
 import 'icon_button.dart';
 import 'input.dart';
+import 'sonner.dart';
 
 /// The visual style of the browse button in a [PathPickerInput].
 enum PathPickerButtonStyle {
@@ -30,27 +34,12 @@ enum PathPickerMode {
 
 /// A text input with an integrated system file/directory browse button.
 ///
-/// Works on all desktop platforms (macOS, Windows, Linux). On macOS, the
-/// sandbox entitlement `com.apple.security.files.user-selected.read-write`
-/// must be present.
+/// Uses the official Flutter team `file_selector` plugin so native dialogs
+/// run correctly on macOS, Windows, Linux (XDG portal), and Android. Directory
+/// picking is not supported on iOS — the browse button is disabled there.
 ///
-/// ```dart
-/// // Directory picker
-/// PathPickerInput(
-///   controller: _pathController,
-///   placeholder: '/path/to/directory',
-///   dialogTitle: 'Select Directory',
-///   onChanged: (path) => print(path),
-/// )
-///
-/// // File picker
-/// PathPickerInput(
-///   mode: PathPickerMode.file,
-///   allowedExtensions: ['json', 'yaml'],
-///   placeholder: 'Select a config file',
-///   onChanged: (path) => print(path),
-/// )
-/// ```
+/// On macOS, the sandbox entitlement
+/// `com.apple.security.files.user-selected.read-write` must be present.
 class PathPickerInput extends StatelessWidget {
   const PathPickerInput({
     super.key,
@@ -78,7 +67,9 @@ class PathPickerInput extends StatelessWidget {
   /// Placeholder text shown when the input is empty.
   final String? placeholder;
 
-  /// Title for the system picker dialog.
+  /// Label applied to the [XTypeGroup] when picking files. The OS sets the
+  /// actual dialog title on desktop — this parameter is kept for API
+  /// backwards-compatibility but only controls the filter label now.
   final String? dialogTitle;
 
   /// Called when a path is selected or the text changes.
@@ -105,26 +96,50 @@ class PathPickerInput extends StatelessWidget {
   /// absolute path to a relative one.
   final String Function(String absolutePath)? transformResult;
 
-  Future<void> _pick() async {
-    String? result;
+  bool get _directoryPickerUnsupported =>
+      !kIsWeb && mode == PathPickerMode.directory && Platform.isIOS;
 
-    switch (mode) {
-      case PathPickerMode.directory:
-        result = await FilePicker.platform.getDirectoryPath(
-          dialogTitle: dialogTitle,
-          initialDirectory: initialDirectory,
-        );
-      case PathPickerMode.file:
-        final picked = await FilePicker.platform.pickFiles(
-          dialogTitle: dialogTitle,
-          type: allowedExtensions != null ? FileType.custom : FileType.any,
-          allowedExtensions: allowedExtensions,
-          initialDirectory: initialDirectory,
-        );
-        result = picked?.files.singleOrNull?.path;
+  Future<void> _pick() async {
+    if (_directoryPickerUnsupported) {
+      toast(
+        'Directory picking is not supported on iOS',
+        type: ToastType.warning,
+      );
+      return;
     }
 
-    if (result != null) {
+    String? result;
+    try {
+      switch (mode) {
+        case PathPickerMode.directory:
+          result = await getDirectoryPath(
+            initialDirectory: initialDirectory,
+          );
+        case PathPickerMode.file:
+          final typeGroups = <XTypeGroup>[
+            if (allowedExtensions != null && allowedExtensions!.isNotEmpty)
+              XTypeGroup(
+                label: dialogTitle ?? 'files',
+                extensions: allowedExtensions,
+              ),
+          ];
+          final XFile? picked = await openFile(
+            acceptedTypeGroups: typeGroups,
+            initialDirectory: initialDirectory,
+          );
+          result = picked?.path;
+      }
+    } catch (e, st) {
+      debugPrint('PathPickerInput failed: $e\n$st');
+      toast(
+        'Could not open the system file picker',
+        description: '$e',
+        type: ToastType.error,
+      );
+      return;
+    }
+
+    if (result != null && result.isNotEmpty) {
       final transformed =
           transformResult != null ? transformResult!(result) : result;
       controller?.text = transformed;
@@ -157,28 +172,31 @@ class PathPickerInput extends StatelessWidget {
     final icon =
         isFile ? LucideIcons.file_text : LucideIcons.folder;
     final iconAlt = isFile ? LucideIcons.file_text : LucideIcons.folder_open;
+    final onPressed = _directoryPickerUnsupported ? null : _pick;
 
     switch (buttonStyle) {
       case PathPickerButtonStyle.outline:
         return Button(
           icon: icon,
           variant: ButtonVariant.outline,
-          onPressed: _pick,
+          onPressed: onPressed,
         );
       case PathPickerButtonStyle.primary:
         return Button(
           size: ButtonSize.icon,
           icon: iconAlt,
           variant: ButtonVariant.primary,
-          onPressed: _pick,
+          onPressed: onPressed,
         );
       case PathPickerButtonStyle.ghost:
         return DspatchIconButton(
           icon: icon,
           variant: IconButtonVariant.ghost,
           size: IconButtonSize.sm,
-          tooltip: 'Browse',
-          onPressed: _pick,
+          tooltip: _directoryPickerUnsupported
+              ? 'Not supported on iOS'
+              : 'Browse',
+          onPressed: onPressed,
         );
     }
   }

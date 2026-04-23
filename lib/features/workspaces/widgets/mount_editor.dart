@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Osman Alperen Çinar-Koraş (oakisnotree). Licensed under AGPL-3.0.
 import 'package:dspatch_ui/dspatch_ui.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../../models/workspace_config.dart';
@@ -104,6 +104,35 @@ class _MountEditorState extends State<MountEditor> {
   void _update(int index, MountConfig mount) {
     setState(() => _mounts[index] = mount);
     _notify();
+  }
+
+  Future<void> _pickHostPath(
+    int index,
+    MountConfig mount, {
+    required bool asDirectory,
+  }) async {
+    String? result;
+    try {
+      if (asDirectory) {
+        result = await getDirectoryPath();
+      } else {
+        final XFile? picked = await openFile();
+        result = picked?.path;
+      }
+    } catch (e, st) {
+      debugPrint('MountEditor host path picker failed: $e\n$st');
+      toast(
+        'Could not open the system file picker',
+        description: '$e',
+        type: ToastType.error,
+      );
+      return;
+    }
+
+    if (result != null && result.isNotEmpty) {
+      _hostControllers[index].text = result;
+      _update(index, mount.copyWith(hostPath: result));
+    }
   }
 
   @override
@@ -238,31 +267,14 @@ class _MountEditorState extends State<MountEditor> {
           variant: IconButtonVariant.ghost,
           size: IconButtonSize.sm,
           tooltip: 'Browse directory',
-          onPressed: () async {
-            final result = await FilePicker.platform.getDirectoryPath(
-              dialogTitle: 'Select Host Directory',
-            );
-            if (result != null) {
-              _hostControllers[index].text = result;
-              _update(index, mount.copyWith(hostPath: result));
-            }
-          },
+          onPressed: () => _pickHostPath(index, mount, asDirectory: true),
         ),
         DspatchIconButton(
           icon: LucideIcons.file,
           variant: IconButtonVariant.ghost,
           size: IconButtonSize.sm,
           tooltip: 'Browse file',
-          onPressed: () async {
-            final picked = await FilePicker.platform.pickFiles(
-              dialogTitle: 'Select Host File',
-            );
-            final result = picked?.files.singleOrNull?.path;
-            if (result != null) {
-              _hostControllers[index].text = result;
-              _update(index, mount.copyWith(hostPath: result));
-            }
-          },
+          onPressed: () => _pickHostPath(index, mount, asDirectory: false),
         ),
       ],
     );
