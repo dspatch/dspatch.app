@@ -11,7 +11,6 @@ import '../../database/engine_database.dart';
 import '../../di/providers.dart';
 import '../../engine_client/backend_auth.dart';
 import '../../engine_client/engine_auth.dart';
-import '../../engine_client/models/auth_phase.dart';
 import '../../engine_client/models/auth_token.dart';
 import '../../engine_client/models/db_state.dart';
 import '../../models/commands/commands.dart';
@@ -296,6 +295,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         }
 
         // Re-authenticate with the engine using the still-valid backend token.
+        // This handles engine restarts (in-memory session store wiped).
         try {
           final deviceCreds = await tokenStore.loadDeviceCredentials(
             currentToken.username,
@@ -318,11 +318,18 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
           debugPrint('[TOKEN_REFRESH] Re-authenticated (backend), new session token');
           return result.sessionToken;
-        } catch (e) {
-          debugPrint('[TOKEN_REFRESH] Engine auth failed: $e');
-          // Engine is unreachable or rejecting us — redirect to setup.
-          container.read(authPhaseProvider.notifier).state = AuthPhase.authenticated;
-          return null;
+        } on AuthException catch (e) {
+          if (e.statusCode != null) {
+            // Engine responded with an error (e.g., 401/403) — definitive
+            // rejection. Reset to setup so the full connection flow reruns.
+            debugPrint('[TOKEN_REFRESH] Engine rejected auth (${e.statusCode}), resetting to setup');
+            container.read(authControllerProvider.notifier).resetForReSetup();
+            return null;
+          }
+          // No status code means the engine is unreachable (connection error).
+          // Rethrow so the reconnect loop retries with backoff.
+          debugPrint('[TOKEN_REFRESH] Engine unreachable, will retry: $e');
+          rethrow;
         }
       }
 
@@ -331,10 +338,14 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           final result = await engineAuth.authenticateAnonymous();
           debugPrint('[TOKEN_REFRESH] Re-authenticated (anonymous), new session token');
           return result.sessionToken;
-        } catch (e) {
-          debugPrint('[TOKEN_REFRESH] Anonymous auth failed: $e');
-          container.read(authPhaseProvider.notifier).state = AuthPhase.authenticated;
-          return null;
+        } on AuthException catch (e) {
+          if (e.statusCode != null) {
+            debugPrint('[TOKEN_REFRESH] Engine rejected anonymous auth (${e.statusCode}), resetting to setup');
+            container.read(authControllerProvider.notifier).resetForReSetup();
+            return null;
+          }
+          debugPrint('[TOKEN_REFRESH] Engine unreachable (anonymous), will retry: $e');
+          rethrow;
         }
       }
 

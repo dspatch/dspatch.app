@@ -275,12 +275,8 @@ Future<void> main(List<String> args) async {
       connection.disconnect();
     },
     onResume: () {
-      debugPrint('[LIFECYCLE] App resumed — reconnecting engine connection');
-      if (!connection.isConnected) {
-        connection.connect().catchError((Object e) {
-          debugPrint('[LIFECYCLE] Reconnect on resume failed: $e');
-        });
-      }
+      debugPrint('[LIFECYCLE] App resumed — starting reconnect loop');
+      connection.startReconnectLoop();
     },
     onDetach: useIntegratedEngine
         ? () {

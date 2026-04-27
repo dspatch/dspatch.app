@@ -455,6 +455,26 @@ class AuthController extends _$AuthController {
   /// Called by SetupScreen after DB is opened and preferences loaded.
   void setReady() => _transition(AuthPhase.ready);
 
+  /// Resets app state for a fresh engine setup pass.
+  ///
+  /// Called when the engine session is lost (e.g., engine restarted and wiped
+  /// its in-memory session store) but the user's backend token is still valid.
+  /// Resets all engine-specific state so [SetupScreen] can re-establish the
+  /// connection from scratch.
+  void resetForReSetup() {
+    debugPrint('[AUTH] resetForReSetup() — engine session lost, redirecting to setup');
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+
+    ref.read(dbStateProvider.notifier).state = DbState.unknown;
+    ref.read(engineSessionProvider.notifier).state = false;
+    ref.read(databaseReadyProvider.notifier).state = false;
+
+    // Phase → authenticated: has backend token, needs engine connection.
+    // Router redirects to /setup, which creates a fresh SetupScreen.
+    ref.read(authPhaseProvider.notifier).state = AuthPhase.authenticated;
+  }
+
   Future<void> logout() async {
     debugPrint('[AUTH] logout()');
     _refreshTimer?.cancel();

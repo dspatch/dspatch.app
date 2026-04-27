@@ -35,6 +35,7 @@ class EngineConnection {
   StreamSubscription? _subscription;
   bool _disposed = false;
   bool _connected = false;
+  bool _reconnecting = false;
 
   final _random = Random();
 
@@ -169,6 +170,9 @@ class EngineConnection {
     );
     final oldToken = _token;
 
+    // Kill any running auto-reconnect loop.
+    _reconnecting = false;
+
     // Bump epoch to invalidate any in-flight auto-reconnect connect() call.
     ++_connectEpoch;
     print('[CONN] Bumped epoch to $_connectEpoch');
@@ -214,6 +218,9 @@ class EngineConnection {
   /// [reconnect]. Used during logout to cleanly disconnect before the
   /// user navigates to the login screen.
   Future<void> disconnect() async {
+    // Kill any running auto-reconnect loop.
+    _reconnecting = false;
+
     // Bump epoch to invalidate any in-flight auto-reconnect.
     ++_connectEpoch;
 
@@ -281,6 +288,19 @@ class EngineConnection {
       case EventFrame():
         _eventController.add(frame);
     }
+  }
+
+  /// Triggers the automatic reconnect loop with token refresh.
+  ///
+  /// Use this to restart reconnection after [disconnect] was called
+  /// (e.g., on app resume after pause). Unlike [connect], this goes
+  /// through the full backoff + [onTokenRefresh] flow, so stale session
+  /// tokens are refreshed automatically.
+  ///
+  /// No-op if already connected or disposed.
+  void startReconnectLoop() {
+    if (_connected || _disposed) return;
+    _scheduleReconnect();
   }
 
   /// Closes the connection and releases all resources.
@@ -389,50 +409,59 @@ class EngineConnection {
   }
 
   void _scheduleReconnect() {
-    _reconnectWithBackoff(0, _connectEpoch);
+    if (_reconnecting) {
+      print('[CONN] Reconnect loop already active, skipping');
+      return;
+    }
+    _reconnecting = true;
+    _reconnectWithBackoff(0);
   }
 
-  Future<void> _reconnectWithBackoff(int attempt, int epoch) async {
-    if (_disposed) return;
+  Future<void> _reconnectWithBackoff(int attempt) async {
+    if (_disposed || !_reconnecting) return;
 
     final delay = attempt == 0 ? initialReconnectDelay : _reconnectDelay(attempt);
     await Future.delayed(delay);
-    if (_disposed || epoch != _connectEpoch) return;
+    if (_disposed || !_reconnecting) return;
 
     try {
       print('[CONN] Attempting reconnect (attempt=$attempt)...');
       await connect();
       print('[CONN] Reconnected successfully');
+      _reconnecting = false;
     } catch (e) {
       print('[CONN] Reconnect failed: $e');
+      if (!_reconnecting) return;
 
       // Try to refresh the session token (e.g., engine restarted and
       // wiped its in-memory session store).
       if (onTokenRefresh != null) {
         try {
           final newToken = await onTokenRefresh!();
-          if (_disposed || epoch != _connectEpoch) return;
+          if (_disposed || !_reconnecting) return;
 
           if (newToken != null) {
             print('[CONN] Token refreshed, retrying immediately');
             _token = newToken;
             // Reset backoff — we have a fresh token, retry promptly.
-            _reconnectWithBackoff(0, _connectEpoch);
+            _reconnectWithBackoff(0);
             return;
           } else {
             // Callback returned null — it handled the failure (logout,
             // phase transition, etc.). Stop reconnecting.
             print('[CONN] Token refresh returned null, stopping reconnect');
+            _reconnecting = false;
             return;
           }
         } catch (refreshError) {
           // Token refresh itself failed (engine probably down).
           // Fall through to normal backoff.
           print('[CONN] Token refresh failed: $refreshError');
+          if (!_reconnecting) return;
         }
       }
 
-      _reconnectWithBackoff(attempt + 1, _connectEpoch);
+      _reconnectWithBackoff(attempt + 1);
     }
   }
 }
